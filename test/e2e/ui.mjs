@@ -86,9 +86,13 @@ try {
       icons: document.fonts.check('16px codicon'),
       color: getComputedStyle(document.body).color,
       labels: [...document.querySelectorAll('.row .label')].map((label) => label.textContent),
+      outlines: [...document.querySelectorAll('.row .label')].map((label) => getComputedStyle(label).borderTopColor),
+      dots: [...document.querySelectorAll('.row .label')].map((label) => getComputedStyle(label.closest('.row').querySelector('circle')).fill),
     })`);
     assert(look.icons, 'the icon font is loaded');
     assert(look.labels.join() === 'feature,main,merged,origin/main', `labels: ${look.labels}`);
+    // Each label is outlined in the color of the line its commit is on.
+    assert(look.outlines.join() === look.dots.join(), `outlines ${look.outlines} for dots ${look.dots}`);
     // The dark theme VS Code starts with has light text.
     assert(/rgb\((2\d\d|1[5-9]\d), /.test(look.color), `text color ${look.color}`);
     const bar = await toolbar(graph);
@@ -273,16 +277,84 @@ try {
     await key('Escape');
   });
 
-  await step('follows the theme when it changes to a light one', async () => {
-    setting('workbench.colorTheme', 'Default Light Modern');
-    await until('the light theme', () => page.evaluate(`document.querySelector('.monaco-workbench').classList.contains('vs')`));
-    await sleep(800);
+  await step('the references and the details get wider when the line beside them is dragged, and a double click undoes it', async () => {
     const graph = await webview('graph');
-    const color = await graph.evaluate(`getComputedStyle(document.body).color`);
-    await shot('light');
-    assert(/rgb\((\d|[1-9]\d|1[0-2]\d), /.test(color), `text color ${color}`);
-    setting('workbench.colorTheme', undefined);
-    await until('the dark theme', () => page.evaluate(`document.querySelector('.monaco-workbench').classList.contains('vs-dark')`));
+    await graph.click('.row', 'Add a');
+    await until('the details', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add a'`));
+    const widths = () => graph.evaluate(`['.refs', '.detail'].map((pane) => Math.round(document.querySelector(pane).getBoundingClientRect().width))`);
+    const before = await widths();
+    const pull = async (sash, by) => {
+      const at = await graph.locate(sash);
+      await window.drag(at, { x: at.x + by, y: at.y });
+    };
+    await pull('.refs-sash', 60);
+    await pull('.detail-sash', -80);
+    const after = await widths();
+    await shot('resized');
+    assert(after[0] === before[0] + 60 && after[1] === before[1] + 80, `from ${before} to ${after}`);
+    for (const sash of ['.refs-sash', '.detail-sash']) {
+      const at = await graph.locate(sash);
+      await mouse(at.x, at.y);
+      await mouse(at.x, at.y, 'left', 2);
+    }
+    await until('the widths they had', async () => (await widths()).join() === before.join());
+    await graph.click('.detail .close');
+  });
+
+  await step('follows the theme, and its buttons have a shape in each: dark, light and high contrast', async () => {
+    const graph = await webview('graph');
+    /**
+     * How the toolbar looks against the panel. A button has a shape when its outline or its filling, painted over
+     * the background of the panel, comes out as another color: the number is how far apart the two are, of 765.
+     */
+    const look = () =>
+      graph.evaluate(`(() => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const behind = getComputedStyle(document.documentElement).getPropertyValue('--vscode-panel-background');
+        const over = (color) => {
+          context.fillStyle = behind;
+          context.fillRect(0, 0, 1, 1);
+          context.fillStyle = color;
+          context.fillRect(0, 0, 1, 1);
+          return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+        };
+        const apart = (color) => over(color).reduce((sum, channel, index) => sum + Math.abs(channel - over('transparent')[index]), 0);
+        const buttons = [...document.querySelectorAll('.toolbar .button:not(.icon)')].map((button) => {
+          const style = getComputedStyle(button);
+          // A border of no width still has a color, that of the text.
+          const outline = style.borderTopWidth === '0px' ? 0 : apart(style.borderTopColor);
+          return { name: button.getAttribute('aria-label'), apart: Math.max(outline, apart(style.backgroundColor)) };
+        });
+        return {
+          behind,
+          text: over(getComputedStyle(document.body).color).reduce((sum, channel) => sum + channel, 0),
+          faintest: buttons.sort((one, other) => one.apart - other.apart)[0],
+          boxed: [...document.querySelectorAll('.toolbar .button .label')].filter((label) => getComputedStyle(label).borderTopWidth !== '0px').length,
+        };
+      })()`);
+    let { behind } = await look();
+    try {
+      // The one VS Code starts with comes first; its name is not set.
+      for (const [theme, dark] of [[undefined, true], ['Dark Modern', true], ['Light 2026', false], ['Default Light Modern', false], ['Default High Contrast', true]]) {
+        if (theme) {
+          setting('workbench.colorTheme', theme);
+          const previous = behind;
+          await until(`the theme ${theme}`, async () => (await look()).behind !== previous);
+          await sleep(600);
+        }
+        const seen = await look();
+        behind = seen.behind;
+        await shot(`theme-${(theme ?? 'default').replace(/\W+/g, '-').toLowerCase()}`);
+        assert(dark ? seen.text > 450 : seen.text < 320, `${theme}: the text is ${seen.text} of 765`);
+        assert(seen.faintest.apart >= 30, `${theme}: the button ${seen.faintest.name} is ${seen.faintest.apart} apart from what is behind it`);
+        assert(seen.boxed === 0, `${theme}: ${seen.boxed} of the words in the buttons are boxed`);
+      }
+    } finally {
+      setting('workbench.colorTheme', undefined);
+      await until('the dark theme', () => page.evaluate(`document.querySelector('.monaco-workbench').classList.contains('vs-dark')`));
+    }
   });
 
   await step('opens the graph as an editor tab, with the details of a commit beside it', async () => {

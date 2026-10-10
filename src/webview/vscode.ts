@@ -21,7 +21,10 @@ export function loadUiState<T extends object>(fallback: T): T {
   return { ...fallback, ...(api.getState() as Partial<T> | undefined) };
 }
 
-/** Returns nothing, unlike the function of VS Code which hands the state back: an effect must not return it. */
+/**
+ * Adds to what the view remembers, leaving alone what other parts of it saved.
+ * Returns nothing, unlike the function of VS Code which hands the state back: an effect must not return it.
+ */
 export function saveUiState(state: object): void {
-  api.setState(state);
+  api.setState({ ...(api.getState() as object | undefined), ...state });
 }

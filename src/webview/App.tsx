@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { WORKTREE, type CommitDetail, type Comparison, type RepoState, type Row } from '../shared/protocol';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, type Label, type SelectMode } from './CommitList';
@@ -10,6 +10,7 @@ import { Icon } from './Icon';
 import { OperationBanner } from './OperationBanner';
 import { RebaseEditor } from './RebaseEditor';
 import { RefsTree } from './RefsTree';
+import { Sash } from './Sash';
 import { Toolbar } from './Toolbar';
 import { dragging } from './drag';
 import {
@@ -23,9 +24,11 @@ import {
   tagMenu,
   type Comparing,
 } from './menus';
-import { onMessage, post } from './vscode';
+import { loadUiState, onMessage, post, saveUiState } from './vscode';
 
 const NONE: ReadonlySet<string> = new Set();
+/** The widths of the panes beside the commits, in pixels, until they are dragged to others. */
+const WIDTHS = { refsWidth: 210, detailWidth: 320 };
 
 function buildLabels(state: RepoState): Map<string, Label[]> {
   const labels = new Map<string, Label[]>();
@@ -69,6 +72,7 @@ export function App() {
   const [rebase, setRebase] = useState<Row[] | null>(null);
   const [comparing, setComparing] = useState<Comparing | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [{ refsWidth, detailWidth }, setWidths] = useState(() => loadUiState(WIDTHS));
   const openMenu = useMenu();
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -125,6 +129,10 @@ export function App() {
     return stop;
   }, [select]);
 
+  useEffect(() => {
+    saveUiState({ refsWidth, detailWidth });
+  }, [refsWidth, detailWidth]);
+
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
 
   const matches = useMemo(() => {
@@ -171,6 +179,7 @@ export function App() {
   }
 
   const markedRows = marked.size > 1 ? state.rows.filter((row) => marked.has(row.hash)) : [];
+  const hasDetail = !!(selected || comparing);
 
   const onRowSelect = (hash: string, mode: SelectMode) => {
     // The uncommitted changes are not a commit, and cannot be selected along with some.
@@ -253,8 +262,12 @@ export function App() {
           </button>
         </div>
       )}
-      <div className={`main${selected || comparing ? ' has-detail' : ''}`}>
+      <div
+        className={`main${hasDetail ? ' has-detail' : ''}`}
+        style={{ '--refs-width': `${refsWidth}px`, '--detail-width': `${detailWidth}px` } as CSSProperties}
+      >
         <RefsTree state={state} selected={selected} onSelect={jump} onCompare={compare} />
+        <Sash pane="refs" width={refsWidth} initial={WIDTHS.refsWidth} onResize={(width) => setWidths((widths) => ({ ...widths, refsWidth: width }))} />
         <CommitList
           rows={state.rows}
           empty={state.filter ? 'No commits found' : state.head ? 'No commits to show' : 'No commits yet'}
@@ -275,6 +288,14 @@ export function App() {
           canDrop={(row) => dropEntries(row).length > 0}
           onDrop={(event, row) => openMenu(event, dropEntries(row))}
         />
+        {hasDetail && (
+          <Sash
+            pane="detail"
+            width={detailWidth}
+            initial={WIDTHS.detailWidth}
+            onResize={(width) => setWidths((widths) => ({ ...widths, detailWidth: width }))}
+          />
+        )}
         {comparing ? (
           <Compare
             comparing={comparing}

@@ -117,6 +117,13 @@ input:focus-visible,
   white-space: nowrap;
   color: var(--vscode-button-secondaryForeground);
   background: var(--vscode-button-secondaryBackground);
+  /*
+   * Some themes fill their secondary buttons and some, the default dark ones among them, only outline them:
+   * without the outline a button there is words on the background. A theme that says nothing gets a line
+   * made from the color of its text, which shows on whatever is behind.
+   */
+  border: 1px solid
+    var(--vscode-button-secondaryBorder, var(--vscode-button-border, color-mix(in srgb, var(--vscode-foreground) 22%, transparent)));
 }
 
 .button:hover:not(:disabled) {
@@ -128,10 +135,12 @@ input:focus-visible,
   cursor: default;
 }
 
+/* An icon alone is a button of a toolbar, which has no shape until the pointer is over it. */
 .button.icon {
   padding: 0 5px;
   color: inherit;
   background: none;
+  border-color: transparent;
 }
 
 .button.icon:hover {
@@ -141,14 +150,16 @@ input:focus-visible,
 .split {
   position: relative;
   display: flex;
-  gap: 1px;
 }
 
 .split .button:first-child {
   border-radius: 3px 0 0 3px;
 }
 
+/* One line between the two halves, not the outline of each, and there also in a theme whose buttons are filled and not outlined. */
 .split .button:nth-child(2) {
+  margin-left: -1px;
+  border-left-color: color-mix(in srgb, currentColor 25%, transparent);
   padding: 0 3px;
   border-radius: 0 3px 3px 0;
 }
@@ -265,14 +276,59 @@ input:focus-visible,
 /* Layout */
 
 .main {
+  /* The widths the panes were dragged to, short of what would leave no room for the commits. */
+  --refs: min(var(--refs-width, 210px), 35%);
+  --detail: min(var(--detail-width, 320px), 55%);
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: var(--refs) minmax(0, 1fr);
 }
 
 .main.has-detail {
-  grid-template-columns: 210px minmax(0, 1fr) 320px;
+  grid-template-columns: var(--refs) minmax(0, 1fr) var(--detail);
+}
+
+/* The line between two panes, with some room on both sides of it to take hold of. */
+.sash {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sash.refs-sash {
+  left: calc(var(--refs) - 4px);
+}
+
+.sash.detail-sash {
+  right: calc(var(--detail) - 4px);
+}
+
+.sash::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.sash:hover::after {
+  opacity: 1;
+  transition-delay: 0.25s;
+}
+
+.sash.dragging::after,
+.sash:focus-visible::after {
+  opacity: 1;
+}
+
+.sash:focus-visible {
+  outline: none;
 }
 
 /* References */
@@ -466,7 +522,11 @@ input:focus-visible,
   text-overflow: ellipsis;
 }
 
-.label {
+/*
+ * The labels of a commit: its branches, tags and bisect marks. Outlined in the color of its line in the graph,
+ * so the eye goes from one to the other. Under `.message`, because the words in the buttons of the toolbar are labels too.
+ */
+.message .label {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -477,45 +537,59 @@ input:focus-visible,
   border-radius: 3px;
   font-size: 0.9em;
   overflow: hidden;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--lane);
 }
 
-.label .codicon {
+.message .label .codicon {
   font-size: 12px;
+  color: var(--lane);
 }
 
-.label.branch,
-.label.head {
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
-  border-color: transparent;
-}
-
-.label.current {
+/* What is checked out is the one label filled in. The colors of the lines are all light enough for dark text. */
+.message .label.current {
   font-weight: 600;
-  /* Drawn inside the label: the row cuts off what sticks out of it. */
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
+  color: #16181d;
+  background: var(--lane);
 }
 
-.label.remote {
+.message .label.current .codicon {
+  color: inherit;
+}
+
+.message .label.remote {
   color: var(--vscode-descriptionForeground);
 }
 
-.label.tag {
-  color: var(--vscode-gitDecoration-modifiedResourceForeground);
+.row.selected .message .label.remote {
+  color: inherit;
+}
+
+.message .label.tag {
   border-style: dashed;
 }
 
-.label.good {
+/* The marks of a bisect say good or bad, which is not about the line they are on. */
+.message .label.good,
+.message .label.bad,
+.message .label.skipped {
+  border-color: currentColor;
+}
+
+.message .label.good .codicon,
+.message .label.bad .codicon,
+.message .label.skipped .codicon {
+  color: inherit;
+}
+
+.message .label.good {
   color: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground));
 }
 
-.label.bad {
+.message .label.bad {
   color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
 }
 
-.label.skipped {
+.message .label.skipped {
   color: var(--vscode-descriptionForeground);
 }
 
@@ -1060,6 +1134,7 @@ input:focus-visible,
   padding: 0 12px;
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
+  border-color: var(--vscode-button-border, transparent);
 }
 
 .button.primary:hover:not(:disabled) {
@@ -1098,7 +1173,8 @@ input:focus-visible,
 /* Narrow placements, such as the side bar: drop the references and stack the details under the list. */
 
 @container (max-width: 720px) {
-  .refs {
+  .refs,
+  .sash {
     display: none;
   }
 

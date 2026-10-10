@@ -98,6 +98,18 @@ export async function startWindow({ workspace, temp, out, codePath, settings: ex
     await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount });
   }
 
+  /** Presses at one point and lets go at another, getting there in a few moves as a hand does. */
+  async function drag(from, to, moves = 5) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y });
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1 });
+    for (let move = 1; move <= moves; move++) {
+      const x = from.x + ((to.x - from.x) * move) / moves;
+      const y = from.y + ((to.y - from.y) * move) / moves;
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 });
+    }
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', clickCount: 1 });
+  }
+
   /** Clicks the first element of the workbench that matches the selector and contains the text. */
   async function clickText(selector, text) {
     const at = await until(`"${text}" to click`, () =>
@@ -206,5 +218,5 @@ export async function startWindow({ workspace, temp, out, codePath, settings: ex
     await sleep(1500);
   }
 
-  return { ready, resize, shot, setting, mouse, clickText, key, type, prompt, command, webview, close, problems };
+  return { ready, resize, shot, setting, mouse, drag, clickText, key, type, prompt, command, webview, close, problems };
 }

@@ -26,6 +26,8 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 ### Graph
 
 - Commit graph of all branches, remote branches and tags, loaded progressively.
+- The labels of a commit are outlined in the color of its line in the graph; the branch that is checked out is the one filled in.
+- Drag the line between the references and the commits, or between the commits and the details, to change their widths; double-click it to go back to the default. The widths are remembered per workspace.
 - Uncommitted changes shown as the first row of the graph, also before the first commit of a new repository.
 - References tree: local branches with ahead and behind counts, remote branches, tags, stashes and worktrees. From 15 branches and tags on, a filter box appears above it, and a section with more than 100 entries lists the first 100 and a **Show all** entry.
 - Commit details with the list of changed files; selecting a file opens it in the VS Code diff editor, and the button next to the count opens the diffs of all of them in one editor.
@@ -235,7 +237,8 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 
 `npm run test:ui` starts the same throwaway VS Code, this time not in test mode, and drives its window through the DevTools protocol (`test/e2e/ui.mjs`): real clicks and right-clicks at the coordinates of what is on screen, real keystrokes, the real command palette, input boxes, pickers and confirmation dialogs. It checks that:
 
-- the graph shows in the panel with its icons and the colors of the theme, and follows a change to a light theme;
+- the graph shows in the panel with its icons, the colors of the theme and each label in the color of its line;
+- it follows the theme, and the buttons of the toolbar have a shape against the panel in each of five: the two dark and the two light ones VS Code comes with, and the high contrast one. Dark themes tend to outline their buttons and light ones to fill them, and a button drawn for one kind is words on the background in the other;
 - the toolbar still names the branch and fits when the panel is 1050 and 800 pixels wide;
 - the Changes view lists what changed and its icon in the activity bar counts it;
 - a file is staged with a click and committed with a typed message;
@@ -243,6 +246,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
 - a branch dragged onto the checked out commit offers to merge or rebase;
+- the references and the details get wider when the line beside them is dragged, and a double click undoes it;
 - the graph opens as an editor tab, with the details of a commit beside it.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.

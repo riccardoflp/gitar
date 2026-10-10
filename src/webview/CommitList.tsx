@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
@@ -212,7 +213,7 @@ export function CommitList(props: Props) {
               }}
             >
               <Graph graph={row.graph} width={graphWidth} hollow={worktree} />
-              <div className="message">
+              <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                 {labels.get(row.hash)?.map((label) => (
                   <span
                     key={`${label.kind}:${label.name}`}
