@@ -1,0 +1,953 @@
+import { createHash } from 'node:crypto';
+import * as path from 'node:path';
+import * as vscode from 'vscode';
+import { discoverRepos, repoName } from '../git/discover';
+import { GitError, formatCommand, git } from '../git/exec';
+import { compareUrl, parseGitHubRemote, type GitHubRepo } from '../git/github';
+import {
+  cleanupBranchesOp,
+  clearIdentityOp,
+  fetchRemoteOp,
+  identityOp,
+  refNameProblem,
+  remoteAddOp,
+  remoteRemoveOp,
+  remoteRenameOp,
+  remoteSetUrlOp,
+  restoreBranchOp,
+  restoreStashOp,
+  syncOp,
+  undoOp,
+  type GitOp,
+  type IdentityProfile,
+} from '../git/ops';
+import { Repo, isHash } from '../git/repo';
+import { WORKTREE } from '../shared/protocol';
+import type {
+  Action,
+  DiffSource,
+  FileChange,
+  Filter,
+  HostMessage,
+  Operation,
+  PullRequest,
+  RepoInfo,
+  RepoState,
+  SyncAction,
+  UiCommand,
+  WebviewMessage,
+} from '../shared/protocol';
+import { resolveAction } from './actions';
+import { draftCommitMessage } from './ai';
+import { CONFLICT, INDEX, contentUri } from './content';
+import { fetchPulls, githubSession } from './github';
+
+const PAGE_SIZE = 1000;
+/** What the two sides of a conflict are, which depends on the operation that stopped: a rebase swaps them. */
+const CONFLICT_SIDES: Record<Operation | 'none', [current: string, incoming: string]> = {
+  merge: ['The branch checked out', 'The branch being merged'],
+  rebase: ['What the branch is being rebased onto', 'Your commit being replayed'],
+  'cherry-pick': ['The branch checked out', 'The commit being picked'],
+  revert: ['The branch checked out', 'The state before the reverted commit'],
+  none: ['Your files', 'The changes being applied'],
+};
+
+const REFRESH_DELAY = 400;
+/** Builds and installs write many files at once, so those are given longer to settle. */
+const WORKTREE_REFRESH_DELAY = 1000;
+const LOST_COMMITS_SHOWN = 10;
+const REFLOG_ENTRIES = 200;
+const REPO_KEY = 'gitar.repository';
+/** Pull requests change on GitHub's side, so they are re-read at most this often unless something asks for it. */
+const PULLS_MAX_AGE = 120_000;
+
+export type ViewKind = 'graph' | 'changes';
+
+interface RunResult {
+  ok: boolean;
+  /** Git's error output when the operation ran and failed. Absent when the user cancelled. */
+  error?: string;
+}
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Identifies the rows of a state: two states with the same key have the same rows.
+ * A commit never changes, so its hash stands for all of it. The row of the uncommitted changes only counts for being
+ * there or not, which moves the lines of the graph: how many changes it says there are is sent apart.
+ * The filter is part of it because the history of a file gives the same commits other parents.
+ */
+function rowsKey(state: RepoState, filter: Filter | null): string {
+  const hash = createHash('sha1');
+  hash.update(`${state.root}\0${JSON.stringify(filter)}\0`);
+  for (const row of state.rows) hash.update(row.hash);
+  return hash.digest('hex');
+}
+
+/** Owns the repository state and serves every Gitar webview, wherever the user has placed it. */
+export class Controller implements vscode.Disposable {
+  private repo?: Repo;
+  private state: RepoState | null = null;
+  private located = false;
+  private limit = PAGE_SIZE;
+  /** The read of the repository under way, if any. */
+  private loading?: Promise<void>;
+  /** Something changed since that read started. */
+  private dirty = false;
+  private running = false;
+  private timer?: ReturnType<typeof setTimeout>;
+  /** When `timer` fires. */
+  private due = 0;
+  private watcher?: vscode.Disposable;
+  /** The inverse of Gitar's last operation, valid for as long as HEAD's reflog has not moved since. */
+  private undoable?: { reflogTop: string; op: GitOp };
+  /** Where the branch was before the cherry-pick of several commits that is under way, or just ended. */
+  private series?: { before: string; branch: string | null; title: string };
+  private filter: Filter | null = null;
+  private github: GitHubRepo | null = null;
+  private pulls: Record<string, PullRequest> = {};
+  private pullsAt = 0;
+  /** A commit to show as soon as a graph view is there to show it. */
+  private pendingReveal?: string;
+  /** Every repository of the workspace; `repo` is the one being shown. */
+  private repos: RepoInfo[] = [];
+  private readonly views = new Map<vscode.Webview, ViewKind>();
+  /** What identifies the commits each graph view was last sent. */
+  private readonly sentRows = new WeakMap<vscode.Webview, string>();
+  private readonly stateEmitter = new vscode.EventEmitter<RepoState | null>();
+  private readonly subscriptions: vscode.Disposable[];
+
+  /** Fires whenever the repository state has been reloaded. */
+  readonly onDidChangeState = this.stateEmitter.event;
+
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly log: vscode.LogOutputChannel,
+    /** Remembers which repository of this workspace was chosen. */
+    private readonly memento: vscode.Memento,
+  ) {
+    const schedule = () => this.scheduleRefresh();
+    this.subscriptions = [
+      this.stateEmitter,
+      vscode.workspace.onDidChangeWorkspaceFolders(() => this.locate()),
+      vscode.workspace.onDidSaveTextDocument(schedule),
+      vscode.workspace.onDidCreateFiles(schedule),
+      vscode.workspace.onDidDeleteFiles(schedule),
+      vscode.workspace.onDidRenameFiles(schedule),
+      vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
+    ];
+  }
+
+  dispose(): void {
+    clearTimeout(this.timer);
+    this.watcher?.dispose();
+    for (const subscription of this.subscriptions) subscription.dispose();
+  }
+
+  /** Loads the UI into a webview and wires it to this controller. */
+  attach(webview: vscode.Webview, kind: ViewKind): vscode.Disposable {
+    const dist = vscode.Uri.joinPath(this.extensionUri, 'dist');
+    webview.options = { enableScripts: true, localResourceRoots: [dist] };
+    webview.html = this.html(webview, dist, kind);
+    this.views.set(webview, kind);
+    const listener = webview.onDidReceiveMessage((message: WebviewMessage) => this.onMessage(webview, message));
+    return new vscode.Disposable(() => {
+      listener.dispose();
+      this.views.delete(webview);
+    });
+  }
+
+  async refresh(): Promise<void> {
+    if (!this.located || !this.repo) return this.locate();
+    // A read already under way may have started before what the caller just did: it is followed by another,
+    // and the caller waits for that one too.
+    this.dirty = true;
+    this.loading ??= this.load(this.repo);
+    return this.loading;
+  }
+
+  private async load(first: Repo): Promise<void> {
+    try {
+      for (let repo: Repo | undefined = first; repo && this.dirty; repo = this.repo) {
+        this.dirty = false;
+        const state = await this.readState(repo);
+        // Unless the views were pointed at another repository in the meantime.
+        if (repo === this.repo) this.setState({ ...state, repos: this.repos, github: this.github, pulls: this.pulls });
+      }
+    } catch (error) {
+      this.log.error(errorText(error));
+      this.setState(null);
+    } finally {
+      // In the same turn as the last look at `dirty`, so that no request can fall between the two.
+      this.dirty = false;
+      this.loading = undefined;
+    }
+    void this.refreshPulls(false);
+  }
+
+  /** A search git cannot run, such as an invalid regular expression, is reported and dropped rather than taking the graph down. */
+  private async readState(repo: Repo): Promise<RepoState> {
+    if (!this.filter) return repo.state(this.limit);
+    try {
+      return await repo.state(this.limit, this.filter);
+    } catch (error) {
+      this.filter = null;
+      const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
+      this.log.error(text);
+      void vscode.window.showErrorMessage(`Gitar: the search failed. ${text.split('\n')[0]}`);
+      return repo.state(this.limit);
+    }
+  }
+
+  /** Narrows the graph to the history of a file or to a search, or shows everything again. */
+  async setFilter(filter: Filter | null): Promise<void> {
+    if (!this.located) await this.locate();
+    this.filter = filter;
+    this.limit = PAGE_SIZE;
+    // Searching inside the changes of every commit can take a while on a large repository.
+    const slow = filter?.kind === 'pickaxe' || filter?.kind === 'regex';
+    if (slow) this.post({ type: 'busy', title: 'Searching' });
+    try {
+      await this.refresh();
+    } finally {
+      if (slow) this.post({ type: 'busy', title: null });
+    }
+  }
+
+  /** Shows the commits that touched a file: the given one, or the one in the active editor. */
+  async fileHistory(uri = vscode.window.activeTextEditor?.document.uri): Promise<void> {
+    if (!(await this.requireState())) return;
+    if (uri?.scheme === 'file') {
+      // In a workspace with several repositories the file decides which one to show: the innermost one that contains it.
+      const contains = (root: string) => {
+        const relative = path.relative(root, uri.fsPath);
+        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+      };
+      const owner = this.repos.filter((repo) => contains(repo.root)).sort((a, b) => b.root.length - a.root.length)[0];
+      if (owner) await this.selectRepo(owner.root);
+    }
+    if (!this.repo) return;
+    const file = uri?.scheme === 'file' ? path.relative(this.repo.root, uri.fsPath).replace(/\\/g, '/') : '';
+    if (!file || file.startsWith('..') || path.isAbsolute(file)) {
+      void vscode.window.showWarningMessage('Gitar: open a file of this repository to see its history.');
+      return;
+    }
+    await vscode.commands.executeCommand('gitar.graph.focus');
+    await this.setFilter({ kind: 'path', path: file });
+  }
+
+  /** Selects a commit in the graph, opening the graph first if needed. */
+  async reveal(hash: string): Promise<void> {
+    if (!isHash(hash)) return;
+    this.pendingReveal = hash;
+    await vscode.commands.executeCommand('gitar.graph.focus');
+    if (this.filter) await this.setFilter(null);
+    this.flushReveal();
+  }
+
+  private flushReveal(): void {
+    const graphs = [...this.views].filter(([, kind]) => kind === 'graph');
+    if (!this.pendingReveal || !graphs.length) return;
+    for (const [view] of graphs) this.post({ type: 'reveal', hash: this.pendingReveal }, view);
+    this.pendingReveal = undefined;
+  }
+
+  async command(command: UiCommand): Promise<void> {
+    try {
+      if (command === 'activeFileHistory') return await this.fileHistory();
+      if (command === 'signInGitHub') return await this.refreshPulls(true, true);
+      if (command === 'reflog') return await this.browseReflog();
+      if (command === 'cleanupBranches') return await this.cleanupBranches();
+      if (command === 'draftMessage') return await this.draftMessage();
+      if (command === 'switchIdentity') return await this.switchIdentity();
+      if (command === 'selectRepository') return await this.pickRepo();
+      if (command === 'remotes') return await this.manageRemotes();
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+    }
+  }
+
+  /** Lists where HEAD has been, and offers what can be done with the chosen position, even if no branch reaches it any more. */
+  private async browseReflog(): Promise<void> {
+    const state = await this.requireState();
+    if (!state || !this.repo) return;
+    const entries = await this.repo.reflog('HEAD', REFLOG_ENTRIES);
+    const entry = await vscode.window.showQuickPick(
+      entries.map((item) => ({
+        label: item.subject,
+        description: `${item.hash.slice(0, 7)} · ${item.selector}`,
+        detail: new Date(item.date * 1000).toLocaleString(),
+        item,
+      })),
+      { title: 'Reflog: where HEAD has been', placeHolder: 'Pick an entry to go back to it or recover it', matchOnDescription: true },
+    );
+    if (!entry) return;
+    const { hash } = entry.item;
+    const short = hash.slice(0, 7);
+    const choice = await vscode.window.showQuickPick(
+      [
+        { label: 'Show in graph', run: () => this.reveal(hash) },
+        { label: 'Create branch here…', run: () => this.action({ kind: 'createBranch', at: hash }) },
+        { label: `Reset ${state.branch ?? 'HEAD'} to here…`, run: () => this.action({ kind: 'reset', hash }) },
+        { label: 'Check out (detached)', run: () => this.action({ kind: 'checkout', target: 'detached', ref: hash }) },
+        { label: 'Cherry-pick', run: () => this.action({ kind: 'cherryPick', hash, isMerge: false }) },
+      ],
+      { title: `${short}: ${entry.item.subject}` },
+    );
+    await choice?.run();
+  }
+
+  /** Offers to delete the local branches that are merged into the current one, or whose upstream is gone. */
+  private async cleanupBranches(): Promise<void> {
+    const state = await this.requireState();
+    if (!state || !this.repo) return;
+    const merged = new Set(await this.repo.mergedBranches());
+    const inUse = new Set(state.worktrees.map((worktree) => worktree.branch));
+    const candidates = state.branches.filter(
+      (branch) => !branch.current && !inUse.has(branch.name) && (merged.has(branch.name) || branch.upstream?.gone),
+    );
+    if (!candidates.length) {
+      void vscode.window.showInformationMessage('Gitar: no local branches are merged or have lost their upstream.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      candidates.map((branch) => ({
+        label: branch.name,
+        description: merged.has(branch.name) ? `merged into ${state.branch ?? 'HEAD'}` : 'upstream is gone, not merged',
+        // Unmerged branches can lose commits, so they are left for the user to tick.
+        picked: merged.has(branch.name),
+        branch,
+      })),
+      { title: 'Clean up branches', placeHolder: 'Branches to delete', canPickMany: true },
+    );
+    if (!picked?.length) return;
+    const names = (wanted: boolean) => picked.filter((item) => merged.has(item.branch.name) === wanted).map((item) => item.branch.name);
+    await this.run(cleanupBranchesOp(names(true), names(false)));
+  }
+
+  /** Asks the language model for a commit message and hands it to the Changes view. */
+  private async draftMessage(): Promise<void> {
+    const state = await this.requireState();
+    const repo = this.repo;
+    if (!state || !repo) return;
+    this.post({ type: 'drafting', active: true });
+    try {
+      const message = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: 'Gitar: drafting commit message', cancellable: true },
+        (_progress, token) => draftCommitMessage(repo, state, token),
+      );
+      this.post({ type: 'drafting', active: false, message });
+    } catch (error) {
+      this.post({ type: 'drafting', active: false });
+      throw error;
+    }
+  }
+
+  /**
+   * Reads the open pull requests from GitHub. Without `force` it reuses what it has for a while;
+   * without `prompt` it does nothing unless the user already signed in to GitHub in VS Code.
+   */
+  private async refreshPulls(force: boolean, prompt = false): Promise<void> {
+    const github = this.github;
+    if (!github) {
+      if (prompt) void vscode.window.showWarningMessage('Gitar: the main remote of this repository is not on github.com.');
+      return;
+    }
+    if (!force && Date.now() - this.pullsAt < PULLS_MAX_AGE) return;
+    try {
+      const session = await githubSession(prompt);
+      if (!session) return;
+      this.pullsAt = Date.now();
+      const pulls = await fetchPulls(github, session.accessToken);
+      if (github !== this.github || JSON.stringify(pulls) === JSON.stringify(this.pulls)) return;
+      this.pulls = pulls;
+      if (this.state) this.setState({ ...this.state, pulls });
+    } catch (error) {
+      this.log.warn(`Could not read pull requests: ${errorText(error)}`);
+      if (prompt) void vscode.window.showErrorMessage(`Gitar: could not read pull requests. ${errorText(error)}`);
+    }
+  }
+
+  /** Opens the pull request of a branch in the browser, or GitHub's page to create one. */
+  private async openPullRequest(branch: string): Promise<void> {
+    if (!this.github) return;
+    const url = this.pulls[branch]?.url ?? compareUrl(this.github, branch);
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  async sync(action: SyncAction): Promise<void> {
+    const state = await this.requireState();
+    if (!state) return;
+    if (!state.remotes.length) {
+      // Nothing to fetch from or push to yet: the useful next step is to say where.
+      const choice = await vscode.window.showWarningMessage('Gitar: this repository has no remote.', 'Add Remote…');
+      if (choice) await this.manageRemotes(true);
+      return;
+    }
+    try {
+      const op = syncOp(action, state);
+      const upstream = state.branches.find((branch) => branch.current)?.upstream;
+      if (op.danger && upstream && !upstream.gone) {
+        // A force push replaces the remote branch: say which of its commits are not in the local one.
+        const lost = await this.repo!.commitsOnlyIn(upstream.name, LOST_COMMITS_SHOWN + 1);
+        const more = lost.length > LOST_COMMITS_SHOWN ? '\n…and more' : '';
+        op.note = lost.length
+          ? `These commits on ${upstream.name} are not in ${state.branch} and will be overwritten:\n${lost.slice(0, LOST_COMMITS_SHOWN).join('\n')}${more}`
+          : `As of the last fetch, every commit on ${upstream.name} is also in ${state.branch}.`;
+      }
+      const result = await this.run(op);
+      if (!result.ok) return;
+      void this.refreshPulls(true);
+      // The first push of a branch is the natural moment to open a pull request for it.
+      const branch = state.branch;
+      if (action.startsWith('push') && branch && !upstream && this.github && !this.pulls[branch]) {
+        const choice = await vscode.window.showInformationMessage(`Pushed ${branch}.`, 'Create Pull Request');
+        if (choice) await this.openPullRequest(branch);
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+    }
+  }
+
+  async action(action: Action): Promise<void> {
+    const state = await this.requireState();
+    const repo = this.repo;
+    if (!state || !repo) return;
+    try {
+      const top = (await repo.reflog('HEAD', 1))[0];
+      const reflogTop = top ? `${top.hash} ${top.subject}` : '';
+
+      // Deleting a branch or dropping a stash leaves no trace in the reflog, so Gitar remembers how to take its own back.
+      if (action.kind === 'undo' && this.undoable?.reflogTop === reflogTop) {
+        const { op } = this.undoable;
+        if ((await this.run(op)).ok) this.undoable = undefined;
+        return;
+      }
+
+      // A series of cherry-picks that stopped is still the same series while the user continues or skips.
+      if (!state.operation) this.series = undefined;
+
+      const op = await resolveAction(action, state, repo);
+      if (!op) return;
+
+      let result = await this.run(op, { silent: Boolean(op.fallback) });
+      if (op.fallback && result.error !== undefined) {
+        if (op.fallback.when.test(result.error)) result = await this.run(op.fallback.op);
+        else this.reportFailure(op, result.error);
+      }
+      if (action.kind === 'cherryPickMany' && state.head && (result.ok || this.state?.operation === 'cherry-pick')) {
+        this.series = { before: state.head, branch: state.branch, title: op.title };
+      }
+      if (!result.ok) return;
+
+      if (action.kind === 'commit') this.post({ type: 'committed' });
+      if (action.kind === 'bisect') this.reportBisect();
+      this.undoable = undefined;
+      const branch = action.kind === 'deleteBranch' && state.branches.find((candidate) => candidate.name === action.name);
+      const stash = action.kind === 'stashDrop' && state.stashes.find((candidate) => candidate.ref === action.ref);
+      if (branch) this.undoable = { reflogTop, op: restoreBranchOp(branch.name, branch.hash) };
+      if (stash) this.undoable = { reflogTop, op: restoreStashOp(stash.message, stash.hash) };
+
+      // Each commit of a series moves the branch on its own, so the reflog alone would only take back the last one.
+      const series = this.series;
+      if (action.kind === 'abort') this.series = undefined;
+      else if (series && !this.state?.operation) {
+        this.series = undefined;
+        const now = (await repo.reflog('HEAD', 1))[0];
+        const info = { kind: 'move', previous: series.before, subject: series.title, mode: 'keep' } as const;
+        if (now) this.undoable = { reflogTop: `${now.hash} ${now.subject}`, op: undoOp(info, series.branch) };
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+    }
+  }
+
+  /** Says so when the last answer left a single suspect: that is the commit the bisect was looking for. */
+  private reportBisect(): void {
+    const bisect = this.state?.bisect;
+    const bad = bisect?.bad;
+    if (!bad || bisect.suspects !== 1) return;
+    const subject = this.state?.rows.find((row) => row.hash === bad)?.subject;
+    void vscode.window
+      .showInformationMessage(`Bisect: the first bad commit is ${bad.slice(0, 7)}${subject ? ` "${subject}"` : ''}.`, 'Show in Graph', 'End Bisect')
+      .then((choice) => {
+        if (choice === 'Show in Graph') void this.reveal(bad);
+        if (choice === 'End Bisect') void this.action({ kind: 'bisectReset' });
+      });
+  }
+
+  private async requireState(): Promise<RepoState | null> {
+    if (!this.located) await this.locate();
+    if (!this.state) void vscode.window.showWarningMessage('Gitar: no Git repository in this workspace.');
+    return this.state;
+  }
+
+  private setState(state: RepoState | null): void {
+    this.state = state;
+    this.post({ type: 'state', state });
+    this.stateEmitter.fire(state);
+  }
+
+  private async locate(): Promise<void> {
+    this.located = true;
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+    const roots = await discoverRepos(folders);
+    this.repos = roots.map((root) => ({ root, name: repoName(root, folders) }));
+    // The repository chosen last time in this workspace, as long as it is still there.
+    const remembered = this.memento.get<string>(REPO_KEY);
+    await this.open(roots.find((root) => root === remembered) ?? roots[0]);
+  }
+
+  /** Points every view at one repository of the workspace, or at none. */
+  private async open(root: string | undefined): Promise<void> {
+    this.watcher?.dispose();
+    this.watcher = undefined;
+    this.repo = undefined;
+    this.limit = PAGE_SIZE;
+    this.filter = null;
+    this.github = null;
+    this.pulls = {};
+    this.pullsAt = 0;
+    this.undoable = undefined;
+    if (!root) return this.setState(null);
+    this.repo = new Repo(root, (command) => this.log.debug(command));
+    this.watch(root, await this.repo.commonDir());
+
+    await this.detectGitHub(this.repo);
+    await this.refresh();
+  }
+
+  /** Works out whether the main remote is a repository on GitHub. */
+  private async detectGitHub(repo: Repo): Promise<void> {
+    const remotes = await repo.remotes();
+    const main = remotes.find((remote) => remote.name === 'origin') ?? remotes[0];
+    const github = main ? parseGitHubRemote(main.url) : null;
+    if (JSON.stringify(github) === JSON.stringify(this.github)) return;
+    this.github = github;
+    this.pulls = {};
+    this.pullsAt = 0;
+  }
+
+  /** Lists the remotes, to fetch, rename, repoint or remove one, or to add another. */
+  private async manageRemotes(add = false): Promise<void> {
+    const state = await this.requireState();
+    const repo = this.repo;
+    if (!state || !repo) return;
+    const remotes = await repo.remotes();
+    const taken = (except?: string) => (name: string) =>
+      refNameProblem(name) ?? (name !== except && remotes.some((remote) => remote.name === name) ? 'A remote with that name already exists' : undefined);
+    const askUrl = (title: string, value = '') =>
+      vscode.window.showInputBox({
+        title,
+        value,
+        prompt: 'URL of the remote repository',
+        placeHolder: 'https://github.com/owner/repository.git',
+        validateInput: (url) => (!url.trim() ? 'Enter a URL' : url.trim().startsWith('-') ? 'That is not a URL' : undefined),
+      });
+    const addRemote = async (): Promise<GitOp | undefined> => {
+      const name = await vscode.window.showInputBox({
+        title: 'Add remote',
+        prompt: 'Name of the remote',
+        value: remotes.length ? '' : 'origin',
+        validateInput: taken(),
+      });
+      if (!name) return;
+      const url = await askUrl(`Add remote ${name}`);
+      return url ? remoteAddOp(name, url.trim()) : undefined;
+    };
+
+    let op: GitOp | undefined;
+    if (add) {
+      op = await addRemote();
+    } else {
+      const picked = await vscode.window.showQuickPick(
+        [
+          ...remotes.map((remote) => ({ label: remote.name, description: remote.url, remote })),
+          { label: 'Add remote…', remote: undefined },
+        ],
+        { title: `Remotes of ${state.name}`, placeHolder: 'Pick a remote to fetch, rename, repoint or remove it', matchOnDescription: true },
+      );
+      if (!picked) return;
+      const { remote } = picked;
+      if (!remote) {
+        op = await addRemote();
+      } else {
+        const { name, url } = remote;
+        const choice = await vscode.window.showQuickPick(
+          [
+            { label: 'Fetch', description: `git fetch --prune ${name}`, op: () => fetchRemoteOp(name) },
+            {
+              label: 'Change URL…',
+              op: async () => {
+                const next = await askUrl(`Change the URL of ${name}`, url);
+                return next && next.trim() !== url ? remoteSetUrlOp(name, next.trim()) : undefined;
+              },
+            },
+            {
+              label: 'Rename…',
+              op: async () => {
+                const next = await vscode.window.showInputBox({ title: `Rename remote ${name}`, value: name, validateInput: taken(name) });
+                return next && next !== name ? remoteRenameOp(name, next) : undefined;
+              },
+            },
+            {
+              label: 'Copy URL',
+              op: async () => {
+                await vscode.env.clipboard.writeText(url);
+                return undefined;
+              },
+            },
+            { label: 'Remove', description: 'Deletes its remote-tracking branches here', op: () => remoteRemoveOp(name) },
+          ],
+          { title: `${name}: ${url}` },
+        );
+        op = await choice?.op();
+      }
+    }
+    if (!op || !(await this.run(op)).ok) return;
+    // The remote that pull requests are read from may be another one now.
+    await this.detectGitHub(repo);
+    await this.refresh();
+  }
+
+  /** Switches to another repository of the workspace, and remembers the choice for this workspace. */
+  async selectRepo(root: string): Promise<void> {
+    if (this.running || !this.repos.some((repo) => repo.root === root) || root === this.repo?.root) return;
+    await this.memento.update(REPO_KEY, root);
+    await this.open(root);
+  }
+
+  private async pickRepo(): Promise<void> {
+    if (!this.located) await this.locate();
+    if (this.repos.length < 2) {
+      void vscode.window.showInformationMessage(
+        this.repos.length ? 'Gitar: this workspace has a single repository.' : 'Gitar: no Git repository in this workspace.',
+      );
+      return;
+    }
+    const current = this.repo?.root;
+    const choice = await vscode.window.showQuickPick(
+      this.repos.map((repo) => ({ label: repo.name, description: repo.root === current ? 'current' : undefined, detail: repo.root, repo })),
+      { title: 'Repository shown in Gitar', matchOnDetail: true },
+    );
+    if (choice) await this.selectRepo(choice.repo.root);
+  }
+
+  /** Chooses who commits are made as in this repository: a profile from the settings, a new one, or the global identity again. */
+  private async switchIdentity(): Promise<void> {
+    const state = await this.requireState();
+    const repo = this.repo;
+    if (!state || !repo) return;
+    const configured = vscode.workspace.getConfiguration('gitar').get<unknown[]>('identities') ?? [];
+    const profiles = configured.filter(
+      (profile): profile is IdentityProfile =>
+        typeof (profile as IdentityProfile)?.name === 'string' && typeof (profile as IdentityProfile)?.email === 'string',
+    );
+    const localKeys = await repo.localIdentityKeys();
+    const { name, email } = state.identity;
+
+    const ask = async (): Promise<GitOp | undefined> => {
+      const newName = await vscode.window.showInputBox({ title: 'Commit as', prompt: 'Name', value: name });
+      if (!newName?.trim()) return;
+      const newEmail = await vscode.window.showInputBox({ title: `Commit as ${newName.trim()}`, prompt: 'Email', value: email });
+      return newEmail?.trim() ? identityOp({ name: newName, email: newEmail }, localKeys) : undefined;
+    };
+    const openSettings = async (): Promise<undefined> => {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'gitar.identities');
+    };
+    const items: (vscode.QuickPickItem & { op(): GitOp | undefined | Promise<GitOp | undefined> })[] = profiles.map((profile) => ({
+      label: profile.name,
+      description: profile.email,
+      detail: profile.name === name && profile.email === email ? 'In use' : undefined,
+      op: () => identityOp(profile, localKeys),
+    }));
+    items.push({ label: 'Enter a name and email…', op: ask });
+    if (localKeys.length) {
+      items.push({ label: 'Use the global identity', description: "Remove this repository's own setting", op: () => clearIdentityOp(localKeys) });
+    }
+    items.push({ label: 'Edit the list of identities…', description: 'gitar.identities', op: openSettings });
+
+    const choice = await vscode.window.showQuickPick(items, {
+      title: `Commit in ${state.name} as`,
+      placeHolder: name || email ? `Now: ${name} <${email}>` : 'No identity is configured',
+      matchOnDescription: true,
+    });
+    const op = await choice?.op();
+    if (op) await this.run(op);
+  }
+
+  /** Picks up changes made outside Gitar: the terminal, another tool, a background fetch. */
+  private watch(root: string, gitDir: string): void {
+    const pattern = new vscode.RelativePattern(
+      vscode.Uri.file(gitDir),
+      '{HEAD,FETCH_HEAD,ORIG_HEAD,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,index,config,packed-refs,refs/**,logs/refs/stash,worktrees/**}',
+    );
+    const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+    const schedule = () => this.scheduleRefresh();
+    // Files written by something other than this editor, such as a command in the terminal. Git's own files have the watcher above.
+    const files = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(root), '**'));
+    const fileChanged = (uri: vscode.Uri) => {
+      if (!/(^|\/)\.git(\/|$)/.test(uri.path)) this.scheduleRefresh(WORKTREE_REFRESH_DELAY);
+    };
+    this.watcher = vscode.Disposable.from(
+      watcher,
+      watcher.onDidChange(schedule),
+      watcher.onDidCreate(schedule),
+      watcher.onDidDelete(schedule),
+      files,
+      files.onDidChange(fileChanged),
+      files.onDidCreate(fileChanged),
+      files.onDidDelete(fileChanged),
+    );
+  }
+
+  /** Refreshes once, `delay` after the first of a burst of events, however long the burst lasts. */
+  private scheduleRefresh(delay = REFRESH_DELAY): void {
+    if (!this.views.size || this.running) return;
+    const due = Date.now() + delay;
+    if (this.timer && this.due <= due) return;
+    clearTimeout(this.timer);
+    this.due = due;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.refresh();
+    }, delay);
+  }
+
+  private post(message: HostMessage, to?: vscode.Webview): void {
+    const targets = to ? [to] : [...this.views.keys()];
+    if (message.type !== 'state' || !message.state) {
+      for (const view of targets) void view.postMessage(message);
+      return;
+    }
+    const { state } = message;
+    const key = rowsKey(state, this.filter);
+    for (const view of targets) {
+      // The Changes view never shows the graph, so it is spared the rows.
+      if (this.views.get(view) === 'changes') {
+        void view.postMessage({ type: 'state', state: { ...state, rows: [] } } satisfies HostMessage);
+        continue;
+      }
+      // Most refreshes follow a change to the files, which leaves the history as it was: thousands of commits
+      // are not sent again to a view that already has them.
+      const sameRows = this.sentRows.get(view) === key;
+      this.sentRows.set(view, key);
+      const sent: HostMessage = sameRows
+        ? { type: 'state', state: { ...state, rows: state.rows.filter((row) => row.hash === WORKTREE) }, sameRows }
+        : message;
+      void view.postMessage(sent).then((delivered) => {
+        // A view that is not there to receive it asks again when it comes back, and gets everything.
+        if (!delivered && this.sentRows.get(view) === key) this.sentRows.delete(view);
+      });
+    }
+  }
+
+  private async onMessage(webview: vscode.Webview, message: WebviewMessage): Promise<void> {
+    switch (message.type) {
+      case 'ready':
+        // A view that has just loaded has nothing yet.
+        this.sentRows.delete(webview);
+        if (this.located && !this.loading) this.post({ type: 'state', state: this.state }, webview);
+        await this.refresh();
+        return this.flushReveal();
+      case 'setFilter':
+        return this.setFilter(message.filter);
+      case 'command':
+        return this.command(message.command);
+      case 'pullRequest':
+        return this.openPullRequest(message.branch);
+      case 'refresh':
+        return this.refresh();
+      case 'loadMore':
+        this.limit += PAGE_SIZE;
+        return this.refresh();
+      case 'getDetail': {
+        const detail = (await this.repo?.commitDetail(message.hash).catch(() => null)) ?? null;
+        return this.post({ type: 'detail', hash: message.hash, detail }, webview);
+      }
+      case 'getComparison': {
+        const comparison = await this.repo?.compare(message.from, message.to).catch(() => null);
+        return comparison ? this.post({ type: 'comparison', comparison }, webview) : undefined;
+      }
+      case 'selectRepo':
+        return this.selectRepo(message.root);
+      case 'getHunks': {
+        const hunks = (await this.repo?.hunks(message.path, message.staged).catch(() => null)) ?? null;
+        return this.post({ type: 'hunks', path: message.path, staged: message.staged, hunks }, webview);
+      }
+      case 'openDiff':
+        return this.openDiff(message.source, message.file);
+      case 'openChanges':
+        return this.openChanges(message.title, message.source, message.files);
+      case 'sync':
+        return this.sync(message.action);
+      case 'action':
+        return this.action(message.action);
+      case 'copy':
+        return void vscode.env.clipboard.writeText(message.text);
+    }
+  }
+
+  /** Runs an operation, first showing its exact commands when the user asked for that or when it can lose work. */
+  private async run(op: GitOp, options: { silent?: boolean } = {}): Promise<RunResult> {
+    const repo = this.repo;
+    if (!repo || this.running) return { ok: false };
+
+    const preview = vscode.workspace.getConfiguration('gitar').get<string>('commandPreview') === 'all';
+    if (preview || op.danger || op.confirm) {
+      const commands = op.commands.map(formatCommand).join('\n');
+      const detail = `${op.note ? `${op.note}\n\n` : ''}Gitar will run in ${repo.root}:\n\n${commands}`;
+      const ask = op.danger ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
+      if ((await ask(`${op.title}?`, { modal: true, detail }, 'Run')) !== 'Run') return { ok: false };
+    }
+
+    let error: string | undefined;
+    this.running = true;
+    this.post({ type: 'busy', title: op.title });
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: `Gitar: ${op.title}` },
+        async () => {
+          for (const [index, args] of op.commands.entries()) {
+            const input = index === op.commands.length - 1 ? op.input : undefined;
+            this.log.info(`> ${formatCommand(args)}`);
+            if (input) this.log.info(`standard input:\n${input}`);
+            const result = await git(repo.root, args, { input });
+            const output = (result.stdout + result.stderr).trim();
+            if (output) this.log.info(output);
+          }
+        },
+      );
+      op.onSuccess?.();
+    } catch (failure) {
+      error = failure instanceof GitError ? `${failure.result.stdout}${failure.result.stderr}`.trim() : errorText(failure);
+      this.log.error(error);
+    } finally {
+      this.running = false;
+      this.post({ type: 'busy', title: null });
+      await this.refresh();
+    }
+
+    if (error === undefined) return { ok: true };
+    if (!options.silent) this.reportFailure(op, error);
+    return { ok: false, error };
+  }
+
+  private reportFailure(op: GitOp, error: string): void {
+    const showLog = (choice?: string) => choice && this.log.show();
+    const conflicts = this.state?.working.conflicts.length ?? 0;
+    if (this.state?.operation && conflicts) {
+      const files = conflicts === 1 ? '1 file has conflicts' : `${conflicts} files have conflicts`;
+      void vscode.window
+        .showWarningMessage(
+          `${op.title} stopped: ${files}. Resolve them in the Changes view, then continue or abort the ${this.state.operation}.`,
+          'Show Log',
+        )
+        .then(showLog);
+      return;
+    }
+    // Git prefixes the line that matters; hints and progress come after it.
+    const lines = error.split('\n').filter(Boolean);
+    const summary = lines.find((line) => /^(error|fatal):/.test(line)) ?? lines[0] ?? 'unknown error';
+    void vscode.window.showErrorMessage(`${op.title} failed. ${summary}`, 'Show Log').then(showLog);
+  }
+
+  /** The two versions of a file that a diff of `source` puts side by side, and what to call the pair. */
+  private sides(repo: Repo, source: DiffSource, file: FileChange): { left: vscode.Uri; right: vscode.Uri; label: string } | null {
+    const added = file.status === 'A' || file.status === '?';
+    const deleted = file.status === 'D';
+    const before = file.oldPath ?? file.path;
+    const head = this.state?.head ?? '';
+    const onDisk = vscode.Uri.file(path.join(repo.root, file.path));
+    const at = (ref: string, filePath = file.path) => contentUri(repo.root, ref, filePath);
+
+    switch (source.kind) {
+      case 'commit': {
+        const { hash, parent } = source;
+        if (!isHash(hash) || (parent !== null && !isHash(parent))) return null;
+        const label = `${parent ? parent.slice(0, 7) : 'empty'} ↔ ${hash.slice(0, 7)}`;
+        return { left: at(added || !parent ? '' : parent, before), right: at(deleted ? '' : hash), label };
+      }
+      case 'worktree':
+        return { left: at(added ? '' : head, before), right: deleted ? at('') : onDisk, label: 'Working Tree' };
+      case 'staged':
+        return { left: at(added ? '' : head, before), right: at(deleted ? '' : INDEX), label: 'Staged' };
+      case 'unstaged':
+        return { left: at(added ? '' : INDEX), right: deleted ? at('') : onDisk, label: 'Working Tree' };
+      case 'conflict':
+        return null;
+    }
+  }
+
+  /** Opens the diffs of several files in a single editor, one under the other. */
+  private async openChanges(title: string, source: DiffSource, files: FileChange[]): Promise<void> {
+    const repo = this.repo;
+    if (!repo) return;
+    const resources = files.flatMap((file) => {
+      const sides = this.sides(repo, source, file);
+      return sides ? [[vscode.Uri.file(path.join(repo.root, file.path)), sides.left, sides.right]] : [];
+    });
+    if (resources.length) await vscode.commands.executeCommand('vscode.changes', title, resources);
+  }
+
+  private async openDiff(source: DiffSource, file: FileChange): Promise<void> {
+    const repo = this.repo;
+    if (!repo) return;
+    const onDisk = vscode.Uri.file(path.join(repo.root, file.path));
+    const at = (ref: string) => contentUri(repo.root, ref, file.path);
+
+    switch (source.kind) {
+      case 'commit':
+      case 'worktree':
+      case 'staged':
+      case 'unstaged': {
+        const sides = this.sides(repo, source, file);
+        if (!sides) return;
+        const title = `${path.posix.basename(file.path)} (${sides.label})`;
+        await vscode.commands.executeCommand('vscode.diff', sides.left, sides.right, title);
+        return;
+      }
+      case 'conflict': {
+        // The merge editor needs all three sides: a file added or deleted on one of them has fewer, and opens as it is.
+        const stages = await repo.conflictStages(file.path);
+        if ([1, 2, 3].every((stage) => stages.includes(stage))) {
+          const [current, incoming] = CONFLICT_SIDES[this.state?.operation ?? 'none'];
+          try {
+            // The command the built-in Git extension uses. It is not part of the documented API, hence the fallback.
+            await vscode.commands.executeCommand('_open.mergeEditor', {
+              base: at(CONFLICT.base),
+              input1: { uri: at(CONFLICT.ours), title: 'Current', description: current },
+              input2: { uri: at(CONFLICT.theirs), title: 'Incoming', description: incoming },
+              output: onDisk,
+            });
+            return;
+          } catch (error) {
+            this.log.warn(`Could not open the merge editor: ${errorText(error)}`);
+          }
+        }
+        await vscode.commands.executeCommand('vscode.open', onDisk);
+        return;
+      }
+    }
+  }
+
+  private html(webview: vscode.Webview, dist: vscode.Uri, kind: ViewKind): string {
+    const nonce = Array.from({ length: 32 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+    const script = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.js'));
+    const style = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.css'));
+    const csp = `default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${style}" rel="stylesheet">
+</head>
+<body data-view="${kind}">
+  <div id="root"></div>
+  <script nonce="${nonce}" src="${script}"></script>
+</body>
+</html>`;
+  }
+}

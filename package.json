@@ -1,0 +1,285 @@
+{
+  "name": "gitar",
+  "displayName": "Gitar",
+  "description": "Commit graph, history and everyday Git operations in a single panel.",
+  "version": "0.0.1",
+  "publisher": "pozzi",
+  "private": true,
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "gitar",
+          "title": "Gitar",
+          "icon": "media/gitar.svg"
+        }
+      ],
+      "activitybar": [
+        {
+          "id": "gitar-sidebar",
+          "title": "Gitar",
+          "icon": "media/gitar.svg"
+        }
+      ]
+    },
+    "views": {
+      "gitar": [
+        {
+          "type": "webview",
+          "id": "gitar.graph",
+          "name": "Graph"
+        }
+      ],
+      "gitar-sidebar": [
+        {
+          "type": "webview",
+          "id": "gitar.changes",
+          "name": "Changes"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "gitar.openGraph",
+        "title": "Show Graph",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.openInEditor",
+        "title": "Open Graph in Editor",
+        "category": "Gitar",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "gitar.refresh",
+        "title": "Refresh",
+        "category": "Gitar",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitar.fetch",
+        "title": "Fetch",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.pull",
+        "title": "Pull",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.pullRebase",
+        "title": "Pull (Rebase)",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.push",
+        "title": "Push",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.pushForceWithLease",
+        "title": "Push (Force with Lease)",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.pushForce",
+        "title": "Push (Force)",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.showLog",
+        "title": "Show Command Log",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.openChanges",
+        "title": "Show Changes",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.stash",
+        "title": "Stash Changes",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.undo",
+        "title": "Undo Last Operation",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.fileHistory",
+        "title": "Show File History",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.revealCommit",
+        "title": "Show Commit in Graph",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.reflog",
+        "title": "Browse Reflog",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.cleanupBranches",
+        "title": "Clean Up Branches",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.signInGitHub",
+        "title": "Sign In to GitHub",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.toggleBlame",
+        "title": "Toggle Inline Blame",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.switchIdentity",
+        "title": "Switch Identity",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.selectRepository",
+        "title": "Select Repository",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.remotes",
+        "title": "Manage Remotes",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.bisectReset",
+        "title": "End Bisect",
+        "category": "Gitar"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gitar.revealCommit",
+          "when": "false"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "gitar.fileHistory",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "4_search@90"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gitar.fileHistory",
+          "when": "resourceScheme == file",
+          "group": "z_gitar@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "gitar.fileHistory",
+          "when": "resourceScheme == file",
+          "group": "z_gitar@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitar.refresh",
+          "when": "view == gitar.graph || view == gitar.changes",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitar.openInEditor",
+          "when": "view == gitar.graph",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Gitar",
+      "properties": {
+        "gitar.commandPreview": {
+          "type": "string",
+          "enum": [
+            "off",
+            "all"
+          ],
+          "enumDescriptions": [
+            "Only ask before commands that can lose work, such as a force push.",
+            "Show the exact Git commands and ask before running anything that changes the repository or a remote."
+          ],
+          "default": "off",
+          "description": "Controls when Gitar shows the Git commands it is about to run and waits for you to approve them."
+        },
+        "gitar.identities": {
+          "type": "array",
+          "default": [],
+          "description": "Names and emails to choose from with Gitar: Switch Identity. The chosen one is saved in the configuration of the repository.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "email"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Author name, as in user.name."
+              },
+              "email": {
+                "type": "string",
+                "description": "Author email, as in user.email."
+              },
+              "signingKey": {
+                "type": "string",
+                "description": "Optional key to sign commits with, as in user.signingkey."
+              }
+            }
+          }
+        },
+        "gitar.blame.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show who last changed the current line, and when, at the end of that line in the editor."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "node esbuild.mjs && node test/e2e/run.mjs",
+    "test:ui": "node esbuild.mjs && node test/e2e/ui.mjs",
+    "package": "node esbuild.mjs --production && vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "test:vsix": "npm run package && node test/e2e/run.mjs --vsix",
+    "preview": "node dist/dev-server.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/vscode": "~1.100.0",
+    "@vscode/codicons": "^0.0.46-24",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

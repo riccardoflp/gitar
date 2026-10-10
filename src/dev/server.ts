@@ -1,0 +1,205 @@
+import * as fs from 'node:fs';
+import * as http from 'node:http';
+import * as path from 'node:path';
+import { discoverRepos, repoName } from '../git/discover';
+import { parseGitHubRemote } from '../git/github';
+import { Repo } from '../git/repo';
+import type { Filter, HostMessage, WebviewMessage } from '../shared/protocol';
+
+// Usage: node dist/dev-server.js [--port=5174] [folder...]   (every repository found in the folders can be chosen in the page)
+// Read-only: actions that would change the repository or open an editor are only logged.
+
+const PAGE_SIZE = 1000;
+const options = process.argv.slice(2).filter((argument) => argument.startsWith('--'));
+const port = Number(options.find((option) => option.startsWith('--port='))?.slice(7) ?? process.env.PORT ?? 5174);
+const assets = __dirname;
+
+const THEMES = {
+  dark: {
+    foreground: '#cccccc',
+    background: '#181818',
+    description: '#9d9d9d',
+    border: '#2b2b2b',
+    hover: '#2a2d2e',
+    selection: '#04395e',
+    inactiveSelection: '#37373d',
+    button: '#313131',
+    buttonHover: '#3c3c3c',
+    input: '#313131',
+    badge: '#616161',
+    menu: '#1f1f1f',
+    link: '#4daafc',
+  },
+  light: {
+    foreground: '#3b3b3b',
+    background: '#f8f8f8',
+    description: '#717171',
+    border: '#e5e5e5',
+    hover: '#f2f2f2',
+    selection: '#e8e8e8',
+    inactiveSelection: '#e4e6f1',
+    button: '#e5e5e5',
+    buttonHover: '#cccccc',
+    input: '#ffffff',
+    badge: '#cccccc',
+    menu: '#ffffff',
+    link: '#005fb8',
+  },
+};
+
+function page(theme: keyof typeof THEMES, view: 'graph' | 'changes'): string {
+  const t = THEMES[theme];
+  const dark = theme === 'dark';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gitar preview</title>
+<style>
+:root {
+  --vscode-font-family: "Segoe UI", system-ui, sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: Consolas, monospace;
+  --vscode-foreground: ${t.foreground};
+  --vscode-descriptionForeground: ${t.description};
+  --vscode-panel-border: ${t.border};
+  --vscode-focusBorder: #0078d4;
+  --vscode-list-hoverBackground: ${t.hover};
+  --vscode-list-activeSelectionBackground: ${t.selection};
+  --vscode-list-activeSelectionForeground: ${dark ? '#ffffff' : '#000000'};
+  --vscode-list-inactiveSelectionBackground: ${t.inactiveSelection};
+  --vscode-button-secondaryBackground: ${t.button};
+  --vscode-button-secondaryForeground: ${t.foreground};
+  --vscode-button-secondaryHoverBackground: ${t.buttonHover};
+  --vscode-button-background: #0078d4;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #026ec1;
+  --vscode-errorForeground: ${dark ? '#f85149' : '#c72e0f'};
+  --vscode-editor-background: ${dark ? '#1f1f1f' : '#ffffff'};
+  --vscode-editorWidget-background: ${dark ? '#202020' : '#f3f3f3'};
+  --vscode-testing-iconPassed: ${dark ? '#73c991' : '#388a34'};
+  --vscode-testing-iconFailed: ${dark ? '#f14c4c' : '#e51400'};
+  --vscode-testing-iconQueued: ${dark ? '#cca700' : '#bf8803'};
+  --vscode-diffEditor-insertedLineBackground: ${dark ? '#9bb95533' : '#9ccc2c40'};
+  --vscode-diffEditor-removedLineBackground: ${dark ? '#ff000033' : '#ff000033'};
+  --vscode-list-dropBackground: ${dark ? '#383b3d' : '#d6ebff'};
+  --vscode-inputValidation-warningBackground: ${dark ? '#352a05' : '#f6f5d2'};
+  --vscode-inputValidation-warningBorder: #b89500;
+  --vscode-toolbar-hoverBackground: ${t.hover};
+  --vscode-input-background: ${t.input};
+  --vscode-input-foreground: ${t.foreground};
+  --vscode-input-placeholderForeground: ${t.description};
+  --vscode-badge-background: ${t.badge};
+  --vscode-badge-foreground: ${dark ? '#f8f8f8' : '#3b3b3b'};
+  --vscode-menu-background: ${t.menu};
+  --vscode-menu-foreground: ${t.foreground};
+  --vscode-menu-selectionBackground: #0078d4;
+  --vscode-menu-selectionForeground: #ffffff;
+  --vscode-textLink-foreground: ${t.link};
+  --vscode-gitDecoration-addedResourceForeground: ${dark ? '#81b88b' : '#587c0c'};
+  --vscode-gitDecoration-modifiedResourceForeground: ${dark ? '#e2c08d' : '#895503'};
+  --vscode-gitDecoration-deletedResourceForeground: ${dark ? '#c74e39' : '#ad0707'};
+  --vscode-gitDecoration-renamedResourceForeground: ${dark ? '#73c991' : '#007100'};
+  --vscode-gitDecoration-untrackedResourceForeground: ${dark ? '#73c991' : '#007100'};
+  --vscode-gitDecoration-conflictingResourceForeground: ${dark ? '#e4676b' : '#ad0707'};
+}
+body { background: ${t.background}; }
+</style>
+<link href="/webview.css" rel="stylesheet">
+</head>
+<body data-view="${view}">
+<div id="root"></div>
+<script>
+window.acquireVsCodeApi = () => ({
+  async postMessage(message) {
+    const response = await fetch('/message', { method: 'POST', body: JSON.stringify(message) });
+    for (const reply of await response.json()) window.postMessage(reply, '*');
+  },
+  getState: () => JSON.parse(sessionStorage.getItem('gitar') || 'null'),
+  // Hands the state back, as the one of VS Code does.
+  setState: (state) => (sessionStorage.setItem('gitar', JSON.stringify(state)), state),
+});
+</script>
+<script src="/webview.js"></script>
+</body>
+</html>`;
+}
+
+async function main() {
+  const given = process.argv.slice(2).filter((argument) => !argument.startsWith('--'));
+  const folders = (given.length ? given : ['.']).map((folder) => path.resolve(folder));
+  const roots = await discoverRepos(folders);
+  const repos = roots.map((root) => ({ root, name: repoName(root, folders) }));
+  let repo = roots.length ? new Repo(roots[0]) : null;
+  let limit = PAGE_SIZE;
+  let filter: Filter | null = null;
+
+  async function state(): Promise<HostMessage[]> {
+    if (!repo) return [{ type: 'state', state: null }];
+    const github = parseGitHubRemote(await repo.remoteUrl('origin'));
+    return [{ type: 'state', state: { ...(await repo.state(limit, filter)), repos, github } }];
+  }
+
+  async function handle(message: WebviewMessage): Promise<HostMessage[]> {
+    switch (message.type) {
+      case 'selectRepo':
+        if (!roots.includes(message.root)) return [];
+        repo = new Repo(message.root);
+        filter = null;
+        limit = PAGE_SIZE;
+        return state();
+      case 'setFilter':
+        filter = message.filter;
+        limit = PAGE_SIZE;
+        return state();
+      case 'loadMore':
+        limit += PAGE_SIZE;
+      // falls through
+      case 'ready':
+      case 'refresh':
+        return state();
+      case 'getComparison': {
+        const comparison = await repo?.compare(message.from, message.to);
+        return comparison ? [{ type: 'comparison', comparison }] : [];
+      }
+      case 'getDetail':
+        return [{ type: 'detail', hash: message.hash, detail: (await repo?.commitDetail(message.hash)) ?? null }];
+      case 'getHunks': {
+        const { path: file, staged } = message;
+        return [{ type: 'hunks', path: file, staged, hunks: (await repo?.hunks(file, staged)) ?? null }];
+      }
+      default:
+        console.log('not available in the preview:', JSON.stringify(message));
+        return [];
+    }
+  }
+
+  const types: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf' };
+
+  http
+    .createServer(async (request, response) => {
+      const url = new URL(request.url ?? '/', 'http://localhost');
+      try {
+        if (request.method === 'POST' && url.pathname === '/message') {
+          let body = '';
+          for await (const chunk of request) body += chunk;
+          response.setHeader('Content-Type', 'application/json');
+          response.end(JSON.stringify(await handle(JSON.parse(body))));
+        } else if (url.pathname === '/') {
+          response.setHeader('Content-Type', 'text/html');
+          const theme = url.searchParams.get('theme') === 'light' ? 'light' : 'dark';
+          response.end(page(theme, url.searchParams.get('view') === 'changes' ? 'changes' : 'graph'));
+        } else {
+          const file = path.join(assets, path.basename(url.pathname));
+          response.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream');
+          response.end(fs.readFileSync(file));
+        }
+      } catch (error) {
+        response.statusCode = 500;
+        response.end(String(error));
+      }
+    })
+    .listen(port, '127.0.0.1', () => console.log(`Gitar preview of ${roots.join(', ') || 'no repository'} on http://localhost:${port}`));
+}
+
+void main();

@@ -1,0 +1,1122 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+button:focus-visible,
+input:focus-visible,
+.commits:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.codicon {
+  font-size: 14px;
+  flex: none;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muted {
+  color: var(--vscode-descriptionForeground);
+}
+
+.mono {
+  font-family: var(--vscode-editor-font-family);
+}
+
+.count {
+  font-size: 0.85em;
+  padding: 0 5px;
+  border-radius: 8px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  container-type: inline-size;
+}
+
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Toolbar */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex: none;
+}
+
+.toolbar .spacer {
+  flex: 1;
+}
+
+/* The name of the branch is the one thing the toolbar must always say, so it does not shrink to make room for the rest. */
+.toolbar .current {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  margin-right: 6px;
+  flex: none;
+  max-width: 220px;
+  white-space: nowrap;
+}
+
+.toolbar .current .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.icon {
+  padding: 0 5px;
+  color: inherit;
+  background: none;
+}
+
+.button.icon:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.split {
+  position: relative;
+  display: flex;
+  gap: 1px;
+}
+
+.split .button:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.split .button:nth-child(2) {
+  padding: 0 3px;
+  border-radius: 0 3px 3px 0;
+}
+
+.menu {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  padding: 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  color: var(--vscode-menu-foreground);
+  background: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+}
+
+.menu button {
+  padding: 4px 10px;
+  border-radius: 3px;
+}
+
+.menu button:hover {
+  color: var(--vscode-menu-selectionForeground);
+  background: var(--vscode-menu-selectionBackground);
+}
+
+.busy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  width: 320px;
+  min-width: 150px;
+  flex-shrink: 1;
+  border-radius: 3px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+
+.search select {
+  flex: none;
+  max-width: 45%;
+  /* As wide as the chosen option, not as the longest one. */
+  field-sizing: content;
+  padding: 0;
+  font: inherit;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-input-background);
+  border: 0;
+  outline: 0;
+  cursor: pointer;
+}
+
+.search select:hover,
+.search select:focus-visible {
+  color: inherit;
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  outline: 0;
+}
+
+.search input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.search:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+/* The panel is often narrower than the toolbar is long: the buttons keep their icons and give up their words. */
+@container (max-width: 980px) {
+  .toolbar .button .label,
+  .toolbar .busy .label {
+    display: none;
+  }
+
+  .search {
+    width: 240px;
+  }
+}
+
+/* Narrower still, the search moves to a line of its own rather than pushing the last buttons out of sight. */
+@container (max-width: 760px) {
+  .toolbar {
+    flex-wrap: wrap;
+  }
+
+  .search {
+    flex: 1 1 200px;
+  }
+}
+
+/* Layout */
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+}
+
+.main.has-detail {
+  grid-template-columns: 210px minmax(0, 1fr) 320px;
+}
+
+/* References */
+
+.refs {
+  overflow-y: auto;
+  padding: 4px 0;
+  border-right: 1px solid var(--vscode-panel-border);
+}
+
+.refs button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 22px;
+  white-space: nowrap;
+}
+
+.refs button:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* Stays in sight while the names scroll under it. */
+.refs-filter {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin: 0 6px 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+
+.refs-filter:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.refs-filter .codicon {
+  font-size: 14px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.refs-filter input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  outline: 0;
+}
+
+.refs-filter input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.refs .refs-filter .clear {
+  flex: none;
+  width: auto;
+  height: auto;
+  border-radius: 3px;
+}
+
+.section {
+  padding: 0 8px 0 4px;
+  font-weight: 600;
+}
+
+.ref.more {
+  color: var(--vscode-textLink-foreground);
+}
+
+.ref {
+  padding: 0 8px 0 26px;
+}
+
+.ref.current {
+  font-weight: 600;
+}
+
+.ref.selected {
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.hint {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.pull {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.pull.success {
+  color: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground));
+}
+
+.pull.failure {
+  color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+}
+
+.pull.pending {
+  color: var(--vscode-testing-iconQueued, var(--vscode-editorWarning-foreground));
+}
+
+/* Commits */
+
+.commits {
+  position: relative;
+  overflow-y: auto;
+  container-type: inline-size;
+}
+
+.commits .spacer {
+  position: relative;
+}
+
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.row.selected {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.row.dimmed {
+  opacity: 0.35;
+}
+
+.row.worktree .subject {
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.graph {
+  flex: none;
+}
+
+.graph path {
+  fill: none;
+  stroke-width: 2;
+}
+
+.graph .hollow {
+  fill: none;
+  stroke-width: 2;
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 180px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  overflow: hidden;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.label .codicon {
+  font-size: 12px;
+}
+
+.label.branch,
+.label.head {
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  border-color: transparent;
+}
+
+.label.current {
+  font-weight: 600;
+  /* Drawn inside the label: the row cuts off what sticks out of it. */
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.label.remote {
+  color: var(--vscode-descriptionForeground);
+}
+
+.label.tag {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground);
+  border-style: dashed;
+}
+
+.label.good {
+  color: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground));
+}
+
+.label.bad {
+  color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+}
+
+.label.skipped {
+  color: var(--vscode-descriptionForeground);
+}
+
+.author,
+.date,
+.hash {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-descriptionForeground);
+}
+
+.row.selected .author,
+.row.selected .date,
+.row.selected .hash {
+  color: inherit;
+}
+
+.author {
+  width: 120px;
+}
+
+.date {
+  width: 84px;
+  text-align: right;
+}
+
+.hash {
+  width: 56px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+}
+
+@container (max-width: 560px) {
+  .author,
+  .hash {
+    display: none;
+  }
+}
+
+/* Details */
+
+.detail {
+  position: relative;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border-left: 1px solid var(--vscode-panel-border);
+  user-select: text;
+}
+
+.detail .close {
+  float: right;
+  margin: -2px -6px 0 4px;
+}
+
+.detail h2 {
+  margin: 0 0 6px;
+  font-size: 1.1em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.detail h3 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  margin: 12px 0 4px;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.detail h3 .muted {
+  font-weight: 400;
+}
+
+.body {
+  margin: 0 0 8px;
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 0;
+}
+
+.detail dt {
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.link {
+  color: var(--vscode-textLink-foreground);
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link .codicon {
+  font-size: 12px;
+  vertical-align: -1px;
+}
+
+.detail .files {
+  margin: 0 -12px;
+}
+
+/* Under a list cut short. */
+.show-all {
+  display: block;
+  padding: 3px 12px;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px 0 12px;
+  white-space: nowrap;
+}
+
+.file:hover,
+.file:focus-within {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.file-open {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file .button.icon {
+  height: 20px;
+  padding: 0 3px;
+  display: none;
+}
+
+.file:hover .button.icon,
+.file:focus-within .button.icon {
+  display: inline-flex;
+}
+
+.file .status {
+  flex: none;
+  width: 10px;
+  font-weight: 600;
+}
+
+.file .name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file .dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.status-A,
+.status-C {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.status-M,
+.status-T {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground);
+}
+
+.status-D {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.status-R {
+  color: var(--vscode-gitDecoration-renamedResourceForeground);
+}
+
+.status-U {
+  color: var(--vscode-gitDecoration-conflictingResourceForeground);
+}
+
+.status-untracked {
+  color: var(--vscode-gitDecoration-untrackedResourceForeground);
+}
+
+/* Hunks */
+
+.twist {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin-left: -10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.hunk-note {
+  margin: 2px 12px 6px 30px;
+}
+
+.hunk {
+  margin: 2px 8px 8px 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.hunk header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 6px;
+  font-size: 0.9em;
+  font-weight: 400;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.hunk header .button.icon {
+  height: 20px;
+  padding: 0 3px;
+}
+
+.hunk pre {
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.9em;
+  line-height: 1.45;
+  background: var(--vscode-editor-background);
+  user-select: text;
+}
+
+.hunk pre span {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
+.hunk .added {
+  background: var(--vscode-diffEditor-insertedLineBackground);
+}
+
+.hunk .removed {
+  background: var(--vscode-diffEditor-removedLineBackground);
+}
+
+.hunk .pickable {
+  cursor: pointer;
+}
+
+.hunk .pickable:hover {
+  box-shadow: inset 2px 0 var(--vscode-descriptionForeground);
+}
+
+.hunk .picked,
+.hunk .picked:hover {
+  font-weight: 600;
+  box-shadow: inset 3px 0 var(--vscode-focusBorder);
+}
+
+/* Drag and drop */
+
+.row.drop-target {
+  background: var(--vscode-list-dropBackground);
+  outline: 1px dashed var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Interactive rebase */
+
+.main {
+  position: relative;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editor-background);
+}
+
+.overlay header,
+.overlay footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.overlay header {
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.overlay footer {
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.problem {
+  color: var(--vscode-errorForeground);
+}
+
+.steps {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px;
+  white-space: nowrap;
+  cursor: grab;
+}
+
+.step:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.step.dragged {
+  background: var(--vscode-list-dropBackground);
+}
+
+.step.drop .subject {
+  text-decoration: line-through;
+  color: var(--vscode-descriptionForeground);
+}
+
+.step.squash .subject,
+.step.fixup .subject {
+  padding-left: 16px;
+}
+
+.step select,
+.step input {
+  height: 22px;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 3px;
+}
+
+.step input {
+  padding: 0 6px;
+}
+
+/* Context menu */
+
+.menu.context {
+  position: fixed;
+  min-width: 180px;
+  /* Padding and border included, or a long menu would still be a few pixels taller than a short panel. */
+  box-sizing: border-box;
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+  outline: 0;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgb(0 0 0 / 35%));
+}
+
+/* Too many entries for the height of the view: side by side, and it only scrolls if even that is not enough. */
+.menu.context.columns {
+  display: block;
+  column-gap: 4px;
+  column-rule: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+}
+
+.menu.context.columns button {
+  display: block;
+  width: 100%;
+  text-align: start;
+  break-inside: avoid;
+}
+
+.menu hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+}
+
+.menu .danger:not(:hover) {
+  color: var(--vscode-errorForeground);
+}
+
+/* Operation in progress */
+
+.banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+  color: var(--vscode-inputValidation-warningForeground, inherit);
+  background: var(--vscode-inputValidation-warningBackground);
+  border-bottom: 1px solid var(--vscode-inputValidation-warningBorder);
+}
+
+.banner .grow {
+  min-width: 120px;
+}
+
+.banner.bisect {
+  color: inherit;
+  background: var(--vscode-editorWidget-background);
+  border-bottom-color: var(--vscode-panel-border);
+}
+
+/* Repository of a workspace that has several */
+
+.repo {
+  flex: none;
+  max-width: 180px;
+  height: 24px;
+  padding: 0 4px;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 3px;
+  field-sizing: content;
+}
+
+.changes > .repo {
+  max-width: none;
+  margin: 8px 12px 0;
+  field-sizing: fixed;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail .swap {
+  margin-top: 8px;
+}
+
+/* History of a file, or search results */
+
+.filterbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--vscode-editorWidget-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* Changes view */
+
+.changes {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.commit-box {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.commit-box textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 4px 6px;
+  resize: vertical;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 3px;
+}
+
+.commit-box textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.commit-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.commit-actions label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.commit-actions input {
+  margin: 0;
+}
+
+.button.primary {
+  padding: 0 12px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.group header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 8px 0 12px;
+  font-weight: 600;
+}
+
+.group header .count {
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+.group header .button.icon {
+  height: 20px;
+  padding: 0 3px;
+}
+
+.none {
+  padding: 0 12px;
+}
+
+/* Narrow placements, such as the side bar: drop the references and stack the details under the list. */
+
+@container (max-width: 720px) {
+  .refs {
+    display: none;
+  }
+
+  .main,
+  .main.has-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main.has-detail {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .detail {
+    border-left: 0;
+    border-top: 1px solid var(--vscode-panel-border);
+  }
+
+  .search {
+    width: 140px;
+  }
+}
