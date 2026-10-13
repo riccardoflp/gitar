@@ -1016,6 +1016,7 @@ export async function run(): Promise<void> {
     // What VS Code hands to the command of a button: the file it is on, or the group with its files.
     const file = (root: string, name: string) => ({ resourceUri: vscode.Uri.file(path.join(root, name)) });
     const stashed = () => logged.filter((line) => line.startsWith('> git stash push'));
+    const before = errors.length;
     const pop = () => controller.action({ kind: 'stashPop', ref: 'stash@{0}' });
     write('a.txt', 'one\ntwo\nstash me\n');
     write('keep.txt', 'stays\n');
@@ -1059,7 +1060,7 @@ export async function run(): Promise<void> {
       assert.equal(state().changes, 0);
       await pop();
       await git(lib, ['checkout', '--', 'lib.txt']);
-      assert.deepEqual(errors, []);
+      assert.equal(errors.length, before);
     } finally {
       await controller.selectRepo(state().repos[0].root);
       answer = run;

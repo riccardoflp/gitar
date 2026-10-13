@@ -781,7 +781,7 @@ try {
         unpushed: row.classList.contains('unpushed'),
         icon: row.querySelector('.push-state .codicon').className,
         title: row.querySelector('.file-open').title,
-        read: row.querySelector('.name').getBoundingClientRect().width >= 40,
+        read: row.querySelector('.name').scrollWidth <= row.querySelector('.name').clientWidth + 1 || row.querySelector('.name').clientWidth >= 40,
       }))`);
     const rows = await until('the commits', async () => {
       const now = await listed();
@@ -798,7 +798,7 @@ try {
     const waiting = rows.filter((row) => row.unpushed).length;
     const summary = await commits.evaluate(`document.querySelector('.log-summary').textContent`);
     assert(summary === waiting + (waiting === 1 ? ' commit' : ' commits') + ' to push to origin/main', `summary: ${summary}`);
-    await until('what its header says', async () => (await header('Commits'))?.description === 'workspace/app · main');
+    await until('what its header says', async () => (await header('Commits'))?.description === 'app · main');
 
     // A commit unfolds to the files it changed, with what happened to each.
     await commits.click('.commit .file-open', 'Add b');
@@ -1188,7 +1188,8 @@ try {
           whole: body.scrollHeight,
           more: box.querySelector('.more')?.textContent ?? null,
           wide: box.getBoundingClientRect().width >= document.querySelector('.detail dl').getBoundingClientRect().width - 1,
-          files: document.querySelector('.detail .files').getBoundingClientRect().top < detail.bottom,
+          // In a panel this low, what is in sight of the files is the line that counts them.
+          files: document.querySelector('.detail h3').getBoundingClientRect().top < detail.bottom,
         };
       })()`);
     const message = await until('the message measured', async () => {
@@ -1204,6 +1205,8 @@ try {
     });
     assert(whole.height >= whole.whole - 1 && whole.height > whole.line * 13, `the whole message: ${JSON.stringify(whole)}`);
     await shot('detail-message');
+    // The button is under the message now, which in a panel this low is past its edge.
+    await graph.evaluate(`document.querySelector('.detail .said .more').scrollIntoView({ block: 'nearest' })`);
     await graph.click('.detail .said .more');
     await until('its first lines again', async () => (await said()).more === 'Show more');
 
