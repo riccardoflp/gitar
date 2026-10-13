@@ -166,9 +166,12 @@ export async function startWindow({ workspace, temp, out, codePath, settings: ex
 
   /** One of Gitar's webviews: where it is in the window, and a way to run code inside it. `accept` chooses among several by their place. */
   async function webview(kind, accept = () => true) {
+    // The identifier VS Code gives the extension: who publishes it and its name, as its package says.
+    const { publisher, name } = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));
+    const extensionId = `${publisher}.${name}`.toLowerCase();
     return until(`the ${kind} view`, async () => {
       for (const target of await targets(port)) {
-        if (!target.url.startsWith('vscode-webview://') || !target.url.includes('extensionId=pozzi.gitar')) continue;
+        if (!target.url.startsWith('vscode-webview://') || !target.url.toLowerCase().includes(`extensionid=${extensionId}`)) continue;
         const session = (sessions[target.id] ??= await Session.open(target.webSocketDebuggerUrl));
         if (!session.enabled) {
           session.enabled = true;

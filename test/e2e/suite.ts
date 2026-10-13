@@ -61,7 +61,8 @@ export async function run(): Promise<void> {
   const lib = path.join(workspace, 'lib');
   const write = (file: string, content: string) => fs.writeFileSync(path.join(app, file), content);
 
-  const extension = vscode.extensions.getExtension<GitarApi>('pozzi.gitar');
+  // By its name, whoever publishes it.
+  const extension = vscode.extensions.all.find((candidate) => candidate.packageJSON.name === 'gitar') as vscode.Extension<GitarApi> | undefined;
   assert.ok(extension, 'the extension is installed');
   const { controller, log, fileBlame } = await extension.activate();
   const internals = controller as unknown as Internals;
