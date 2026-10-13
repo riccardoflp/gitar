@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { unwrap } from '../shared/message';
+import { said } from '../shared/message';
 import type { CommitDetail, DiffSource, FileChange, FilePatch, FilesLayout, Hunk, RepoState } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { buildLabels } from './App';
@@ -188,6 +188,7 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
 
   const source: DiffSource = { kind: 'commit', hash: detail.hash, parent: detail.parents[0] ?? null };
   const title = `${shortHash(detail.hash)} ${detail.subject}`;
+  const message = said(detail.subject, detail.body);
   // The labels are those of the repository the other views show, which may be another by now.
   const labels = state?.root === root ? (buildLabels(state).get(detail.hash) ?? []) : [];
   const added = patch?.reduce((sum, file) => sum + file.added, 0) ?? 0;
@@ -208,7 +209,7 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
   return (
     <main className="commit-page">
       <header className="commit-head">
-        <h1>{detail.subject}</h1>
+        <h1>{message.title}</h1>
         {labels.length > 0 && (
           <div className="message commit-labels">
             {labels.map((label) => (
@@ -219,7 +220,7 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
             ))}
           </div>
         )}
-        {detail.body && <pre className="body">{unwrap(detail.body)}</pre>}
+        {message.text && <pre className="body">{message.text}</pre>}
         <dl>
           <dt>Author</dt>
           <dd>

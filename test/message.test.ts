@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { unwrap } from '../src/shared/message';
+import { said, subjectAndBody, unwrap } from '../src/shared/message';
 
 const lines = (...text: string[]) => text.join('\n');
 
@@ -136,5 +136,80 @@ describe('unwrap', () => {
   it('takes the width from the message when its lines are cut before the usual one', () => {
     const body = lines('Lines cut at sixty columns are put back together too, as', 'these two are, in a message with nothing longer.');
     expect(unwrap(body)).toBe('Lines cut at sixty columns are put back together too, as these two are, in a message with nothing longer.');
+  });
+});
+
+describe('subjectAndBody', () => {
+  it('takes the first line for the subject and the rest for the body', () => {
+    expect(subjectAndBody('Second commit\n\nWith a body.\n')).toEqual({ subject: 'Second commit', body: 'With a body.' });
+    expect(subjectAndBody('Only a subject\n')).toEqual({ subject: 'Only a subject', body: '' });
+    expect(subjectAndBody('')).toEqual({ subject: '', body: '' });
+  });
+
+  it('puts back together a subject that was cut into lines', () => {
+    const message = lines(
+      'The old reading no longer jumps: its path counts the ticks it really',
+      'moves in, not the clock. Before, the clock went on all the same and it',
+      'showed up where it should have been.',
+      '',
+      'Co-Authored-By: Someone <someone@example.com>',
+    );
+    expect(subjectAndBody(message)).toEqual({
+      subject:
+        'The old reading no longer jumps: its path counts the ticks it really moves in, not the clock. Before, the clock went on all the same and it showed up where it should have been.',
+      body: 'Co-Authored-By: Someone <someone@example.com>',
+    });
+  });
+
+  it('leaves under the subject what was written right under it on lines of its own', () => {
+    expect(subjectAndBody(lines('Tidy up', '- the names of the views', '- the order of the commands'))).toEqual({
+      subject: 'Tidy up',
+      body: lines('- the names of the views', '- the order of the commands'),
+    });
+    const cut = lines(
+      'A subject that was cut where the line ended, as the next word would not',
+      'fit, and then stops.',
+      'Something else, on a line of its own, that says more about what the commit does.',
+    );
+    expect(subjectAndBody(cut)).toEqual({
+      subject: 'A subject that was cut where the line ended, as the next word would not fit, and then stops.',
+      body: 'Something else, on a line of its own, that says more about what the commit does.',
+    });
+  });
+});
+
+describe('said', () => {
+  it('keeps a subject of the usual length as the title, over the body put back together', () => {
+    expect(said('Fix the chart on narrow screens', '')).toEqual({ title: 'Fix the chart on narrow screens', text: '' });
+    const body = lines('The API of the tide service times out a few times a day, and the chart', 'was left empty until the next refresh.');
+    expect(said('Retry on timeouts', body)).toEqual({ title: 'Retry on timeouts', text: unwrap(body) });
+  });
+
+  it('gives the title the first sentence of a subject that is a whole paragraph', () => {
+    const first = 'The old reading no longer jumps: its path counts the ticks it really moves in, not the clock.';
+    const rest = 'Before, held still by the surprise of seeing you, the clock went on all the same, and it showed up where it should have been.';
+    expect(said(`${first} ${rest}`, '')).toEqual({ title: first, text: rest });
+    expect(said(`${first} ${rest}`, 'Co-Authored-By: Someone <someone@example.com>')).toEqual({
+      title: first,
+      text: `${rest}\n\nCo-Authored-By: Someone <someone@example.com>`,
+    });
+  });
+
+  it('does not take for a sentence what stops at an abbreviation or a version', () => {
+    const subject = 'Handle the case of e.g. empty lists in v1.2. Then go on for a long while about everything else that this very long commit happens to change';
+    expect(said(subject, '').title).toBe('Handle the case of e.g. empty lists in v1.2.');
+  });
+
+  it('cuts at a word a subject whose first sentence is as long, and says so on both sides', () => {
+    const subject = Array.from({ length: 30 }, (_, index) => `word${index}`).join(' ');
+    const { title, text } = said(subject, 'More.');
+    expect(title.length).toBeLessThanOrEqual(81);
+    expect(title.endsWith('…') && text.startsWith('…') && text.endsWith('\n\nMore.')).toBe(true);
+    expect(`${title.slice(0, -1)} ${text.slice(1, -7)}`).toBe(subject);
+  });
+
+  it('leaves whole a long subject with nowhere to cut it', () => {
+    const subject = 'x'.repeat(150);
+    expect(said(subject, '')).toEqual({ title: subject, text: '' });
   });
 });

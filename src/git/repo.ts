@@ -17,6 +17,7 @@ import {
   type Search,
   type WorkingState,
 } from '../shared/protocol';
+import { subjectAndBody } from '../shared/message';
 import { SCOPE_PREFIXES, pruneScope } from '../shared/scope';
 import { resolveConflicts, type Conflict } from './conflicts';
 import { GitError, formatCommand, git, type GitResult } from './exec';
@@ -485,7 +486,7 @@ export class Repo {
     const [full, parentList, author, email, date, committer, committerEmail, commitDate, ...message] = meta.split('\x1f');
     if (!full) return null;
     const parents = parentList ? parentList.split(' ') : [];
-    const [subject, ...body] = message.join('\x1f').trim().split('\n');
+    const { subject, body } = subjectAndBody(message.join('\x1f'));
 
     const rootFiles = (commit: string) => this.read(['diff-tree', '--root', '--no-commit-id', '-r', '--name-status', '-z', commit]);
     const files = parents.length ? await this.read(['diff', '--name-status', '-z', '-M', parents[0], full]) : await rootFiles(full);
@@ -511,7 +512,7 @@ export class Repo {
       committerEmail,
       commitDate: Number(commitDate),
       subject,
-      body: body.join('\n').trim(),
+      body,
       files: parseNameStatus(files),
       untracked,
     };

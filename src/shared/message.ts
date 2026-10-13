@@ -13,6 +13,54 @@ const APART = /^[>#]|^\S*:\/\/\S*$|^\S{30,}$/;
 /** `Co-Authored-By: someone`, as the last lines of a message are when they say such things. */
 const TRAILER = /^[A-Za-z0-9][A-Za-z0-9-]*: \S/;
 
+/**
+ * A message as its subject and what follows it. The subject is the first line, with the lines after it that it was
+ * cut into: git takes the whole first paragraph for it, which would take in a list written right under the first line.
+ */
+export function subjectAndBody(message: string): { subject: string; body: string } {
+  const text = message.trim();
+  const end = text.search(/\n[ \t]*\n/);
+  const first = (end < 0 ? text : text.slice(0, end)).split('\n');
+  const whole = unwrap(first.join('\n')).split('\n')[0];
+  let subject = first[0];
+  let taken = 1;
+  while (subject.length < whole.length && taken < first.length) subject += ` ${first[taken++].trim()}`;
+  return { subject, body: (first.slice(taken).join('\n') + (end < 0 ? '' : text.slice(end))).trim() };
+}
+
+/** The longest a subject is shown whole as a title: one that goes on is a paragraph, not a title. */
+const TITLE_LENGTH = 100;
+/** How short a first sentence can be and still make a title, and how far past the usual length one may end. */
+const SHORTEST_TITLE = 20;
+const LONGEST_TITLE = 120;
+/** The end of a sentence: its mark, what may close it, and the capital letter or the digit the next one starts with. */
+const SENTENCE_END = /[.!?]["')\]]?(?=\s+[\p{Lu}\d])/gu;
+
+/**
+ * What a commit says, as a title and the text under it. Git calls subject the whole first paragraph, and some
+ * messages are one paragraph: shown as a title it would fill the details with bold text. A subject that long gives
+ * its first sentence to the title, or its first words when the sentence is as long, and the rest opens the text.
+ */
+export function said(subject: string, body: string): { title: string; text: string } {
+  const text = unwrap(body);
+  if (subject.length <= TITLE_LENGTH) return { title: subject, text };
+  let cut = 0;
+  for (const end of subject.matchAll(SENTENCE_END)) {
+    const at = end.index + end[0].length;
+    if (at > LONGEST_TITLE) break;
+    if (at >= SHORTEST_TITLE) {
+      cut = at;
+      break;
+    }
+  }
+  const sentence = cut > 0;
+  if (!sentence) cut = subject.lastIndexOf(' ', TITLE_LENGTH - 20);
+  if (cut <= 0) return { title: subject, text };
+  const title = subject.slice(0, cut).trimEnd();
+  const rest = subject.slice(cut).trimStart();
+  return { title: sentence ? title : `${title}…`, text: [sentence ? rest : `…${rest}`, text].filter(Boolean).join('\n\n') };
+}
+
 /** Where the last paragraph starts, when every line of it is a trailer; or past the end. */
 function trailersFrom(lines: string[]): number {
   let end = lines.length;

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { unwrap } from '../shared/message';
+import { said } from '../shared/message';
 import { WORKTREE, type CommitDetail, type DiffSource, type FileChange, type FilesLayout } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
@@ -19,15 +19,14 @@ interface Props {
 const NONE: ReadonlySet<string> = new Set();
 
 /**
- * What a message says after its first line. A long one shows its first lines, which leaves the files in sight, and
+ * What a message says under its title. A long one shows its first lines, which leaves the files in sight, and
  * the rest when asked: in place, so that nothing scrolls inside the details but the details.
  */
-function Said({ body }: { body: string }) {
+function Said({ text }: { text: string }) {
   const [whole, setWhole] = useState(false);
   // Whether there is more than the lines shown: known once they are laid out, and again when the width changes.
   const [cut, setCut] = useState(false);
   const element = useRef<HTMLPreElement>(null);
-  const text = useMemo(() => unwrap(body), [body]);
 
   useLayoutEffect(() => {
     const shown = element.current;
@@ -55,6 +54,7 @@ function Said({ body }: { body: string }) {
 
 export function Detail({ hash, detail, onJump, onClose }: Props) {
   const worktree = hash === WORKTREE;
+  const message = useMemo(() => (detail ? said(detail.subject, detail.body) : null), [detail]);
   const source: DiffSource = worktree
     ? { kind: 'worktree' }
     : { kind: 'commit', hash, parent: detail?.parents[0] ?? null };
@@ -105,8 +105,8 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
         <p className="muted">Loading…</p>
       ) : (
         <>
-          <h2>{detail.subject}</h2>
-          {detail.body && <Said key={hash} body={detail.body} />}
+          <h2>{message?.title}</h2>
+          {message?.text && <Said key={hash} text={message.text} />}
           {!worktree && (
             <dl>
               <dt>Author</dt>
