@@ -13,7 +13,15 @@ See [Side bar](#side-bar). Like any VS Code view they can be dragged somewhere e
 
 ## Installation
 
-Gitar is not on the Marketplace. Build the package and install it from the file:
+Search for **Gitar** in the Extensions view of VS Code and install it, or run:
+
+```bash
+code --install-extension RiccardoFilippozzi.gitar
+```
+
+Gitar needs VS Code 1.100 or later and `git` on your `PATH`.
+
+To build it yourself instead, pack it and install it from the file:
 
 ```bash
 npm install
@@ -21,7 +29,7 @@ npm run package
 code --install-extension gitar-0.1.0.vsix
 ```
 
-Reload the VS Code window afterwards. To update, run the last two commands again; to remove it, `code --uninstall-extension RiccardoFilippozzi.gitar`. Gitar needs VS Code 1.100 or later and `git` on your `PATH`.
+Reload the VS Code window afterwards. To update, run the last two commands again; to remove it, `code --uninstall-extension RiccardoFilippozzi.gitar`.
 
 ## Features
 
@@ -376,7 +384,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the branches checked out last are listed and the favorites of each repository remembered, that every line of a file is given the commit that changed it last and what is typed is not committed, that the commit of a line opens in a tab and the file opens as it was before it with the blame it had then, that every file shows its blame when that is asked but for the ones it is hidden in, that a pull sets aside the changes that are not committed and says when they do not fit on what came in, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, that nothing about resolving conflicts automatically is offered or run until its setting is on, and that with it on the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
 
-`npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file, so it is built with the flag that allows that; add one before publishing it anywhere.
+`npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification.
 
 What that suite cannot see is what only eyes and hands can: how the views look, the blame annotations, drag and drop, the context menus of the webviews, and the real dialogs, which VS Code refuses to show while it runs tests. That is what the next one is for.
 
@@ -450,3 +458,7 @@ Measure the views with the minified build (`node esbuild.mjs --production`): the
 | `src/webview` | The React UI. |
 | `src/dev` | The browser preview server. |
 | `test` | Unit and integration tests, and `test/e2e` with the end-to-end suite, the run that uses the window, and the scripts that launch VS Code for them; `test/perf` with the scripts for large repositories. |
+
+## License
+
+Gitar is released under the [MIT license](LICENSE). Its package includes the [Codicons](https://github.com/microsoft/vscode-codicons) font of Microsoft, under CC BY 4.0, and [React](https://react.dev), under the MIT license.

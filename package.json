@@ -4,13 +4,31 @@
   "description": "Commit graph, history and everyday Git operations in a single panel.",
   "version": "0.1.0",
   "publisher": "RiccardoFilippozzi",
+  "license": "MIT",
+  "icon": "media/icon.png",
   "repository": "https://github.com/riccardoflp/gitar",
+  "homepage": "https://github.com/riccardoflp/gitar#readme",
+  "bugs": {
+    "url": "https://github.com/riccardoflp/gitar/issues"
+  },
   "private": true,
   "engines": {
     "vscode": "^1.100.0"
   },
   "categories": [
     "SCM Providers"
+  ],
+  "keywords": [
+    "git",
+    "graph",
+    "history",
+    "log",
+    "blame",
+    "branch",
+    "commit",
+    "rebase",
+    "stash",
+    "scm"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -767,7 +785,7 @@
     "test": "vitest run",
     "test:e2e": "node esbuild.mjs && node test/e2e/run.mjs",
     "test:ui": "node esbuild.mjs && node test/e2e/ui.mjs",
-    "package": "node esbuild.mjs --production && vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "package": "node esbuild.mjs --production && vsce package --no-dependencies",
     "test:vsix": "npm run package && node test/e2e/run.mjs --vsix",
     "preview": "node dist/dev-server.js"
   },
