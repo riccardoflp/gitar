@@ -124,13 +124,36 @@ The box in the toolbar searches in one of five ways, chosen from the list next t
 
 | Mode | Finds | Runs |
 | --- | --- | --- |
-| Loaded | Message, author or hash among the commits already loaded, highlighted as you type. `Enter` jumps to the next match. | Nothing |
+| Loaded | Message, author or hash among the commits already loaded, highlighted as you type | Nothing |
 | Message | Commits whose message contains the text, ignoring case | `git log --grep` |
 | Author | Commits whose author name or email contains the text, ignoring case | `git log --author` |
 | Changes | Commits that add or remove the text | `git log -S` |
 | Changes (regex) | Commits with a changed line that matches a POSIX extended regular expression (`[0-9]`, not `\d`) | `git log -G` |
 
-All modes but the first search every branch, remote branch and tag when you press `Enter`, and replace the graph with the list of results until you choose **Show all commits**. The two that look inside the changes read every commit and can take a while on a large repository.
+All modes but the first search the whole history that is shown when you press `Enter`: every branch, remote branch and tag, or what a filter leaves of them. The two that look inside the changes read every commit and can take a while on a large repository.
+
+The commits found stay where they are in the graph and the others are dimmed. The box counts them, `2/14` when the selected commit is the second of fourteen, and steps through them:
+
+| Key | Does |
+| --- | --- |
+| `Enter`, `F3` or the arrow down | Selects the next match, and starts again from the first after the last |
+| `Shift+Enter`, `Shift+F3` or the arrow up | Selects the previous one |
+| `Ctrl+F` (`Cmd+F` on macOS) | Puts the cursor in the box, from anywhere in the view |
+| `Escape` | Empties the box |
+
+A match further back than the history is loaded is loaded when you step to it. What a search of the whole history found is found again when the commits change, so a commit made or fetched meanwhile is counted too; a search stops counting at 5,000 commits and says so with a `+`.
+
+The funnel in the box, there for every mode but the first, shows the same search the other way: only the commits found, as a list, until you press it again or choose **Show all commits**. It stays the way you leave it.
+
+#### Go to a commit
+
+Type the hash of a commit in the box, or the first four characters or more of it, with **Loaded** chosen. If the commit is among the loaded ones it is highlighted like any other match; if it is not, the box offers `Enter ↵`, and pressing it asks git for the commit wherever it is:
+
+- further back than the history is loaded: the history is loaded up to it;
+- left out by the filter in use, such as the history of a file or of a branch: the filter is removed;
+- on no branch or tag, such as a commit lost to a reset or a rebase: the graph shows the history of that commit alone, until you choose **Show all commits**.
+
+**Gitar: Go to Commit…**, also under **…** in the toolbar and in the header of the Commits view, asks for anything git takes for a commit instead: a hash, a branch, a tag, `HEAD~3`, `main@{yesterday}`.
 
 ### File history
 
@@ -247,7 +270,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -265,6 +288,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the context menu of a commit stays inside the view with every entry in sight, and creates a branch through the real prompts;
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
+- the search counts the commits it finds and steps through them with the keys and the arrows, goes to a commit by its hash even when no branch reaches it, highlights in the graph what git finds in the whole history or lists it alone, and counts a commit made meanwhile;
 - a branch dragged onto the checked out commit offers to merge or rebase;
 - the references and the details get wider when the line beside them is dragged, and a double click undoes it;
 - a graph of twenty branches side by side keeps to its width by drawing them closer, gets narrower and wider when its edge is dragged, and a double click undoes it;

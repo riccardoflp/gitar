@@ -167,6 +167,27 @@ async function main() {
       }
       case 'show':
         return [{ type: 'reveal', hash: message.hash }];
+      case 'goTo': {
+        const hash = await repo?.resolve(message.revision);
+        if (!repo || !hash) return [];
+        const shown = filter;
+        let index = await repo.position(hash, shown);
+        if (index < 0 && shown) {
+          filter = null;
+          index = await repo.position(hash);
+        }
+        if (index < 0) {
+          filter = { kind: 'ref', ref: hash, lost: true };
+          index = 0;
+        }
+        limit = Math.max(filter === shown ? limit : PAGE_SIZE, (Math.floor(index / PAGE_SIZE) + 1) * PAGE_SIZE);
+        return [...(await state()), { type: 'reveal', hash }];
+      }
+      case 'find': {
+        const { search } = message;
+        const found = await repo?.matches(search, filter && 'query' in filter ? null : filter, 5000).catch(() => null);
+        return [{ type: 'found', search, ...(found ?? { hashes: [], more: false, failed: true }) }];
+      }
       case 'getDetail':
         return [{ type: 'detail', hash: message.hash, detail: (await repo?.commitDetail(message.hash)) ?? null }];
       case 'getHunks': {

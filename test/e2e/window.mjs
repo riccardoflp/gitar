@@ -8,9 +8,12 @@ import { Session, freePort, sleep, targets, until } from './cdp.mjs';
 import { environment, findCode, isolated, source } from './fixture.mjs';
 
 export const CTRL = 2;
+export const SHIFT = 8;
 const KEYS = {
   P: { key: 'p', code: 'KeyP', windowsVirtualKeyCode: 80 },
+  F: { key: 'f', code: 'KeyF', windowsVirtualKeyCode: 70 },
   F1: { key: 'F1', code: 'F1', windowsVirtualKeyCode: 112 },
+  F3: { key: 'F3', code: 'F3', windowsVirtualKeyCode: 114 },
   Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
   Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
   ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },

@@ -1,20 +1,29 @@
-import { useState, type MouseEvent } from 'react';
-import type { Filter, RepoState, SyncAction, UiCommand } from '../shared/protocol';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import type { RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { RepoSelect } from './RepoSelect';
 import { act } from './menus';
-import { post } from './vscode';
+import { loadUiState, post, saveUiState } from './vscode';
 
 interface Props {
   state: RepoState;
   busy: string | null;
   /** Only the search and the menu: in the side bar the header of the view has the buttons, and the room is for the commits. */
   compact?: boolean;
-  matchCount: number | null;
+  /**
+   * The commits the search matches: how many, which of them is selected, counting from 0, and whether there are more
+   * than were counted. Null when nothing is searched for.
+   */
+  matches: { count: number; index: number | null; more: boolean } | null;
+  /** Git is looking for them. */
+  searching: boolean;
   /** Highlights the loaded commits that contain the text. */
   onQuery(query: string): void;
-  onNextMatch(): void;
+  /** A search of the whole history is asked for, or again to go on from its results; null when it no longer holds. */
+  onSearch(search: Search | null, by: 1 | -1): void;
+  /** To the match after the selected one, or to the one before it. */
+  onStep(by: 1 | -1): void;
 }
 
 const PULL_VARIANTS: { action: SyncAction; label: string }[] = [
@@ -29,13 +38,16 @@ const PUSH_VARIANTS: { action: SyncAction; label: string }[] = [
 ];
 
 /** `loaded` highlights matches among the commits on screen; the others ask git to search the whole history. */
-type SearchMode = 'loaded' | Exclude<Filter['kind'], 'path' | 'ref'>;
+type SearchMode = 'loaded' | Search['kind'];
+
+/** What may be the hash of a commit, or the start of one. */
+const HASH = /^[0-9a-f]{4,64}$/i;
 
 const SEARCH_MODES: Record<SearchMode, { label: string; placeholder: string; title: string }> = {
   loaded: {
     label: 'Loaded',
     placeholder: 'Find by message, author or hash',
-    title: 'Highlight matches among the loaded commits',
+    title: 'Highlight matches among the loaded commits. Enter on a hash goes to that commit, however far back it is',
   },
   message: { label: 'Message', placeholder: 'Text in the message, then Enter', title: 'git log --grep: search every commit message' },
   author: { label: 'Author', placeholder: 'Author name or email, then Enter', title: 'git log --author: search every commit author' },
@@ -51,9 +63,12 @@ const SEARCH_MODES: Record<SearchMode, { label: string; placeholder: string; tit
   },
 };
 
-export function Toolbar({ state, busy, compact, matchCount, onQuery, onNextMatch }: Props) {
+export function Toolbar({ state, busy, compact, matches, searching, onQuery, onSearch, onStep }: Props) {
   const [mode, setMode] = useState<SearchMode>('loaded');
   const [text, setText] = useState('');
+  // Whether a search of the whole history replaces the graph with what it finds, rather than highlight it there.
+  const [only, setOnly] = useState(() => loadUiState({ searchOnly: false }).searchOnly);
+  const input = useRef<HTMLInputElement>(null);
   const openMenu = useMenu();
   const upstream = state.branches.find((branch) => branch.current)?.upstream;
   const sync = (action: SyncAction) => post({ type: 'sync', action });
@@ -63,23 +78,69 @@ export function Toolbar({ state, busy, compact, matchCount, onQuery, onNextMatch
       list.map(({ action, label }) => ({ label, run: () => sync(action) })),
     );
 
+  const typed = text.trim();
+  // Not among the loaded commits, it may still be the hash of one further back, or of one no branch reaches.
+  const lookup = mode === 'loaded' && matches?.count === 0 && HASH.test(typed);
+
   const changeText = (value: string) => {
     setText(value);
     if (mode === 'loaded') onQuery(value);
+    else onSearch(null, 1);
   };
   const changeMode = (next: SearchMode) => {
     setMode(next);
     onQuery(next === 'loaded' ? text : '');
+    onSearch(null, 1);
   };
-  const submit = () => {
-    if (mode === 'loaded') return onNextMatch();
-    const query = text.trim();
-    if (query) post({ type: 'setFilter', filter: { kind: mode, query } });
+  const submit = (by: 1 | -1) => {
+    if (mode === 'loaded') {
+      if (matches?.count) onStep(by);
+      else if (lookup) post({ type: 'goTo', revision: typed.toLowerCase() });
+    } else if (typed) {
+      if (only) post({ type: 'setFilter', filter: { kind: mode, query: typed } });
+      else onSearch({ kind: mode, query: typed }, by);
+    }
   };
+  /** Shows the search in the box the other way: as a list of what it finds, or highlighted in the graph. */
+  const toggleOnly = () => {
+    if (mode === 'loaded') return;
+    saveUiState({ searchOnly: !only });
+    setOnly(!only);
+    if (only) {
+      // The list gives way to the graph when it is searched; with nothing to search, it is left here.
+      if (typed) onSearch({ kind: mode, query: typed }, 1);
+      else if (state.filter && 'query' in state.filter) post({ type: 'setFilter', filter: null });
+    } else {
+      onSearch(null, 1);
+      if (typed) post({ type: 'setFilter', filter: { kind: mode, query: typed } });
+    }
+  };
+
+  // The keys of a search work wherever the focus is in the view.
+  const onKey = useRef<(event: KeyboardEvent) => void>(() => {});
+  onKey.current = (event) => {
+    if (event.key === 'F3') {
+      event.preventDefault();
+      submit(event.shiftKey ? -1 : 1);
+    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      input.current?.focus();
+      input.current?.select();
+    }
+  };
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onKey.current(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
+
+  /** A click on a button of the search leaves the focus in the box, where Enter and Shift+Enter go on from it. */
+  const keepFocus = (event: MouseEvent) => event.preventDefault();
 
   const run = (command: UiCommand) => () => post({ type: 'command', command });
   const more: MenuEntry[] = [
     { label: 'Compare branches, tags or commits…', run: () => post({ type: 'compare' }) },
+    { label: 'Go to commit…', run: run('goToCommit') },
     { label: 'History of the active file', run: run('activeFileHistory') },
     { label: 'Browse reflog…', run: run('reflog') },
     { label: 'Clean up branches…', run: run('cleanupBranches') },
@@ -107,14 +168,59 @@ export function Toolbar({ state, busy, compact, matchCount, onQuery, onNextMatch
         ))}
       </select>
       <input
+        ref={input}
         type="text"
         value={text}
         aria-label="Search commits"
         placeholder={SEARCH_MODES[mode].placeholder}
         onChange={(event) => changeText(event.target.value)}
-        onKeyDown={(event) => event.key === 'Enter' && submit()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') submit(event.shiftKey ? -1 : 1);
+          else if (event.key === 'Escape' && text) changeText('');
+        }}
       />
-      {matchCount !== null && <span className="count">{matchCount}</span>}
+      {searching && <Icon name="loading" spin />}
+      {lookup ? (
+        <span className="hint" title="Press Enter to go to the commit with this hash, wherever it is in the history">
+          Enter ↵
+        </span>
+      ) : (
+        matches && (
+          <span className="count" role="status" title={matches.more ? 'Only the first matches were counted' : undefined}>
+            {matches.index !== null && `${matches.index + 1}/`}
+            {matches.count}
+            {matches.more && '+'}
+          </span>
+        )
+      )}
+      {!!matches?.count && (
+        <>
+          <button
+            className="step"
+            onMouseDown={keepFocus}
+            onClick={() => onStep(-1)}
+            aria-label="Previous match"
+            title="Previous match (Shift+Enter, Shift+F3)"
+          >
+            <Icon name="arrow-up" />
+          </button>
+          <button className="step" onMouseDown={keepFocus} onClick={() => onStep(1)} aria-label="Next match" title="Next match (Enter, F3)">
+            <Icon name="arrow-down" />
+          </button>
+        </>
+      )}
+      {mode !== 'loaded' && (
+        <button
+          className="only"
+          onMouseDown={keepFocus}
+          onClick={toggleOnly}
+          aria-pressed={only}
+          aria-label="Show only the commits found"
+          title="Show only the commits found, as a list, instead of highlighting them in the graph"
+        >
+          <Icon name="filter" />
+        </button>
+      )}
     </div>
   );
   const moreButton = (

@@ -13,6 +13,14 @@ function describe(filter: Filter): ReactNode {
     );
   }
   if (filter.kind === 'ref') {
+    if (filter.lost) {
+      return (
+        <>
+          Only the history of <b className="mono">{filter.ref.slice(0, 7)}</b>
+          <span className="muted"> · on no branch or tag</span>
+        </>
+      );
+    }
     return (
       <>
         Only the history of <b>{filter.ref.replace(/^refs\/(heads|remotes|tags)\//, '')}</b>

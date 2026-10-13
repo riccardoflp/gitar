@@ -197,6 +197,11 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "gitar.goToCommit",
+        "title": "Go to Commit…",
+        "category": "Gitar"
+      },
+      {
         "command": "gitar.createBranch",
         "title": "Create Branch…",
         "category": "Gitar",
@@ -301,6 +306,11 @@
           "command": "gitar.reflog",
           "when": "view == gitar.commits",
           "group": "2_more@2"
+        },
+        {
+          "command": "gitar.goToCommit",
+          "when": "view == gitar.commits",
+          "group": "2_more@3"
         },
         {
           "command": "gitar.createBranch",

@@ -649,6 +649,43 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     for (const nothing of ['', 'no-such-thing', '--all', 'other..HEAD', `${next}:new.txt`]) expect(await repo.resolve(nothing)).toBeNull();
   });
 
+  it('says how far back a commit is, and which commits a search finds', async () => {
+    const other = await divergent();
+    const main = (await state()).head!;
+    write('notes.txt', 'remember the milk\n');
+    const notes = await commitAll('Add notes');
+    const all = (await state()).rows.map((row) => row.hash);
+    expect(all).toHaveLength(4);
+
+    // In the order of the list, whatever that is for commits of the same second.
+    for (const [index, hash] of all.entries()) expect(await repo.position(hash)).toBe(index);
+    expect(await repo.position(other, { kind: 'ref', ref: 'main' })).toBe(-1);
+    expect(await repo.position(main, { kind: 'path', path: 'notes.txt' })).toBe(-1);
+    expect(await repo.position(notes, { kind: 'path', path: 'notes.txt' })).toBe(0);
+    expect(await repo.position('0'.repeat(40))).toBe(-1);
+    expect(await repo.position('HEAD')).toBe(-1);
+
+    // A commit that no branch reaches is not in the history, and still has one of its own to show.
+    const lost = (await git(root, ['commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Lost'])).stdout.trim();
+    expect(await repo.resolve(lost.slice(0, 10))).toBe(lost);
+    expect(await repo.position(lost)).toBe(-1);
+    expect((await repo.state(100, { kind: 'ref', ref: lost, lost: true })).rows.map((row) => row.subject)).toEqual([
+      'Lost',
+      'Add notes',
+      'main change',
+      'base',
+    ]);
+
+    const changes = all.filter((hash) => hash === main || hash === other);
+    expect(await repo.matches({ kind: 'message', query: 'CHANGE' }, null, 10)).toEqual({ hashes: changes, more: false });
+    expect(await repo.matches({ kind: 'message', query: 'change' }, null, 1)).toEqual({ hashes: [changes[0]], more: true });
+    expect(await repo.matches({ kind: 'message', query: 'change' }, { kind: 'ref', ref: 'main' }, 10)).toEqual({ hashes: [main], more: false });
+    expect(await repo.matches({ kind: 'pickaxe', query: 'milk' }, null, 10)).toEqual({ hashes: [notes], more: false });
+    expect(await repo.matches({ kind: 'author', query: 'gitar' }, { kind: 'path', path: 'notes.txt' }, 10)).toEqual({ hashes: [notes], more: false });
+    expect(await repo.matches({ kind: 'author', query: 'nobody' }, null, 10)).toEqual({ hashes: [], more: false });
+    await expect(repo.matches({ kind: 'regex', query: '[' }, null, 10)).rejects.toThrow();
+  });
+
   it('pulls with a rebase', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');

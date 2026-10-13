@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { sleep, until } from './cdp.mjs';
 import { createWorkspace, git, remove, source } from './fixture.mjs';
-import { CTRL, startWindow } from './window.mjs';
+import { CTRL, SHIFT, startWindow } from './window.mjs';
 
 const options = process.argv.slice(2).filter((argument) => argument.startsWith('--'));
 const [codePath] = process.argv.slice(2).filter((argument) => !argument.startsWith('--'));
@@ -244,6 +244,123 @@ try {
     );
     await shot('blame');
     assert(/Gitar Test, .+ • Change a/.test(blame), `annotation: ${blame}`);
+  });
+
+  await step('the search counts what it finds and steps through it, in the loaded commits and in the whole history', async () => {
+    const graph = await webview('graph');
+    /** What the search box says, which commit is selected, and how the commits are shown. */
+    const seen = () =>
+      graph.evaluate(`({
+        count: document.querySelector('.search .count')?.textContent ?? null,
+        hint: document.querySelector('.search .hint')?.textContent.trim() ?? null,
+        selected: document.querySelector('.row.selected .subject')?.textContent ?? null,
+        rows: document.querySelectorAll('.row').length,
+        dimmed: document.querySelectorAll('.row.dimmed').length,
+        filter: document.querySelector('.filterbar')?.textContent ?? null,
+      })`);
+    const says = (what, count, selected) => until(what, async () => {
+      const now = await seen();
+      return now.count === count && now.selected === selected ? now : null;
+    });
+    const write = async (text) => {
+      await graph.click('.search input');
+      await graph.evaluate(`document.querySelector('.search input').select()`);
+      await type(text);
+    };
+    /** The list beside the box, set the way a choice from it sets it. */
+    const mode = (value) =>
+      graph.evaluate(`(() => {
+        const list = document.querySelector('.search select');
+        list.value = ${JSON.stringify(value)};
+        list.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+    // Nothing selected, to begin with.
+    if ((await seen()).selected) await graph.click('.detail .close');
+    const everything = (await seen()).rows;
+
+    // Among the loaded commits, as it is typed.
+    await write('Add');
+    const typed = await says('the matches', '3', null);
+    assert(typed.dimmed === everything - 3, `the others are dimmed: ${JSON.stringify(typed)}`);
+    await key('Enter');
+    await says('the first match', '1/3', 'Add feature');
+    await graph.click('.search .step[aria-label="Next match"]');
+    await says('the second match', '2/3', 'Add b');
+    assert(await graph.evaluate(`document.activeElement === document.querySelector('.search input')`), 'the focus stays in the box');
+    await key('F3');
+    await says('the third match', '3/3', 'Add a');
+    await key('Enter');
+    await says('the first match again', '1/3', 'Add feature');
+    await key('Enter', SHIFT);
+    await says('the last match, going back', '3/3', 'Add a');
+    await key('F3', SHIFT);
+    await says('the one before it', '2/3', 'Add b');
+    await shot('search-steps');
+
+    // A hash, also of a commit that is not in the graph because no branch reaches it.
+    const second = git(app, 'log', '--format=%H', '--grep=Change a', 'main').toString().trim();
+    await write(second.slice(0, 9));
+    const hashed = await says('the commit with that hash', '1', 'Add b');
+    assert(hashed.hint === null, 'a hash that is loaded is not looked for elsewhere');
+    await key('Enter');
+    await says('the commit with that hash, selected', '1/1', 'Change a');
+    const lost = git(app, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Lost and found').toString().trim();
+    await write(lost.slice(0, 9));
+    const asked = await until('the offer to look for it', async () => ((await seen()).hint ? seen() : null));
+    assert(asked.hint === 'Enter ↵' && asked.count === null, `hint: ${JSON.stringify(asked)}`);
+    await key('Enter');
+    const found = await until('the lost commit', async () => ((await seen()).selected === 'Lost and found' ? seen() : null));
+    await shot('search-lost-commit');
+    assert(/Only the history of \w{7} · on no branch or tag/.test(found.filter), `bar: ${found.filter}`);
+    await graph.click('.filterbar .button', 'Show all commits');
+    await until('the whole graph again', async () => (await seen()).filter === null);
+
+    // In the whole history: the graph stays, and the commits found are the ones not dimmed.
+    await mode('message');
+    await write('the ui');
+    await key('Enter');
+    const whole = await says('what git found', '1/1', 'Commit from the UI');
+    await shot('search-history');
+    assert(whole.filter === null && whole.rows === everything && whole.dimmed === everything - 1, `highlighted: ${JSON.stringify(whole)}`);
+
+    // Or, with the button pressed, only what it found: the same search, shown the other way and back.
+    await graph.click('.search .only');
+    const only = await until('the list of results', async () => {
+      const now = await seen();
+      return now.filter && now.rows === 1 ? now : null;
+    });
+    await shot('search-only');
+    assert(only.filter.includes('Commits whose message contains the ui') && only.count === null, `list: ${JSON.stringify(only)}`);
+    await graph.click('.search .only');
+    const back = await says('the graph again, with what was found', '1/1', 'Commit from the UI');
+    assert(back.filter === null && back.rows === everything, `graph: ${JSON.stringify(back)}`);
+
+    // What is found follows the history: a commit made meanwhile is found too.
+    await write('Add');
+    await key('Enter');
+    await says('the commits added', '1/3', 'Add feature');
+    git(app, 'commit', '--allow-empty', '-m', 'Add nothing');
+    await says('one more', '2/4', 'Add feature');
+    git(app, 'reset', '--soft', 'HEAD~1');
+    await says('one less', '1/3', 'Add feature');
+
+    // Ctrl+F brings the cursor back to the box from the list, with its text selected to type over.
+    await mode('loaded');
+    await write('Change');
+    await graph.click('.row', 'Add b');
+    await says('one match, and another commit selected', '1', 'Add b');
+    const inBox = () => graph.evaluate(`document.activeElement === document.querySelector('.search input')`);
+    assert(!(await inBox()), 'the focus is in the list');
+    await key('F', CTRL);
+    await until('the cursor in the box', inBox);
+    await type('Add');
+    await says('the matches of what was typed over', '2/3', 'Add b');
+
+    // Escape empties the box, and with it the search.
+    await key('Escape');
+    const emptied = await until('nothing searched', async () => ((await seen()).count === null ? seen() : null));
+    assert(emptied.dimmed === 0, `nothing is dimmed: ${JSON.stringify(emptied)}`);
+    await graph.click('.detail .close');
   });
 
   await step('a branch dragged onto the checked out commit offers to merge or rebase', async () => {

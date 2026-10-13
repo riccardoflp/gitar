@@ -35,6 +35,7 @@ import type {
   PullRequest,
   RepoInfo,
   RepoState,
+  Search,
   SyncAction,
   UiCommand,
   ViewKind,
@@ -46,6 +47,8 @@ import { CONFLICT, INDEX, contentUri } from './content';
 import { fetchPulls, githubSession } from './github';
 
 const PAGE_SIZE = 1000;
+/** The most commits a search is told about, to highlight them in the graph. */
+const FOUND_LIMIT = 5000;
 /** What the two sides of a conflict are, which depends on the operation that stopped: a rebase swaps them. */
 const CONFLICT_SIDES: Record<Operation | 'none', [current: string, incoming: string]> = {
   merge: ['The branch checked out', 'The branch being merged'],
@@ -245,13 +248,78 @@ export class Controller implements vscode.Disposable {
     await this.setFilter({ kind: 'path', path: file });
   }
 
-  /** Selects a commit in the graph, opening the graph first if needed. */
+  /** Selects a commit in the graph, opening the graph first if needed. `hash` is the full one. */
   async reveal(hash: string): Promise<void> {
     if (!isHash(hash)) return;
-    this.pendingReveal = hash;
     await vscode.commands.executeCommand('gitar.graph.focus');
-    if (this.filter) await this.setFilter(null);
+    await this.include(hash);
+    // Only now: a view that loads in the meantime would be told of a commit it has not been sent yet.
+    this.pendingReveal = hash;
     this.flushPending();
+  }
+
+  /**
+   * Makes sure a commit is among the ones listed. The history is loaded as far back as it is; what narrows the list
+   * gives way if it leaves the commit out; and a commit that no branch or tag reaches any more, such as one found in
+   * the reflog, is shown with its own history.
+   */
+  private async include(hash: string): Promise<void> {
+    if (!this.located) await this.locate();
+    const repo = this.repo;
+    if (!repo || this.state?.rows.some((row) => row.hash === hash)) return;
+    const shown = this.filter;
+    let index = await repo.position(hash, shown);
+    if (index < 0 && shown) {
+      this.filter = null;
+      index = await repo.position(hash);
+    }
+    if (index < 0) {
+      this.filter = { kind: 'ref', ref: hash, lost: true };
+      index = 0;
+    }
+    const pages = Math.floor(index / PAGE_SIZE) + 1;
+    this.limit = Math.max(this.filter === shown ? this.limit : PAGE_SIZE, pages * PAGE_SIZE);
+    await this.refresh();
+  }
+
+  /** Selects, in the view that asked, the commit that a hash or anything else git understands stands for. */
+  private async goTo(revision: unknown, asker: vscode.Webview): Promise<void> {
+    const repo = this.repo;
+    if (!repo || typeof revision !== 'string' || !revision.trim()) return;
+    const hash = await repo.resolve(revision.trim());
+    if (!hash) {
+      // A few characters can be the start of more than one hash, which git refuses to choose between.
+      void vscode.window.showWarningMessage(`Gitar: "${revision.trim()}" is not a commit of this repository, or is the start of several.`);
+      return;
+    }
+    await this.include(hash);
+    this.post({ type: 'reveal', hash }, asker);
+  }
+
+  /** Asks for a hash or a revision, and shows its commit in the graph. */
+  async goToCommit(): Promise<void> {
+    const repo = (await this.requireState()) && this.repo;
+    if (!repo) return;
+    const commit = await this.askRevision(repo, 'Go to commit');
+    if (commit) await this.reveal(commit.hash);
+  }
+
+  /** Tells a view which commits a search finds in the history that is shown, for it to highlight them where they are. */
+  private async find(search: Search, asker: vscode.Webview): Promise<void> {
+    const repo = this.repo;
+    const kinds = ['message', 'author', 'pickaxe', 'regex'];
+    if (!repo || !kinds.includes(search?.kind) || typeof search.query !== 'string' || !search.query) return;
+    try {
+      // A list of results gives way to the graph, in which the new ones are to be shown.
+      if (this.filter && 'query' in this.filter) await this.setFilter(null);
+      const found = await repo.matches({ kind: search.kind, query: search.query }, this.filter, FOUND_LIMIT);
+      this.post({ type: 'found', search, ...found }, asker);
+    } catch (error) {
+      const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
+      this.log.error(text);
+      void vscode.window.showErrorMessage(`Gitar: the search failed. ${text.split('\n')[0]}`);
+      this.post({ type: 'found', search, hashes: [], more: false, failed: true }, asker);
+    }
   }
 
   /** Selects a commit in the views that list commits and are there, without opening any or taking the focus. */
@@ -335,8 +403,11 @@ export class Controller implements vscode.Disposable {
     const offered = items.filter((item) => !item.ref || item.ref.name !== other?.name || item.ref.hash !== other.hash);
     const choice = await vscode.window.showQuickPick(offered, { title, placeHolder, matchOnDescription: true });
     if (!choice) return;
-    if (choice.ref) return choice.ref;
+    return choice.ref ?? this.askRevision(repo, title);
+  }
 
+  /** Lets the user type a hash, or anything else git can turn into a commit, and says which commit that is. */
+  private async askRevision(repo: Repo, title: string): Promise<ComparedRef | undefined> {
     const revision = (
       await vscode.window.showInputBox({
         title,
@@ -360,6 +431,7 @@ export class Controller implements vscode.Disposable {
       if (command === 'activeFileHistory') return await this.fileHistory();
       if (command === 'signInGitHub') return await this.refreshPulls(true, true);
       if (command === 'reflog') return await this.browseReflog();
+      if (command === 'goToCommit') return await this.goToCommit();
       if (command === 'cleanupBranches') return await this.cleanupBranches();
       if (command === 'draftMessage') return await this.draftMessage();
       if (command === 'switchIdentity') return await this.switchIdentity();
@@ -855,6 +927,10 @@ export class Controller implements vscode.Disposable {
         return this.flushPending();
       case 'setFilter':
         return this.setFilter(message.filter);
+      case 'goTo':
+        return this.goTo(message.revision, webview);
+      case 'find':
+        return this.find(message.search, webview);
       case 'command':
         return this.command(message.command);
       case 'pullRequest':

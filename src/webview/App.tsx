@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
-import { WORKTREE, type CommitDetail, type Comparison, type RepoState, type Row } from '../shared/protocol';
+import { WORKTREE, type CommitDetail, type Comparison, type RepoState, type Row, type Search } from '../shared/protocol';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, type Label, type SelectMode } from './CommitList';
 import { Compare } from './Compare';
@@ -59,6 +59,17 @@ function withRowsOf(previous: RepoState | null, next: RepoState): RepoState {
   return { ...next, rows };
 }
 
+/** A search of the whole history, and the commits git found for it: null while it is looking. */
+interface Find {
+  search: Search;
+  hashes: string[] | null;
+  more: boolean;
+  /** Git refused it: asking again would only be refused again. */
+  failed?: boolean;
+}
+
+const sameSearch = (one: Search, other: Search) => one.kind === other.kind && one.query === other.query;
+
 /** `compact` is the graph as it fits in the side bar: the commits and their details, with the references left to the view beside it. */
 export function App({ compact = false }: { compact?: boolean }) {
   const [state, setState] = useState<RepoState | null>(null);
@@ -69,6 +80,7 @@ export function App({ compact = false }: { compact?: boolean }) {
   const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [find, setFind] = useState<Find | null>(null);
   const [reveal, setReveal] = useState<{ hash: string } | null>(null);
   const [rebase, setRebase] = useState<Row[] | null>(null);
   const [comparing, setComparing] = useState<Comparing | null>(null);
@@ -81,6 +93,12 @@ export function App({ compact = false }: { compact?: boolean }) {
   const comparingRef = useRef(comparing);
   comparingRef.current = comparing;
   const rootRef = useRef<string | null>(null);
+  const findRef = useRef(find);
+  findRef.current = find;
+  const rowsRef = useRef<Row[]>([]);
+  rowsRef.current = state?.rows ?? [];
+  // Whether the first commit of what a search finds is to be shown: of a search just asked, not of one repeated.
+  const jumpRef = useRef(false);
 
   /** Shows a commit in the detail pane, leaving alone whatever else is selected with it. */
   const show = useCallback((hash: string | null) => {
@@ -116,6 +134,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           rootRef.current = root;
           select(null);
           setRebase(null);
+          setFind(null);
         } else if (selectedRef.current === WORKTREE) {
           // The list of uncommitted files is the only detail that goes stale.
           if (message.state?.changes) post({ type: 'getDetail', hash: WORKTREE });
@@ -133,6 +152,11 @@ export function App({ compact = false }: { compact?: boolean }) {
         setReveal({ hash: message.hash });
       } else if (message.type === 'compare') {
         compare(message.comparing);
+      } else if (message.type === 'found') {
+        const asked = findRef.current?.search;
+        if (asked && sameSearch(asked, message.search)) {
+          setFind({ search: asked, hashes: message.hashes, more: message.more, failed: message.failed });
+        }
       }
     });
     post({ type: 'ready' });
@@ -145,16 +169,20 @@ export function App({ compact = false }: { compact?: boolean }) {
 
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
 
-  const matches = useMemo(() => {
+  const highlighted = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!state || !needle) return null;
     const found: string[] = [];
     for (const row of state.rows) {
+      // The uncommitted changes are a row of the list, not a commit to find.
+      if (row.hash === WORKTREE) continue;
       const haystack = `${row.subject}\n${row.author}\n${row.hash}`.toLowerCase();
       if (haystack.includes(needle)) found.push(row.hash);
     }
     return found;
   }, [state, query]);
+  // What git found in the whole history, or what the loaded commits have of the text being typed.
+  const matches = find ? find.hashes : highlighted;
 
   const jump = useCallback(
     (hash: string) => {
@@ -164,11 +192,52 @@ export function App({ compact = false }: { compact?: boolean }) {
     [select],
   );
 
-  const nextMatch = useCallback(() => {
-    if (!matches?.length) return;
-    const index = selected ? matches.indexOf(selected) : -1;
-    jump(matches[(index + 1) % matches.length]);
-  }, [matches, selected, jump]);
+  /** A commit a search found can be further back than the history is loaded: then it is asked for. */
+  const goTo = useCallback(
+    (hash: string) => {
+      if (rowsRef.current.some((row) => row.hash === hash)) jump(hash);
+      else post({ type: 'goTo', revision: hash });
+    },
+    [jump],
+  );
+
+  const step = useCallback(
+    (by: 1 | -1) => {
+      if (!matches?.length) return;
+      const index = selected ? matches.indexOf(selected) : -1;
+      const first = by > 0 ? 0 : matches.length - 1;
+      goTo(matches[index < 0 ? first : (index + by + matches.length) % matches.length]);
+    },
+    [matches, selected, goTo],
+  );
+
+  const search = useCallback(
+    (wanted: Search | null, by: 1 | -1) => {
+      const current = findRef.current;
+      if (!wanted) return setFind(null);
+      // Asked again, it goes on from what it found; and while git is looking there is nothing to add.
+      if (current && sameSearch(current.search, wanted)) return current.hashes ? step(by) : undefined;
+      jumpRef.current = true;
+      setFind({ search: wanted, hashes: null, more: false });
+      post({ type: 'find', search: wanted });
+    },
+    [step],
+  );
+
+  // The first of what a search found is shown as soon as it is known, unless the selected commit is one of them.
+  const found = find?.hashes;
+  useEffect(() => {
+    if (!found || !jumpRef.current) return;
+    jumpRef.current = false;
+    if (found.length && !found.includes(selectedRef.current ?? '')) goTo(found[0]);
+  }, [found, goTo]);
+
+  // What was found is of the history as it was: when the commits change, a commit, a fetch or a filter later, it is found again.
+  const rows = state?.rows;
+  useEffect(() => {
+    const current = findRef.current;
+    if (rows && current?.hashes && !current.failed) post({ type: 'find', search: current.search });
+  }, [rows]);
 
   if (!loaded) return <div className="empty">Loading repository…</div>;
   if (!state) {
@@ -183,6 +252,7 @@ export function App({ compact = false }: { compact?: boolean }) {
   }
 
   const markedRows = marked.size > 1 ? state.rows.filter((row) => marked.has(row.hash)) : [];
+  const at = matches && selected ? matches.indexOf(selected) : -1;
   const hasDetail = !!(selected || comparing);
 
   const onRowSelect = (hash: string, mode: SelectMode) => {
@@ -233,9 +303,11 @@ export function App({ compact = false }: { compact?: boolean }) {
         state={state}
         busy={busy}
         compact={compact}
-        matchCount={matches?.length ?? null}
+        matches={matches && { count: matches.length, index: at < 0 ? null : at, more: !!find?.more }}
+        searching={!!find && !find.hashes}
         onQuery={setQuery}
-        onNextMatch={nextMatch}
+        onSearch={search}
+        onStep={step}
       />
       {/* In the side bar the Changes view, right above, already says what is under way. */}
       {!compact && <OperationBanner state={state} busy={busy !== null} />}

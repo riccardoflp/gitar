@@ -11,6 +11,7 @@ import {
   type Operation,
   type RepoState,
   type Row,
+  type Search,
   type WorkingState,
 } from '../shared/protocol';
 import { GitError, formatCommand, git, type GitResult } from './exec';
@@ -175,26 +176,9 @@ export class Repo {
     const head = headOut.trim() || null;
     const changes = allChanges(working);
 
-    // refs/stash is left out on purpose: stashes have their own list and their internal commits clutter the graph.
-    const logArgs = ['log', '--date-order', '-z', `--format=${LOG_FORMAT}`, `--max-count=${limit + 1}`];
-    if (filter?.kind === 'message') logArgs.push('--fixed-strings', '--regexp-ignore-case', `--grep=${filter.query}`);
-    if (filter?.kind === 'author') logArgs.push('--fixed-strings', '--regexp-ignore-case', `--author=${filter.query}`);
-    if (filter?.kind === 'pickaxe') logArgs.push(`-S${filter.query}`);
-    if (filter?.kind === 'regex') logArgs.push(`-G${filter.query}`);
-    // With --parents git reports each commit's nearest listed ancestors as its parents, so the filtered graph stays connected.
-    if (filter?.kind === 'path') logArgs.push('--parents');
-    if (filter?.kind === 'ref') {
-      if (filter.ref.startsWith('-')) throw new Error(`"${filter.ref}" is not a valid name.`);
-      logArgs.push(filter.ref);
-    } else {
-      logArgs.push('--branches', '--remotes', '--tags');
-      if (head) logArgs.push('HEAD');
-    }
-    // A file is followed under the names it had before, or its history would end at the commit that renamed it.
-    const names = filter?.kind === 'path' ? await this.pathNames(filter.path) : [];
-    if (names.length) logArgs.push('--', ...names.map((name) => `:(literal)${name}`));
+    const { args, names } = await this.selection(filter, head);
     // A search can be one git refuses, such as an invalid regular expression: that must be reported, not shown as no results.
-    const commits = parseLog(await this.read(logArgs, !filter));
+    const commits = parseLog(await this.read(['log', '-z', `--format=${LOG_FORMAT}`, `--max-count=${limit + 1}`, ...args], !filter));
     const hasMore = commits.length > limit;
     if (hasMore) commits.length = limit;
 
@@ -240,6 +224,63 @@ export class Repo {
       github: null,
       pulls: {},
     };
+  }
+
+  /**
+   * The arguments of `git log` that say which commits are listed and in which order: all of them but the format and
+   * the count. `search` narrows further a history that `filter` may have narrowed already.
+   */
+  private async selection(filter: Filter | null, head: string | null, search?: Search): Promise<{ args: string[]; names: string[] }> {
+    const args = ['--date-order'];
+    for (const text of [filter, search]) {
+      if (text?.kind === 'message') args.push('--fixed-strings', '--regexp-ignore-case', `--grep=${text.query}`);
+      if (text?.kind === 'author') args.push('--fixed-strings', '--regexp-ignore-case', `--author=${text.query}`);
+      if (text?.kind === 'pickaxe') args.push(`-S${text.query}`);
+      if (text?.kind === 'regex') args.push(`-G${text.query}`);
+    }
+    // With --parents git reports each commit's nearest listed ancestors as its parents, so the filtered graph stays connected.
+    if (filter?.kind === 'path') args.push('--parents');
+    if (filter?.kind === 'ref') {
+      if (filter.ref.startsWith('-')) throw new Error(`"${filter.ref}" is not a valid name.`);
+      args.push(filter.ref);
+    } else {
+      // refs/stash is left out on purpose: stashes have their own list and their internal commits clutter the graph.
+      args.push('--branches', '--remotes', '--tags');
+      if (head) args.push('HEAD');
+    }
+    // A file is followed under the names it had before, or its history would end at the commit that renamed it.
+    const names = filter?.kind === 'path' ? await this.pathNames(filter.path) : [];
+    if (names.length) args.push('--', ...names.map((name) => `:(literal)${name}`));
+    return { args, names };
+  }
+
+  private async head(): Promise<string | null> {
+    return (await this.read(['rev-parse', '--verify', '--quiet', 'HEAD'], true)).trim() || null;
+  }
+
+  /**
+   * How many commits come before this one in the history that is listed, or -1 when it is not part of it: which is
+   * how far the list has to be loaded for the commit to be in it. `hash` is the full one.
+   */
+  async position(hash: string, filter: Filter | null = null): Promise<number> {
+    if (!isHash(hash)) return -1;
+    const { args } = await this.selection(filter, await this.head());
+    const out = await this.read(['log', '--format=%H', ...args], true);
+    // Every line is a hash, and they are all as long.
+    const at = out.indexOf(hash);
+    return at < 0 ? -1 : at / (hash.length + 1);
+  }
+
+  /**
+   * The commits of the listed history that a search finds, newest first, and whether there are more than `limit`.
+   * Throws when git refuses the search, as it does an invalid regular expression.
+   */
+  async matches(search: Search, filter: Filter | null, limit: number): Promise<{ hashes: string[]; more: boolean }> {
+    const { args } = await this.selection(filter, await this.head(), search);
+    const hashes = (await this.read(['log', '--format=%H', `--max-count=${limit + 1}`, ...args])).split('\n').filter(Boolean);
+    const more = hashes.length > limit;
+    if (more) hashes.length = limit;
+    return { hashes, more };
   }
 
   /** Who last changed a line (1-based). `contents` is the text of the file when it has unsaved edits. */

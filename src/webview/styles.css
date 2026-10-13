@@ -250,6 +250,43 @@ input:focus-visible,
   border-color: var(--vscode-focusBorder);
 }
 
+/* In the box: how many commits match and which of them is selected, the way to the next and the one before. */
+.search .count,
+.search .hint {
+  flex: none;
+}
+
+.search .hint {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.search .step,
+.search .only {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.search .step:hover,
+.search .only:hover {
+  color: inherit;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* Pressed in: the search replaces the graph with what it finds. */
+.search .only[aria-pressed='true'] {
+  color: var(--vscode-inputOption-activeForeground, inherit);
+  background: var(--vscode-inputOption-activeBackground, var(--vscode-toolbar-hoverBackground));
+  outline: 1px solid var(--vscode-inputOption-activeBorder, transparent);
+  outline-offset: -1px;
+}
+
 /* The panel is often narrower than the toolbar is long: the buttons keep their icons and give up their words. */
 @container (max-width: 980px) {
   .toolbar .button .label,

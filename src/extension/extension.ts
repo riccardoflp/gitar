@@ -82,6 +82,7 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.remotes', () => controller.command('remotes')),
     command('gitar.bisectReset', () => controller.action({ kind: 'bisectReset' })),
     command('gitar.compare', () => controller.compare()),
+    command('gitar.goToCommit', () => controller.goToCommit()),
     command('gitar.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),

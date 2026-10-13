@@ -9,11 +9,14 @@ import { CONFLICT, INDEX, contentUri } from '../../src/extension/content';
 import type { GitarApi } from '../../src/extension/extension';
 import { git } from '../../src/git/exec';
 import { Repo } from '../../src/git/repo';
-import type { HostMessage, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
+import type { Filter, HostMessage, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
 
 /** The parts of the controller that are private to everyone but these tests. */
 interface Internals {
   state: RepoState | null;
+  /** How many commits are asked of git, and what narrows them. */
+  limit: number;
+  filter: Filter | null;
   views: Map<unknown, ViewKind>;
   onMessage(webview: unknown, message: WebviewMessage): Promise<void>;
   post(message: HostMessage, to?: unknown): void;
@@ -504,6 +507,116 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('gitar.reflog');
     assert.ok(entries > 5, `the reflog has entries (${entries})`);
     assert.ok(posted.some((outgoing) => outgoing.type === 'reveal'));
+  });
+
+  await step('goes to a commit by its hash: one that is loaded, one further back, one that is filtered out, one no branch reaches', async () => {
+    const graph = view('graph');
+    const loaded = (hash: string) => state().rows.some((row) => row.hash === hash);
+    /** The commits the views were told to select, and the kinds of the views that were told. */
+    const revealed = () =>
+      posted.flatMap((outgoing, index) => (outgoing.type === 'reveal' ? [`${outgoing.hash} in ${internals.views.get(addressed[index])}`] : []));
+    const forget = () => {
+      posted.length = 0;
+      addressed.length = 0;
+      asked.length = 0;
+    };
+    const oldest = state().rows.at(-1)!.hash;
+    const pages = internals.limit;
+
+    // The start of a hash is enough, as typed in the search box of a view: only that view goes there.
+    forget();
+    await internals.onMessage(graph, { type: 'goTo', revision: oldest.slice(0, 8) });
+    assert.deepEqual(revealed(), [`${oldest} in graph`]);
+
+    // Further back than the history is loaded: it is loaded up to there, in whole pages. (The views ask for more too,
+    // as their short lists end in sight: how many pages there are in the end is theirs to say.)
+    internals.limit = 2;
+    await vscode.commands.executeCommand('gitar.refresh');
+    assert.ok(!loaded(oldest) && state().hasMore, 'only the last commits are loaded');
+    forget();
+    await internals.onMessage(view('commits'), { type: 'goTo', revision: oldest });
+    assert.ok(loaded(oldest), 'the history is loaded up to the commit');
+    assert.deepEqual(revealed(), [`${oldest} in commits`]);
+    assert.ok(internals.limit >= pages && !state().hasMore, `limit: ${internals.limit}`);
+    internals.limit = pages;
+
+    // In a list that leaves it out, the list gives way; in one that has it, the list stays.
+    await controller.setFilter({ kind: 'path', path: 'b.txt' });
+    const inFile = state().rows[0].hash;
+    assert.ok(!loaded(oldest));
+    await internals.onMessage(graph, { type: 'goTo', revision: inFile });
+    assert.deepEqual(state().filter, { kind: 'path', path: 'b.txt' });
+    await internals.onMessage(graph, { type: 'goTo', revision: oldest });
+    assert.equal(state().filter, null);
+    assert.ok(loaded(oldest));
+
+    // A commit that no branch or tag reaches is shown with its own history.
+    const lost = (await git(app, ['commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Lost'])).stdout.trim();
+    forget();
+    await internals.onMessage(graph, { type: 'goTo', revision: lost.slice(0, 12) });
+    assert.deepEqual(state().filter, { kind: 'ref', ref: lost, lost: true });
+    assert.equal(subjects()[0], 'Lost');
+    assert.deepEqual(revealed(), [`${lost} in graph`]);
+    await controller.setFilter(null);
+
+    // What is not a commit is said, and nothing moves.
+    forget();
+    await internals.onMessage(graph, { type: 'goTo', revision: 'fffffffffff' });
+    assert.deepEqual(revealed(), []);
+    assert.match(asked[0].message, /"fffffffffff" is not a commit of this repository/);
+
+    // The command asks for anything git understands, and shows it in the graph.
+    const third = (await git(app, ['rev-parse', 'HEAD~2'])).stdout.trim();
+    inputs = ['HEAD~2'];
+    forget();
+    await vscode.commands.executeCommand('gitar.goToCommit');
+    assert.ok(revealed().includes(`${third} in graph`), `revealed: ${revealed()}`);
+  });
+
+  await step('finds commits in the whole history for a view to highlight where they are, without replacing the graph', async () => {
+    const commits = view('commits');
+    const find = async (search: Extract<Filter, { query: string }>) => {
+      posted.length = 0;
+      addressed.length = 0;
+      await internals.onMessage(commits, { type: 'find', search });
+      const index = posted.findIndex((outgoing) => outgoing.type === 'found');
+      const found = posted[index];
+      assert.ok(found?.type === 'found', 'the view is answered');
+      assert.equal(addressed[index], commits);
+      assert.deepEqual(found.search, search);
+      return found;
+    };
+    const hashes = (wanted: (subject: string) => boolean = () => true) =>
+      state()
+        .rows.filter((row) => wanted(row.subject))
+        .map((row) => row.hash);
+    const everything = hashes().length;
+
+    const added = await find({ kind: 'message', query: 'ADD' });
+    assert.ok(added.hashes.length > 2 && !added.more);
+    assert.deepEqual(added.hashes, hashes((subject) => /add/i.test(subject)));
+    // The graph is as it was.
+    assert.equal(state().filter, null);
+    assert.equal(hashes().length, everything);
+
+    // In the history of a file, only the commits of that history.
+    await controller.setFilter({ kind: 'path', path: 'b.txt' });
+    assert.ok(hashes().length < everything);
+    assert.deepEqual((await find({ kind: 'author', query: 'gitar test' })).hashes, hashes());
+    assert.deepEqual(state().filter, { kind: 'path', path: 'b.txt' });
+
+    // A list of results gives way to the graph the new ones are shown in.
+    await controller.setFilter({ kind: 'message', query: 'feature' });
+    const two = await find({ kind: 'pickaxe', query: 'two' });
+    assert.equal(state().filter, null);
+    assert.ok(two.hashes.length > 0 && two.hashes.every((hash) => hashes().includes(hash)));
+
+    // A search git refuses is said, and finds nothing.
+    const before = errors.length;
+    assert.deepEqual((await find({ kind: 'regex', query: '[' })).hashes, []);
+    assert.match(errors.at(-1)!, /the search failed/);
+    // Provoked on purpose.
+    errors.length = before;
   });
 
   await step('switches identity for the repository', async () => {

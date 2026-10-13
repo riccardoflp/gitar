@@ -85,10 +85,13 @@ export interface WorkingState {
 export type Filter =
   /** `renamedFrom`: the names the file had before, which the extension finds and adds to the state it sends back. */
   | { kind: 'path'; path: string; renamedFrom?: string[] }
-  /** Only what is reachable from one branch, tag or commit. */
-  | { kind: 'ref'; ref: string }
+  /** Only what is reachable from one branch, tag or commit. `lost` when it is a commit that no branch or tag reaches any more. */
+  | { kind: 'ref'; ref: string; lost?: boolean }
   /** `message` and `author` match text; `pickaxe` finds commits that add or remove the text; `regex` matches changed lines. */
   | { kind: 'message' | 'author' | 'pickaxe' | 'regex'; query: string };
+
+/** A search that git runs, in the whole history rather than in the commits that are loaded. */
+export type Search = Extract<Filter, { query: string }>;
 
 /** A `git bisect` in progress. HEAD is the commit git wants tested next. */
 export interface Bisect {
@@ -279,6 +282,11 @@ export type HostMessage =
   | { type: 'hunks'; path: string; staged: boolean; hunks: FileHunks | null }
   /** Select a commit and scroll to it. */
   | { type: 'reveal'; hash: string }
+  /**
+   * The commits a search found in the history that is shown, newest first. `more` when there are others after the last,
+   * `failed` when git refused the search.
+   */
+  | { type: 'found'; search: Search; hashes: string[]; more: boolean; failed?: boolean }
   /** Show the files that differ between two commits. */
   | { type: 'compare'; comparing: Comparing }
   /** A commit message is being drafted, or has been (`message`). */
@@ -293,7 +301,8 @@ export type UiCommand =
   | 'draftMessage'
   | 'switchIdentity'
   | 'selectRepository'
-  | 'remotes';
+  | 'remotes'
+  | 'goToCommit';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -313,6 +322,10 @@ export type WebviewMessage =
   | { type: 'sync'; action: SyncAction }
   | { type: 'action'; action: Action }
   | { type: 'setFilter'; filter: Filter | null }
+  /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
+  | { type: 'goTo'; revision: string }
+  /** Asks for the commits a search finds, to highlight them in the graph rather than replace it with them. */
+  | { type: 'find'; search: Search }
   | { type: 'command'; command: UiCommand }
   /** Opens the pull request of a branch, or the page to create one. */
   | { type: 'pullRequest'; branch: string }
