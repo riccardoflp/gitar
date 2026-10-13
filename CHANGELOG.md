@@ -2,7 +2,7 @@
 
 What changed in each version of Gitar. The versions follow [Semantic Versioning](https://semver.org).
 
-## 0.1.0
+## 0.1.0 - 2026-10-13
 
 The first release.
 
