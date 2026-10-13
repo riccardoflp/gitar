@@ -170,6 +170,31 @@ export interface Comparison {
   files: FileChange[];
 }
 
+/** Two commits to compare, with the names to show for them. */
+export interface Comparing {
+  from: string;
+  to: string;
+  fromName: string;
+  toName: string;
+}
+
+/** One side of a comparison: a commit, and the branch, tag or short hash to call it by. */
+export interface ComparedRef {
+  name: string;
+  hash: string;
+}
+
+/**
+ * What a view shows. `graph` is everything, in the panel or in an editor tab. The others are the views of the side bar:
+ * `commits` is the graph without the references beside it.
+ */
+export type ViewKind = 'graph' | 'changes' | 'commits' | 'branches' | 'stashes';
+
+/** The views that list commits, and so are sent them. */
+export const listsCommits = (kind: ViewKind) => kind === 'graph' || kind === 'commits';
+/** The views that can show the files that differ between two commits. */
+export const showsComparisons = (kind: ViewKind) => kind !== 'changes' && kind !== 'stashes';
+
 /** One `@@` block of a diff. `header` is the `@@ -a,b +c,d @@` line, `lines` the context, `+` and `-` lines after it. */
 export interface Hunk {
   header: string;
@@ -254,6 +279,8 @@ export type HostMessage =
   | { type: 'hunks'; path: string; staged: boolean; hunks: FileHunks | null }
   /** Select a commit and scroll to it. */
   | { type: 'reveal'; hash: string }
+  /** Show the files that differ between two commits. */
+  | { type: 'compare'; comparing: Comparing }
   /** A commit message is being drafted, or has been (`message`). */
   | { type: 'drafting'; active: boolean; message?: string };
 
@@ -274,6 +301,10 @@ export type WebviewMessage =
   | { type: 'loadMore' }
   | { type: 'getDetail'; hash: string }
   | { type: 'getComparison'; from: string; to: string }
+  /** Asks the user what to compare, or what to compare `from` with, and shows the comparison in this view. */
+  | { type: 'compare'; from?: ComparedRef }
+  /** Selects a commit in the views that list commits and are open, without opening one. */
+  | { type: 'show'; hash: string }
   | { type: 'selectRepo'; root: string }
   | { type: 'getHunks'; path: string; staged: boolean }
   | { type: 'openDiff'; source: DiffSource; file: FileChange }

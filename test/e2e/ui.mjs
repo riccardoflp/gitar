@@ -12,7 +12,7 @@ import { CTRL, startWindow } from './window.mjs';
 const options = process.argv.slice(2).filter((argument) => argument.startsWith('--'));
 const [codePath] = process.argv.slice(2).filter((argument) => !argument.startsWith('--'));
 const out = path.resolve(options.find((option) => option.startsWith('--out='))?.slice(6) ?? path.join(source, 'dist', 'ui'));
-const TIMEOUT = 240_000;
+const TIMEOUT = 360_000;
 const WIDTH = 1500;
 const HEIGHT = 950;
 
@@ -354,6 +354,197 @@ try {
     } finally {
       setting('workbench.colorTheme', undefined);
       await until('the dark theme', () => page.evaluate(`document.querySelector('.monaco-workbench').classList.contains('vs-dark')`));
+    }
+  });
+
+  /** What the header of a view of the side bar says after its name, and the buttons it has. */
+  const header = (title) =>
+    page.evaluate(`(() => {
+      const header = [...document.querySelectorAll('.pane-header')].find((candidate) => candidate.querySelector('.title')?.textContent === ${JSON.stringify(title)});
+      if (!header) return null;
+      return {
+        description: header.querySelector('.description')?.textContent ?? '',
+        actions: [...header.querySelectorAll('.actions .action-label')].map((action) => action.getAttribute('aria-label') ?? ''),
+      };
+    })()`);
+  const menuItems = (view) =>
+    until('the context menu', () =>
+      view.evaluate(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent); return items.length ? items : null; })()`),
+    );
+  const compared = (view) =>
+    view.evaluate(`({
+      heading: document.querySelector('.detail h2')?.textContent ?? null,
+      sides: [...document.querySelectorAll('.detail dd')].map((side) => side.textContent),
+      files: [...document.querySelectorAll('.detail .file .name')].map((file) => file.textContent),
+    })`);
+
+  await step('the side bar lists the commits too, with the details under them and the buttons in the header of the view', async () => {
+    await command('Gitar: Show Commits in the Side Bar');
+    const commits = await webview('commits');
+    await until('the commits', async () => (await subjects(commits)).includes('Add a'));
+    await commits.click('.row', 'Add b');
+    await until('the details', () => commits.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add b'`));
+    await shot('side-commits');
+    const layout = await commits.evaluate(`(() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      return {
+        references: !!document.querySelector('.refs'),
+        buttons: document.querySelectorAll('.toolbar .button:not(.icon)').length,
+        search: Math.round(box('.search').width),
+        under: box('.detail').top >= box('.commits').bottom - 1,
+        detail: Math.round(box('.detail').width),
+        width: innerWidth,
+        wider: document.documentElement.scrollWidth > innerWidth,
+      };
+    })()`);
+    assert(!layout.references && layout.buttons === 0, `only the search and the commits: ${JSON.stringify(layout)}`);
+    assert(layout.under && layout.detail === layout.width && !layout.wider, `the details are under the commits: ${JSON.stringify(layout)}`);
+    assert(layout.search >= 150, `the search box is ${layout.search}px wide`);
+    const { actions } = await header('Commits');
+    for (const wanted of ['Fetch', 'Pull', 'Push', 'Compare Branches, Tags or Commits…', 'Refresh']) {
+      assert(actions.some((action) => action.startsWith(wanted)), `the header has ${wanted}: ${actions}`);
+    }
+    await commits.click('.detail .close');
+  });
+
+  await step('the branches in the side bar compare two of them, or one with a revision typed in the real prompts', async () => {
+    await command('Gitar: Show Branches');
+    const branches = await webview('branches');
+    await until('the branches', () => branches.evaluate(`document.querySelectorAll('.refs .ref').length >= 4`));
+    const sections = await branches.evaluate(`[...document.querySelectorAll('.refs .section')].map((section) => section.textContent)`);
+    // The stashes have a view of their own.
+    assert(sections[0] === 'Local4' && sections[1] === 'Remotes1' && !sections.some((section) => section.startsWith('Stashes')), `sections: ${sections}`);
+    assert((await header('Branches')).description === 'main', `the header names the branch: ${JSON.stringify(await header('Branches'))}`);
+
+    let at = await branches.locate('.refs .ref', 'feature');
+    await mouse(at.x, at.y, 'right');
+    const items = await menuItems(branches);
+    await shot('side-branch-menu');
+    assert(items.includes('Compare with main') && items.includes('Compare with…'), `menu: ${items}`);
+    const menu = await branches.evaluate(`(() => { const rect = document.querySelector('[role="menu"]').getBoundingClientRect(); return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight }; })()`);
+    assert(menu.left >= 0 && menu.top >= 0 && menu.right <= menu.width && menu.bottom <= menu.height, `the menu is inside the view: ${JSON.stringify(menu)}`);
+    await branches.click('[role="menuitem"]', 'Compare with main');
+    await until('the files that differ', async () => (await compared(branches)).files.length > 0);
+    let seen = await compared(branches);
+    await shot('side-compare');
+    assert(seen.heading === 'Comparison' && seen.sides.length === 2, `comparison: ${JSON.stringify(seen)}`);
+    assert(seen.sides[0].startsWith('feature') && seen.sides[1].startsWith('main'), `sides: ${seen.sides}`);
+    assert(seen.files.includes('feature.txt'), `files: ${seen.files}`);
+
+    // The comparison took some of the room of the branches.
+    await branches.evaluate(`[...document.querySelectorAll('.refs .ref')].find((ref) => ref.textContent.includes('feature')).scrollIntoView({ block: 'center' })`);
+    await sleep(200);
+    at = await branches.locate('.refs .ref', 'feature');
+    await mouse(at.x, at.y, 'right');
+    await menuItems(branches);
+    await branches.click('[role="menuitem"]', 'Compare with…');
+    const pick = await until('the choice of the other side', async () => {
+      const open = await prompt();
+      return open?.title === 'Compare feature with' && open.items.length ? open : null;
+    });
+    await shot('compare-pick');
+    assert(pick.items.some((item) => item.includes('Enter a hash')) && pick.items.some((item) => item.includes('from-ui')), `offered: ${pick.items}`);
+    assert(!pick.items.some((item) => item.trim() === 'feature'), `feature is not offered against itself: ${pick.items}`);
+    await clickText('.quick-input-list .monaco-list-row', 'Enter a hash');
+    await until('the box for the revision', async () => {
+      const open = await prompt();
+      return open?.title === 'Compare feature with' && !open.items.length;
+    });
+    await type('no-such-thing');
+    const unknown = 'Git does not know a commit by this name';
+    const refused = await until('what git says of it', async () => ((await prompt())?.message.includes(unknown) ? prompt() : null));
+    await shot('compare-revision');
+    assert(refused.kind === 'quick', `prompt: ${JSON.stringify(refused)}`);
+    // Typing over what is selected replaces it.
+    await page.evaluate(`document.querySelector('.quick-input-widget input').select()`);
+    await type('HEAD~2');
+    await until('the revision to be accepted', async () => !(await prompt())?.message.includes(unknown));
+    await key('Enter');
+    await until('the other comparison', async () => (await compared(branches)).sides[1]?.startsWith('HEAD~2'));
+    seen = await compared(branches);
+    assert(seen.sides[0].startsWith('feature') && seen.files.length > 0, `comparison: ${JSON.stringify(seen)}`);
+    await branches.click('.detail .close');
+  });
+
+  await step('the stashes in the side bar unfold to their files, and their header counts them', async () => {
+    git(app, 'stash', 'push', '--include-untracked', '-m', 'Put aside');
+    await command('Gitar: Show Stashes');
+    const stashes = await webview('stashes');
+    await until('the stash', () => stashes.evaluate(`document.querySelectorAll('.stash').length === 1`));
+    await stashes.click('.stash .file-open');
+    const files = await until('its files', () =>
+      stashes.evaluate(`(() => { const files = [...document.querySelectorAll('.stash-files .file .name')].map((file) => file.textContent); return files.length ? files : null; })()`),
+    );
+    const at = await stashes.locate('.stash');
+    await mouse(at.x, at.y, 'right');
+    const items = await menuItems(stashes);
+    await shot('side-bar');
+    await key('Escape');
+    assert((await stashes.evaluate(`document.querySelector('.stash .name').textContent`)).includes('Put aside'), 'the stash is named by its message');
+    assert(files.join() === 'new.txt', `files: ${files}`);
+    assert(items.some((item) => item.startsWith('Apply')) && items.some((item) => item.startsWith('Drop')), `menu: ${items}`);
+    await until('the count in the header', async () => (await header('Stashes'))?.description === '1');
+    // Four views, one under the other, and each still has its place.
+    for (const kind of ['changes', 'commits', 'branches', 'stashes']) {
+      const { frame } = await webview(kind);
+      assert(frame.height >= 60, `the ${kind} view is ${frame.height}px tall`);
+    }
+  });
+
+  await step('a graph of twenty branches is drawn closer to leave room to the messages, and its edge can be dragged', async () => {
+    // Twenty branches that start from the same commit: twenty lines side by side.
+    const names = Array.from({ length: 20 }, (_, index) => `side-${String(index + 1).padStart(2, '0')}`);
+    const tree = git(app, 'rev-parse', 'HEAD^{tree}').toString().trim();
+    for (const name of names) git(app, 'branch', name, git(app, 'commit-tree', tree, '-p', 'HEAD', '-m', `On ${name}`).toString().trim());
+    const graph = await webview('graph');
+    const added = async () => (await subjects(graph)).filter((subject) => subject.startsWith('On side-')).length;
+    const seen = () =>
+      graph.evaluate(`(() => {
+        const dots = [...document.querySelectorAll('.row svg.graph circle')].map((dot) => Number(dot.getAttribute('cx')));
+        return {
+          width: Number(document.querySelector('.row svg.graph').getAttribute('width')),
+          cut: document.querySelector('.commits').classList.contains('cut'),
+          lanes: new Set(dots).size,
+          farthest: Math.round(Math.max(...dots)),
+          message: Math.round(document.querySelector('.row .message').getBoundingClientRect().left),
+        };
+      })()`);
+    const pull = async (by) => {
+      const at = await graph.locate('.graph-sash');
+      await window.drag(at, { x: at.x + by, y: at.y });
+    };
+
+    try {
+      // Only the rows in sight are drawn, which in the panel are fewer than twenty.
+      await until('the new commits', async () => (await added()) >= 8);
+      if (await graph.evaluate(`!!document.querySelector('.detail .close')`)) await graph.click('.detail .close');
+      await sleep(300);
+
+      // On its own: no wider than sixteen lanes at their ease, with all twenty in it.
+      const auto = await seen();
+      await shot('many-branches');
+      assert(auto.lanes >= 8 && auto.width === 230 && !auto.cut && auto.farthest < auto.width, `on its own: ${JSON.stringify(auto)}`);
+
+      await pull(-100);
+      const narrow = await seen();
+      await shot('graph-narrower');
+      assert(narrow.width === 130 && narrow.cut && narrow.message === auto.message - 100, `narrower: ${JSON.stringify(narrow)}`);
+
+      // As wide as it takes to give every lane its room, and no wider.
+      await pull(400);
+      const wide = await seen();
+      await shot('graph-wider');
+      assert(wide.width >= 20 * 14 + 6 && (wide.width - 6) % 14 === 0 && !wide.cut, `wider: ${JSON.stringify(wide)}`);
+      assert(wide.farthest < wide.width, `every dot is inside: ${JSON.stringify(wide)}`);
+
+      const at = await graph.locate('.graph-sash');
+      await mouse(at.x, at.y);
+      await mouse(at.x, at.y, 'left', 2);
+      await until('the width it chooses on its own', async () => (await seen()).width === 230);
+    } finally {
+      // The steps after this one look for the commits that were there before.
+      git(app, 'branch', '-D', ...names);
+      await until('the graph as it was', async () => (await added()) === 0);
     }
   });
 

@@ -39,6 +39,8 @@ function tidy(entries: MenuEntry[]): (MenuItem | 'separator')[] {
 }
 
 const MAX_COLUMNS = 3;
+/** The least a column of the menu takes. */
+const COLUMN_WIDTH = 184;
 
 interface OpenState {
   id: number;
@@ -56,9 +58,11 @@ function Menu({ menu, onClose }: { menu: OpenState; onClose(): void }) {
   useLayoutEffect(() => {
     const available = window.innerHeight - 8;
     const needed = element.current!.scrollHeight;
-    if (columns === 1 && needed > available) {
-      // Measured again once the columns are there. They do not come out even, hence the margin.
-      setColumns(Math.min(MAX_COLUMNS, Math.ceil(needed / (available * 0.85))));
+    // Measured again once the columns are there. They do not come out even, hence the margin.
+    const wanted = Math.min(MAX_COLUMNS, Math.ceil(needed / (available * 0.85)));
+    // A view of the side bar is narrow as well as short: there the menu stays in one column, and scrolls.
+    if (columns === 1 && needed > available && wanted * COLUMN_WIDTH <= window.innerWidth - 8) {
+      setColumns(wanted);
       return;
     }
     const box = element.current!.getBoundingClientRect();

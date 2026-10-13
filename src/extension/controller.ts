@@ -22,9 +22,11 @@ import {
   type IdentityProfile,
 } from '../git/ops';
 import { Repo, isHash } from '../git/repo';
-import { WORKTREE } from '../shared/protocol';
+import { WORKTREE, listsCommits, showsComparisons } from '../shared/protocol';
 import type {
   Action,
+  ComparedRef,
+  Comparing,
   DiffSource,
   FileChange,
   Filter,
@@ -35,6 +37,7 @@ import type {
   RepoState,
   SyncAction,
   UiCommand,
+  ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
 import { resolveAction } from './actions';
@@ -60,8 +63,6 @@ const REFLOG_ENTRIES = 200;
 const REPO_KEY = 'gitar.repository';
 /** Pull requests change on GitHub's side, so they are re-read at most this often unless something asks for it. */
 const PULLS_MAX_AGE = 120_000;
-
-export type ViewKind = 'graph' | 'changes';
 
 interface RunResult {
   ok: boolean;
@@ -92,6 +93,8 @@ export class Controller implements vscode.Disposable {
   private limit = PAGE_SIZE;
   /** The read of the repository under way, if any. */
   private loading?: Promise<void>;
+  /** How many operations were started, to tell a state that was read across one. */
+  private operations = 0;
   /** Something changed since that read started. */
   private dirty = false;
   private running = false;
@@ -109,10 +112,12 @@ export class Controller implements vscode.Disposable {
   private pullsAt = 0;
   /** A commit to show as soon as a graph view is there to show it. */
   private pendingReveal?: string;
+  /** A comparison waiting for the same. */
+  private pendingCompare?: Comparing;
   /** Every repository of the workspace; `repo` is the one being shown. */
   private repos: RepoInfo[] = [];
   private readonly views = new Map<vscode.Webview, ViewKind>();
-  /** What identifies the commits each graph view was last sent. */
+  /** What identifies the commits each view that lists them was last sent. */
   private readonly sentRows = new WeakMap<vscode.Webview, string>();
   private readonly stateEmitter = new vscode.EventEmitter<RepoState | null>();
   private readonly subscriptions: vscode.Disposable[];
@@ -170,7 +175,11 @@ export class Controller implements vscode.Disposable {
     try {
       for (let repo: Repo | undefined = first; repo && this.dirty; repo = this.repo) {
         this.dirty = false;
+        const operations = this.operations;
         const state = await this.readState(repo);
+        // Read while an operation ran, it can be half from before it and half from after, such as a new commit that
+        // no branch points at yet. It is dropped: the operation is followed by a read of its own.
+        if (this.running || operations !== this.operations) continue;
         // Unless the views were pointed at another repository in the meantime.
         if (repo === this.repo) this.setState({ ...state, repos: this.repos, github: this.github, pulls: this.pulls });
       }
@@ -242,14 +251,108 @@ export class Controller implements vscode.Disposable {
     this.pendingReveal = hash;
     await vscode.commands.executeCommand('gitar.graph.focus');
     if (this.filter) await this.setFilter(null);
-    this.flushReveal();
+    this.flushPending();
   }
 
-  private flushReveal(): void {
-    const graphs = [...this.views].filter(([, kind]) => kind === 'graph');
-    if (!this.pendingReveal || !graphs.length) return;
-    for (const [view] of graphs) this.post({ type: 'reveal', hash: this.pendingReveal }, view);
-    this.pendingReveal = undefined;
+  /** Selects a commit in the views that list commits and are there, without opening any or taking the focus. */
+  private show(hash: string): void {
+    if (!isHash(hash)) return;
+    for (const [view, kind] of this.views) if (listsCommits(kind)) this.post({ type: 'reveal', hash }, view);
+  }
+
+  /** Hands over what was waiting for a graph view to be there. */
+  private flushPending(): void {
+    const views = (wanted: (kind: ViewKind) => boolean) => [...this.views].filter(([, kind]) => wanted(kind)).map(([view]) => view);
+    const lists = views(listsCommits);
+    if (this.pendingReveal && lists.length) {
+      for (const view of lists) this.post({ type: 'reveal', hash: this.pendingReveal }, view);
+      this.pendingReveal = undefined;
+    }
+    // The one in the panel was opened for it, and has the room for it.
+    const graphs = views((kind) => kind === 'graph');
+    if (this.pendingCompare && graphs.length) {
+      for (const view of graphs) this.post({ type: 'compare', comparing: this.pendingCompare }, view);
+      this.pendingCompare = undefined;
+    }
+  }
+
+  /**
+   * Shows the files that differ between two branches, tags or commits, asking which. With `from`, only the other
+   * side is asked. The answer goes to the view that asked, if it can show it, or else to the graph.
+   */
+  async compare(from?: ComparedRef, asker?: vscode.Webview): Promise<void> {
+    const state = await this.requireState();
+    const repo = this.repo;
+    if (!state || !repo) return;
+    try {
+      const given = from && isHash(from.hash) && typeof from.name === 'string' ? { name: from.name, hash: from.hash } : undefined;
+      const first = given ?? (await this.pickRevision(state, repo, 'Compare', 'The branch, tag or commit to start from'));
+      if (!first) return;
+      const second = await this.pickRevision(state, repo, `Compare ${first.name} with`, 'The branch, tag or commit to compare it with', first);
+      if (!second) return;
+      const comparing: Comparing = { from: first.hash, to: second.hash, fromName: first.name, toName: second.name };
+      const kind = asker && this.views.get(asker);
+      if (asker && kind && showsComparisons(kind)) return this.post({ type: 'compare', comparing }, asker);
+      this.pendingCompare = comparing;
+      await vscode.commands.executeCommand('gitar.graph.focus');
+      this.flushPending();
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+    }
+  }
+
+  /** Lets the user choose a branch or a tag, or type anything git can turn into a commit: a hash, `HEAD~3`, `v1.0^`. */
+  private async pickRevision(
+    state: RepoState,
+    repo: Repo,
+    title: string,
+    placeHolder: string,
+    other?: ComparedRef,
+  ): Promise<ComparedRef | undefined> {
+    type Item = vscode.QuickPickItem & { ref?: ComparedRef };
+    const group = (label: string, refs: { name: string; hash: string }[], icon: string): Item[] =>
+      refs.length
+        ? [
+            { label, kind: vscode.QuickPickItemKind.Separator },
+            ...refs.map((ref) => ({ label: `$(${icon}) ${ref.name}`, description: ref.hash.slice(0, 7), ref: { name: ref.name, hash: ref.hash } })),
+          ]
+        : [];
+    const items: Item[] = [{ label: '$(edit) Enter a hash or a revision…', description: 'such as 1a2b3c4 or HEAD~3', alwaysShow: true }];
+    if (state.head) {
+      const name = state.branch ?? 'HEAD';
+      items.push({ label: `$(target) ${name}`, description: `${state.head.slice(0, 7)} · checked out`, ref: { name, hash: state.head } });
+    }
+    items.push(
+      ...group(
+        'Branches',
+        state.branches.filter((branch) => !branch.current),
+        'git-branch',
+      ),
+      ...group('Remote branches', state.remoteBranches, 'cloud'),
+      ...group('Tags', state.tags, 'tag'),
+    );
+    // Comparing something with itself shows nothing.
+    const offered = items.filter((item) => !item.ref || item.ref.name !== other?.name || item.ref.hash !== other.hash);
+    const choice = await vscode.window.showQuickPick(offered, { title, placeHolder, matchOnDescription: true });
+    if (!choice) return;
+    if (choice.ref) return choice.ref;
+
+    const revision = (
+      await vscode.window.showInputBox({
+        title,
+        prompt: 'A commit hash, or anything else git understands: HEAD~3, v1.0^, main@{yesterday}',
+        validateInput: async (value) =>
+          !value.trim() || (await repo.resolve(value.trim())) ? undefined : 'Git does not know a commit by this name in this repository.',
+      })
+    )?.trim();
+    if (!revision) return;
+    // The box can be accepted before the last check has come back.
+    const hash = await repo.resolve(revision);
+    if (!hash) {
+      void vscode.window.showWarningMessage(`Gitar: "${revision}" is not a commit of this repository.`);
+      return;
+    }
+    return { name: isHash(revision) ? hash.slice(0, 7) : revision, hash };
   }
 
   async command(command: UiCommand): Promise<void> {
@@ -723,8 +826,8 @@ export class Controller implements vscode.Disposable {
     const { state } = message;
     const key = rowsKey(state, this.filter);
     for (const view of targets) {
-      // The Changes view never shows the graph, so it is spared the rows.
-      if (this.views.get(view) === 'changes') {
+      // The views that never show the graph are spared the rows.
+      if (!listsCommits(this.views.get(view) ?? 'graph')) {
         void view.postMessage({ type: 'state', state: { ...state, rows: [] } } satisfies HostMessage);
         continue;
       }
@@ -749,7 +852,7 @@ export class Controller implements vscode.Disposable {
         this.sentRows.delete(webview);
         if (this.located && !this.loading) this.post({ type: 'state', state: this.state }, webview);
         await this.refresh();
-        return this.flushReveal();
+        return this.flushPending();
       case 'setFilter':
         return this.setFilter(message.filter);
       case 'command':
@@ -765,6 +868,10 @@ export class Controller implements vscode.Disposable {
         const detail = (await this.repo?.commitDetail(message.hash).catch(() => null)) ?? null;
         return this.post({ type: 'detail', hash: message.hash, detail }, webview);
       }
+      case 'compare':
+        return this.compare(message.from, webview);
+      case 'show':
+        return this.show(message.hash);
       case 'getComparison': {
         const comparison = await this.repo?.compare(message.from, message.to).catch(() => null);
         return comparison ? this.post({ type: 'comparison', comparison }, webview) : undefined;
@@ -803,6 +910,7 @@ export class Controller implements vscode.Disposable {
 
     let error: string | undefined;
     this.running = true;
+    this.operations++;
     this.post({ type: 'busy', title: op.title });
     try {
       await vscode.window.withProgress(

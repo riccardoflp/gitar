@@ -144,6 +144,14 @@ export class Repo {
     return [...new Set(out.split('\n').filter(Boolean).map((line) => line.split(' ')[0].toLowerCase()))];
   }
 
+  /** The commit that a branch, a tag, a hash or any other expression git understands stands for. Null when there is none. */
+  async resolve(revision: string): Promise<string | null> {
+    // What starts with a dash would be read as an option.
+    if (!revision || revision.startsWith('-')) return null;
+    const out = await this.read(['rev-parse', '--verify', '--quiet', `${revision}^{commit}`], true);
+    return out.trim() || null;
+  }
+
   /** The files that differ between two commits. */
   async compare(from: string, to: string): Promise<Comparison | null> {
     if (!isHash(from) || !isHash(to)) return null;

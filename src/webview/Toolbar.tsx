@@ -9,6 +9,8 @@ import { post } from './vscode';
 interface Props {
   state: RepoState;
   busy: string | null;
+  /** Only the search and the menu: in the side bar the header of the view has the buttons, and the room is for the commits. */
+  compact?: boolean;
   matchCount: number | null;
   /** Highlights the loaded commits that contain the text. */
   onQuery(query: string): void;
@@ -49,7 +51,7 @@ const SEARCH_MODES: Record<SearchMode, { label: string; placeholder: string; tit
   },
 };
 
-export function Toolbar({ state, busy, matchCount, onQuery, onNextMatch }: Props) {
+export function Toolbar({ state, busy, compact, matchCount, onQuery, onNextMatch }: Props) {
   const [mode, setMode] = useState<SearchMode>('loaded');
   const [text, setText] = useState('');
   const openMenu = useMenu();
@@ -77,6 +79,7 @@ export function Toolbar({ state, busy, matchCount, onQuery, onNextMatch }: Props
 
   const run = (command: UiCommand) => () => post({ type: 'command', command });
   const more: MenuEntry[] = [
+    { label: 'Compare branches, tags or commits…', run: () => post({ type: 'compare' }) },
     { label: 'History of the active file', run: run('activeFileHistory') },
     { label: 'Browse reflog…', run: run('reflog') },
     { label: 'Clean up branches…', run: run('cleanupBranches') },
@@ -87,6 +90,54 @@ export function Toolbar({ state, busy, matchCount, onQuery, onNextMatch }: Props
     state.github && 'separator',
     state.github && { label: 'Load pull requests from GitHub', run: run('signInGitHub') },
   ];
+
+  const search = (
+    <div className="search">
+      <Icon name="search" />
+      <select
+        value={mode}
+        aria-label="Where to search"
+        title={SEARCH_MODES[mode].title}
+        onChange={(event) => changeMode(event.target.value as SearchMode)}
+      >
+        {Object.entries(SEARCH_MODES).map(([key, { label }]) => (
+          <option key={key} value={key}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        value={text}
+        aria-label="Search commits"
+        placeholder={SEARCH_MODES[mode].placeholder}
+        onChange={(event) => changeText(event.target.value)}
+        onKeyDown={(event) => event.key === 'Enter' && submit()}
+      />
+      {matchCount !== null && <span className="count">{matchCount}</span>}
+    </div>
+  );
+  const moreButton = (
+    <button className="button icon" onClick={(event) => openMenu(event, more)} aria-label="More actions" title="More actions">
+      <Icon name="ellipsis" />
+    </button>
+  );
+  const working = busy && (
+    <span className="busy" title={`${busy}…`}>
+      <Icon name="loading" spin />
+      <span className="label">{busy}…</span>
+    </span>
+  );
+
+  if (compact) {
+    return (
+      <div className="toolbar compact">
+        {search}
+        {working}
+        {moreButton}
+      </div>
+    );
+  }
 
   return (
     <div className="toolbar">
@@ -154,45 +205,15 @@ export function Toolbar({ state, busy, matchCount, onQuery, onNextMatch }: Props
         <span className="label">Undo</span>
       </button>
 
-      {busy && (
-        <span className="busy" title={`${busy}…`}>
-          <Icon name="loading" spin />
-          <span className="label">{busy}…</span>
-        </span>
-      )}
+      {working}
 
       <span className="spacer" />
 
-      <div className="search">
-        <Icon name="search" />
-        <select
-          value={mode}
-          aria-label="Where to search"
-          title={SEARCH_MODES[mode].title}
-          onChange={(event) => changeMode(event.target.value as SearchMode)}
-        >
-          {Object.entries(SEARCH_MODES).map(([key, { label }]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <input
-          type="text"
-          value={text}
-          aria-label="Search commits"
-          placeholder={SEARCH_MODES[mode].placeholder}
-          onChange={(event) => changeText(event.target.value)}
-          onKeyDown={(event) => event.key === 'Enter' && submit()}
-        />
-        {matchCount !== null && <span className="count">{matchCount}</span>}
-      </div>
+      {search}
       <button className="button icon" onClick={() => post({ type: 'refresh' })} aria-label="Refresh" title="Refresh">
         <Icon name="refresh" />
       </button>
-      <button className="button icon" onClick={(event) => openMenu(event, more)} aria-label="More actions" title="More actions">
-        <Icon name="ellipsis" />
-      </button>
+      {moreButton}
     </div>
   );
 }

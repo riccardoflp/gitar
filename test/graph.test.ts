@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, laneCount } from '../src/shared/graph';
+import { GraphLayout, fitGraph, laneCount } from '../src/shared/graph';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -57,5 +57,34 @@ describe('GraphLayout', () => {
   it('draws nothing above a branch tip', () => {
     const [tip] = layout([['tip', 'parent']]);
     expect(tip.top).toEqual([]);
+  });
+});
+
+describe('fitGraph', () => {
+  it('gives every lane its room when there is enough of it', () => {
+    expect(fitGraph(1, null, 900)).toEqual({ width: 20, lane: 14, cut: false, natural: 20 });
+    expect(fitGraph(4, null, 900)).toEqual({ width: 62, lane: 14, cut: false, natural: 62 });
+    // Before the list has been measured.
+    expect(fitGraph(4, null, 0).width).toBe(62);
+  });
+
+  it('draws many lanes closer on its own, and cuts off only what still does not fit', () => {
+    // Twenty lanes in the room of sixteen.
+    const twenty = fitGraph(20, null, 900);
+    expect(twenty).toMatchObject({ width: 230, cut: false, natural: 286 });
+    expect(twenty.lane).toBeCloseTo(11.2);
+    expect(fitGraph(40, null, 900)).toMatchObject({ width: 230, lane: 8, cut: true });
+    // In a list as narrow as the side bar it leaves most of the room to the messages.
+    expect(fitGraph(20, null, 300)).toMatchObject({ width: 100, lane: 8, cut: true });
+  });
+
+  it('takes the width it was dragged to, between one lane and all of them at their ease', () => {
+    expect(fitGraph(20, 100, 900)).toMatchObject({ width: 100, lane: 8, cut: true });
+    expect(fitGraph(20, 286, 900)).toEqual({ width: 286, lane: 14, cut: false, natural: 286 });
+    expect(fitGraph(20, 5, 900).width).toBe(20);
+    // Dragged wide for a history that has few lanes now: the graph does not keep the room empty.
+    expect(fitGraph(2, 286, 900)).toEqual({ width: 34, lane: 14, cut: false, natural: 34 });
+    // Nor more than the list can spare, however wide it was dragged when the view was larger.
+    expect(fitGraph(40, 500, 400).width).toBe(240);
   });
 });

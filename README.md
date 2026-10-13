@@ -2,12 +2,13 @@
 
 Commit graph, history and everyday Git operations in a single VS Code panel.
 
-Gitar has two views:
+Gitar has a view in the bottom panel and four in the side bar:
 
-- **Graph**, in the bottom panel next to the terminal: the commit graph, the references and the commit details.
+- **Graph**, in the panel next to the terminal: the commit graph, the references and the commit details, side by side.
 - **Changes**, in the side bar behind the Gitar icon: staging and committing.
+- **Commits**, **Branches** and **Stashes**, under it: the same history, references and stashes, for when the panel is closed. See [Side bar](#side-bar).
 
-Like any VS Code view they can be dragged somewhere else, and **Gitar: Open Graph in Editor** opens the graph as an editor tab.
+Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitar: Open Graph in Editor** opens the graph as an editor tab.
 
 ## Installation
 
@@ -28,6 +29,7 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 - Commit graph of all branches, remote branches and tags, loaded progressively.
 - The labels of a commit are outlined in the color of its line in the graph; the branch that is checked out is the one filled in.
 - Drag the line between the references and the commits, or between the commits and the details, to change their widths; double-click it to go back to the default. The widths are remembered per workspace.
+- The graph is as wide as its lines need, up to sixteen side by side and a third of the list. With more branches than that open at once it draws the lines closer, and past a point it fades out at its edge rather than push the messages away. Drag that edge to give it less room or more, up to the width at which every line has its place; double-click it to let the graph choose again. This works in the Commits view of the side bar too, and each view remembers its own.
 - Uncommitted changes shown as the first row of the graph, also before the first commit of a new repository.
 - References tree: local branches with ahead and behind counts, remote branches, tags, stashes and worktrees. From 15 branches and tags on, a filter box appears above it, and a section with more than 100 entries lists the first 100 and a **Show all** entry.
 - Commit details with the list of changed files; selecting a file opens it in the VS Code diff editor, and the button next to the count opens the diffs of all of them in one editor.
@@ -36,7 +38,7 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 - Search across the loaded commits or the whole history: see [Search](#search).
 - Refreshes on its own when the repository or its files change, including changes made from the terminal or by another program.
 - Select several commits with `Ctrl`+click (`Cmd` on macOS) or `Shift`+click to act on them together: see [Several commits at once](#several-commits-at-once).
-- The **…** button in the toolbar opens the history of the active file, the reflog, the branch cleanup, the remotes, the identity switch and the pull requests.
+- The **…** button in the toolbar opens the comparison of two branches, tags or commits, the history of the active file, the reflog, the branch cleanup, the remotes, the identity switch and the pull requests.
 - In a workspace with several repositories, a list in the toolbar chooses the one to show: see [Multiple repositories](#multiple-repositories).
 
 Right-click a commit, a branch, a tag or a stash for the operations that apply to it:
@@ -44,7 +46,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | On | Operations |
 | --- | --- |
 | Commit | Check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
-| Local branch | Check out (also by double-click), merge, rebase onto, compare with the current branch, show only its history, open or create its pull request, create worktree, rename, delete |
+| Local branch | Check out (also by double-click), merge, rebase onto, compare with the current branch or with anything else, show only its history, open or create its pull request, create worktree, rename, delete |
 | Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show only its history, push, delete |
 | Stash | Apply, pop, create branch, drop |
@@ -79,9 +81,27 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 
 **Add staged changes to this commit (fixup)** on an earlier commit folds your staged changes into it, or all your changes when nothing is staged. It runs `git commit --fixup` followed by `git rebase -i --autosquash --autostash`, so the commit and the ones after it are rewritten. It is offered for the commits an interactive rebase can reach, except `HEAD`, which **Amend** already covers. If the changes do not fit the older commit, the rebase stops with conflicts like any other.
 
+### Side bar
+
+Under **Changes**, three views show what the graph shows, each on its own:
+
+- **Commits** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. In a list this narrow the first label of a commit keeps its name and the others are left with their icon; hover one to read it.
+- **Branches** is the references tree: local branches, remote branches, tags and worktrees, with the same context menus. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
+- **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
+
+Stashes starts folded. The context menus open inside the view they belong to, so in a short one they scroll: drag the border between two views to give one more room.
+
 ### Compare
 
-**Compare with `<current branch>`** on a commit, branch or tag lists the files that differ between the two, in place of the commit details; selecting a file opens the diff. To compare two arbitrary commits, select one, then right-click the other and choose **Compare with … selected before**. **Swap** reverses the direction.
+**Gitar: Compare Branches, Tags or Commits…**, also the compare button in the headers of the Commits and Branches views and the first entry under **…** in the toolbar, asks for the two sides one after the other. Each is chosen from the list of branches, remote branches and tags, or typed with **Enter a hash or a revision…**: a commit hash, or anything else git turns into a commit, such as `HEAD~3`, `v1.0^` or `main@{yesterday}`. What git does not know is refused while you type.
+
+The files that differ between the two are listed in place of the commit details; selecting a file opens the diff, and the button next to the count opens all of them in one editor. **Swap** reverses the direction. The comparison shows in the view it was asked from: the graph, the Commits view, or the Branches view, under the tree. Asked from the command palette, it shows in the graph.
+
+From the context menu of a commit, branch or tag:
+
+- **Compare with `<current branch>`** compares it with what is checked out.
+- **Compare with…** asks only for the other side.
+- To compare two commits of the graph, select one, then right-click the other and choose **Compare with … selected before**.
 
 **Show only this history** on a branch or tag narrows the graph to what that reference can reach.
 
@@ -169,11 +189,11 @@ Pull requests are read with the GitHub account you signed in to in VS Code. Gita
 
 ### Multiple repositories
 
-Gitar shows one repository at a time. It finds the repository of each workspace folder, the repositories directly inside a folder, and their submodules. When there is more than one, a list at the start of the toolbar and at the top of the Changes view switches between them, as does **Gitar: Select Repository**. The choice is remembered per workspace. **Show File History** switches to the repository of the file on its own.
+Gitar shows one repository at a time. It finds the repository of each workspace folder, the repositories directly inside a folder, and their submodules. When there is more than one, a list at the start of the toolbar and at the top of the Changes view switches between them, as does **Gitar: Select Repository**, and the header of the Commits view names the one that is shown. The choice is remembered per workspace. **Show File History** switches to the repository of the file on its own.
 
 ### Conflicts
 
-When a merge, rebase, cherry-pick or revert stops, both views show a banner with **Continue**, **Skip** and **Abort**. Conflicting files are listed in the Changes view, and **Mark as resolved** stages one.
+When a merge, rebase, cherry-pick or revert stops, the Graph and Changes views show a banner with **Continue**, **Skip** and **Abort**. Conflicting files are listed in the Changes view, and **Mark as resolved** stages one.
 
 Selecting a conflicting file opens it in VS Code's merge editor, with the common ancestor as the base and the two sides labelled by what they are in the operation that stopped: in a rebase, **Current** is what you are rebasing onto and **Incoming** is your own commit. Save the result there, then mark the file as resolved. A file that was added or deleted on one side has no three versions to merge, and opens as a normal file instead. The merge editor is opened through the command VS Code's own Git extension uses, which is not part of the documented API: if a future version changes it, the file opens in the normal editor with its conflict markers.
 
@@ -221,13 +241,13 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 | `npm run test:ui` | Builds, then uses the extension in a real VS Code window, with real clicks and keys, saving screenshots: see below. |
 | `npm run package` | Makes a minified build and packs it into `gitar-<version>.vsix`. It leaves the minified build in `dist/`; `npm run build` brings the development one back. |
 | `npm run test:vsix` | Packages, then runs the end-to-end tests on what the `.vsix` contains instead of on this folder. |
-| `npm run preview -- <folder>...` | Serves the webview at `http://localhost:5174` against the repositories found in the folders, read-only, to work on the UI without an Extension Host. Add `?view=changes` for the Changes view and `?theme=light` for the light theme, and `--port=<number>` before the folders to serve a second one beside it. |
+| `npm run preview -- <folder>...` | Serves the webview at `http://localhost:5174` against the repositories found in the folders, read-only, to work on the UI without an Extension Host. Add `?view=changes`, `commits`, `branches` or `stashes` for a view of the side bar and `?theme=light` for the light theme, and `--port=<number>` before the folders to serve a second one beside it. |
 
 ### End-to-end tests
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews load, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -247,6 +267,10 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the line under the cursor is annotated with who changed it;
 - a branch dragged onto the checked out commit offers to merge or rebase;
 - the references and the details get wider when the line beside them is dragged, and a double click undoes it;
+- a graph of twenty branches side by side keeps to its width by drawing them closer, gets narrower and wider when its edge is dragged, and a double click undoes it;
+- the Commits view of the side bar lists the commits with the details under them, and its header has the buttons;
+- the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know;
+- the Stashes view unfolds a stash to its files, and its header counts the stashes;
 - the graph opens as an editor tab, with the details of a commit beside it.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.
@@ -273,7 +297,7 @@ On one made this way (56,000 commits, 2,375 references, 1,779 changed files), on
 
 - the list of commits only draws the rows in sight, and the lists of references and of files are cut as described above;
 - the commits are sent to the graph once: a refresh that finds the same ones, such as after a file is saved, sends everything else and leaves the rows where they are;
-- the Changes view is never sent the commits at all.
+- the Changes, Branches and Stashes views are never sent the commits at all.
 
 Measure the views with the minified build (`node esbuild.mjs --production`): the development build of React makes every render several times slower, in proportion to the rows.
 

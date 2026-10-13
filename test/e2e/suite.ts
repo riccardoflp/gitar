@@ -9,12 +9,12 @@ import { CONFLICT, INDEX, contentUri } from '../../src/extension/content';
 import type { GitarApi } from '../../src/extension/extension';
 import { git } from '../../src/git/exec';
 import { Repo } from '../../src/git/repo';
-import type { HostMessage, RepoState, WebviewMessage } from '../../src/shared/protocol';
+import type { HostMessage, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
 
 /** The parts of the controller that are private to everyone but these tests. */
 interface Internals {
   state: RepoState | null;
-  views: Map<unknown, 'graph' | 'changes'>;
+  views: Map<unknown, ViewKind>;
   onMessage(webview: unknown, message: WebviewMessage): Promise<void>;
   post(message: HostMessage, to?: unknown): void;
 }
@@ -71,6 +71,8 @@ export async function run(): Promise<void> {
   // Everything the webviews say to the extension, and the extension to them.
   const received: WebviewMessage[] = [];
   const posted: HostMessage[] = [];
+  /** The view each of them was for, or nothing when it was for all. */
+  const addressed: unknown[] = [];
   const onMessage = internals.onMessage.bind(controller);
   internals.onMessage = (webview, message) => {
     received.push(message);
@@ -79,9 +81,16 @@ export async function run(): Promise<void> {
   const post = internals.post.bind(controller);
   internals.post = (message, to) => {
     posted.push(message);
+    addressed.push(to);
     post(message, to);
   };
   const fromWebview = (message: WebviewMessage) => internals.onMessage([...internals.views.keys()][0], message);
+  const kinds = () => [...internals.views.values()].sort();
+  const view = (kind: ViewKind) => {
+    const found = [...internals.views.entries()].find(([, candidate]) => candidate === kind);
+    assert.ok(found, `the ${kind} view is open`);
+    return found[0] as vscode.Webview;
+  };
 
   // The command log, which must show every command exactly as it was run.
   const logged: string[] = [];
@@ -152,15 +161,16 @@ export async function run(): Promise<void> {
     assert.deepEqual([...internals.views.values()], ['graph']);
   });
 
-  await step('the changes view loads too, and the graph opens as an editor tab', async () => {
+  await step('the four views of the side bar load too, and the graph opens as an editor tab', async () => {
     const before = received.filter((incoming) => incoming.type === 'ready').length;
-    await vscode.commands.executeCommand('gitar.openChanges');
-    await until('the changes webview', () => [...internals.views.values()].includes('changes'));
+    // The stashes start folded, and a folded view is not loaded: its command unfolds it.
+    for (const name of ['Changes', 'Commits', 'Branches', 'Stashes']) await vscode.commands.executeCommand(`gitar.open${name}`);
+    await until('the webviews of the side bar', () => kinds().join() === 'branches,changes,commits,graph,stashes');
     await vscode.commands.executeCommand('gitar.openInEditor');
-    await until('both new webviews to say they are ready', () => received.filter((incoming) => incoming.type === 'ready').length >= before + 2);
-    assert.deepEqual([...internals.views.values()].sort(), ['changes', 'graph', 'graph']);
+    await until('the new webviews to say they are ready', () => received.filter((incoming) => incoming.type === 'ready').length >= before + 5);
+    assert.deepEqual(kinds(), ['branches', 'changes', 'commits', 'graph', 'graph', 'stashes']);
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    await until('the editor tab to detach', () => internals.views.size === 2);
+    await until('the editor tab to detach', () => internals.views.size === 5);
   });
 
   await step('notices commits and files that come from outside the editor', async () => {
@@ -273,6 +283,121 @@ export async function run(): Promise<void> {
     const comparison = posted.find((outgoing) => outgoing.type === 'comparison');
     assert.ok(comparison?.type === 'comparison');
     assert.ok(comparison.comparison.files.some((file) => file.path === 'b.txt' && file.status === 'A'));
+  });
+
+  await step('gives the commits to the views that list them, and spares the others', async () => {
+    const told = async (kind: ViewKind) => {
+      const webview = view(kind);
+      const sent: Extract<HostMessage, { type: 'state' }>[] = [];
+      const postMessage = webview.postMessage.bind(webview);
+      webview.postMessage = (outgoing: HostMessage) => {
+        if (outgoing.type === 'state') sent.push(outgoing);
+        return postMessage(outgoing);
+      };
+      try {
+        // What a view says when it has just loaded, and has nothing.
+        await internals.onMessage(webview, { type: 'ready' });
+        return (await until(`the state for the ${kind} view`, () => sent.find((outgoing) => outgoing.state))).state!;
+      } finally {
+        webview.postMessage = postMessage;
+      }
+    };
+    const commits = state().rows.length;
+    assert.ok(commits >= 5);
+    assert.equal((await told('commits')).rows.length, commits);
+    for (const kind of ['branches', 'stashes', 'changes'] as const) {
+      const seen = await told(kind);
+      assert.deepEqual(seen.rows, [], `no commits for the ${kind} view`);
+      assert.deepEqual(
+        seen.branches.map((branch) => branch.name),
+        ['feature', 'main', 'merged', 'topic'],
+      );
+    }
+  });
+
+  await step('compares branches, tags and typed revisions, in the view that asked or in the graph', async () => {
+    const head = state().head!;
+    const hashOf = (name: string) => state().branches.find((branch) => branch.name === name)!.hash;
+    const tag = state().tags[0];
+    /** The comparison that was sent, and the view it was sent to. */
+    const compared = () => {
+      const index = posted.findIndex((outgoing) => outgoing.type === 'compare');
+      const outgoing = posted[index];
+      return outgoing?.type === 'compare' ? { ...outgoing.comparing, view: internals.views.get(addressed[index]) } : null;
+    };
+    const forget = () => {
+      posted.length = 0;
+      addressed.length = 0;
+    };
+
+    // The command: both sides are asked, and the graph in the panel shows the answer.
+    const titles: string[] = [];
+    let offered: string[] = [];
+    choose = (items, options) => {
+      titles.push(options.title ?? '');
+      offered = items.map((item) => item.label);
+      return byLabel(titles.length === 1 ? '$(git-branch) feature' : '$(target) main')(items);
+    };
+    forget();
+    await vscode.commands.executeCommand('gitar.compare');
+    assert.deepEqual(titles, ['Compare', 'Compare feature with']);
+    // Everything but the side that is already chosen.
+    assert.deepEqual(offered, [
+      '$(edit) Enter a hash or a revision…',
+      '$(target) main',
+      'Branches',
+      '$(git-branch) merged',
+      '$(git-branch) topic',
+      'Remote branches',
+      '$(cloud) origin/main',
+      'Tags',
+      '$(tag) v1',
+    ]);
+    assert.deepEqual(compared(), { from: hashOf('feature'), to: head, fromName: 'feature', toName: 'main', view: 'graph' });
+
+    // Asked by the branches, with something typed: they show it themselves.
+    choose = (items, options) => byLabel(options.title === 'Compare' ? /Enter a hash/ : '$(git-branch) topic')(items);
+    inputs = ['HEAD~1'];
+    forget();
+    await internals.onMessage(view('branches'), { type: 'compare' });
+    const parent = (await git(app, ['rev-parse', 'HEAD~1'])).stdout.trim();
+    assert.deepEqual(compared(), { from: parent, to: hashOf('topic'), fromName: 'HEAD~1', toName: 'topic', view: 'branches' });
+
+    // "Compare with…" in a menu gives one side; a hash that is typed is named by its short form.
+    choose = byLabel(/Enter a hash/);
+    inputs = [parent];
+    forget();
+    await internals.onMessage(view('commits'), { type: 'compare', from: { name: tag.name, hash: tag.hash } });
+    assert.deepEqual(compared(), { from: tag.hash, to: parent, fromName: 'v1', toName: parent.slice(0, 7), view: 'commits' });
+
+    // The stashes have no room for it: it goes to the graph.
+    choose = byLabel('$(git-branch) merged');
+    forget();
+    await internals.onMessage(view('stashes'), { type: 'compare', from: { name: 'main', hash: head } });
+    assert.deepEqual(compared(), { from: head, to: hashOf('merged'), fromName: 'main', toName: 'merged', view: 'graph' });
+
+    // What git does not know is said, and backing out does nothing.
+    choose = byLabel(/Enter a hash/);
+    inputs = ['no-such-thing'];
+    forget();
+    asked.length = 0;
+    await vscode.commands.executeCommand('gitar.compare');
+    assert.deepEqual(
+      asked.map((question) => question.message),
+      ['Gitar: "no-such-thing" is not a commit of this repository.'],
+    );
+    choose = () => undefined;
+    await vscode.commands.executeCommand('gitar.compare');
+    assert.equal(compared(), null);
+
+    // A branch clicked in the side bar is shown where the commits are, and nowhere else.
+    forget();
+    await internals.onMessage(view('branches'), { type: 'show', hash: hashOf('feature') });
+    assert.deepEqual(posted, [
+      { type: 'reveal', hash: hashOf('feature') },
+      { type: 'reveal', hash: hashOf('feature') },
+    ]);
+    assert.deepEqual(addressed.map((webview) => internals.views.get(webview)).sort(), ['commits', 'graph']);
   });
 
   await step('narrows the graph to the history of a file, switching repository if needed', async () => {
@@ -567,7 +692,7 @@ export async function run(): Promise<void> {
   });
 
   await step('sends the commits to the graph once, not again each time a file changes', async () => {
-    const graph = [...internals.views.entries()].find(([, kind]) => kind === 'graph')![0] as vscode.Webview;
+    const graph = view('graph');
     const sent: Extract<HostMessage, { type: 'state' }>[] = [];
     const postMessage = graph.postMessage.bind(graph);
     graph.postMessage = (outgoing: HostMessage) => {

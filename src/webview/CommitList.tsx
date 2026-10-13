@@ -10,9 +10,10 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { laneCount } from '../shared/graph';
+import { fitGraph, laneCount } from '../shared/graph';
 import { WORKTREE, type GraphRow, type Row } from '../shared/protocol';
 import { Icon } from './Icon';
+import { Sash } from './Sash';
 import { endDrag, startDrag, type DragSource } from './drag';
 import { fullDate, laneColor, relativeTime, shortHash } from './util';
 import { post } from './vscode';
@@ -35,6 +36,9 @@ interface Props {
   labels: Map<string, Label[]>;
   /** Hashes matching the search, or null when there is no search. */
   matches: string[] | null;
+  /** The width the graph was dragged to, or null while it chooses its own. */
+  graphWidth: number | null;
+  onGraphWidth(width: number | null): void;
   selected: string | null;
   /** The commits selected together, when there is more than one. */
   marked: ReadonlySet<string>;
@@ -50,8 +54,6 @@ interface Props {
 }
 
 const ROW_HEIGHT = 24;
-const LANE_WIDTH = 14;
-const MAX_LANES = 16;
 const OVERSCAN = 8;
 const LABEL_ICONS = {
   head: 'target',
@@ -63,11 +65,20 @@ const LABEL_ICONS = {
   skipped: 'debug-step-over',
 } as const;
 
-const laneX = (lane: number) => LANE_WIDTH / 2 + 3 + lane * LANE_WIDTH;
+interface GraphProps {
+  graph: GraphRow;
+  width: number;
+  /** The room each lane has: less than usual when the graph is squeezed. */
+  lane: number;
+  hollow: boolean;
+}
 
-const Graph = memo(function Graph({ graph, width, hollow }: { graph: GraphRow; width: number; hollow: boolean }) {
+const Graph = memo(function Graph({ graph, width, lane, hollow }: GraphProps) {
   const mid = ROW_HEIGHT / 2;
+  const laneX = (index: number) => lane / 2 + 3 + index * lane;
   const x = laneX(graph.col);
+  // Smaller dots where the lines are close, or they would sit on the lines beside them.
+  const radius = lane < 11 ? 3 : 4;
   return (
     <svg className="graph" width={width} height={ROW_HEIGHT} aria-hidden="true">
       {graph.top.map((line, index) => {
@@ -86,9 +97,9 @@ const Graph = memo(function Graph({ graph, width, hollow }: { graph: GraphRow; w
         return <path key={`b${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={hollow ? '3 3' : undefined} />;
       })}
       {hollow ? (
-        <circle className="hollow" cx={x} cy={mid} r={3.5} stroke={laneColor(graph.color)} />
+        <circle className="hollow" cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} />
       ) : (
-        <circle cx={x} cy={mid} r={4} fill={laneColor(graph.color)} />
+        <circle cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />
       )}
     </svg>
   );
@@ -112,21 +123,23 @@ export function CommitList(props: Props) {
   };
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const [height, setHeight] = useState(0);
+  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
 
   useLayoutEffect(() => {
     const element = scroller.current!;
-    const observer = new ResizeObserver(() => setHeight(element.clientHeight));
+    const measure = () => setSize({ width: element.clientWidth, height: element.clientHeight });
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
-    setHeight(element.clientHeight);
+    measure();
     return () => observer.disconnect();
   }, []);
 
-  const graphWidth = useMemo(() => {
-    let lanes = 1;
-    for (const row of rows) lanes = Math.max(lanes, laneCount(row.graph));
-    return Math.min(lanes, MAX_LANES) * LANE_WIDTH + 6;
+  const lanes = useMemo(() => {
+    let most = 1;
+    for (const row of rows) most = Math.max(most, laneCount(row.graph));
+    return most;
   }, [rows]);
+  const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
 
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
@@ -169,7 +182,7 @@ export function CommitList(props: Props) {
 
   return (
     <div
-      className="commits"
+      className={fit.cut ? 'commits cut' : 'commits'}
       ref={scroller}
       tabIndex={0}
       role="listbox"
@@ -179,6 +192,18 @@ export function CommitList(props: Props) {
       onKeyDown={onKeyDown}
     >
       {!rows.length && <div className="empty">{empty}</div>}
+      {/* It stays where it is while the commits scroll under it. */}
+      {rows.length > 0 && (
+        <div className="graph-edge" style={{ '--graph': `${fit.width}px`, '--list-height': `${height}px` } as CSSProperties}>
+          <Sash
+            pane="graph"
+            width={fit.width}
+            // Wider than all of its lanes at their ease, the graph would only be empty.
+            onResize={(wanted) => props.onGraphWidth(Math.min(wanted, fit.natural))}
+            onReset={() => props.onGraphWidth(null)}
+          />
+        </div>
+      )}
       <div className="spacer" style={{ height: rows.length * ROW_HEIGHT }}>
         {rows.slice(start, end).map((row, offset) => {
           const index = start + offset;
@@ -212,7 +237,7 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
-              <Graph graph={row.graph} width={graphWidth} hollow={worktree} />
+              <Graph graph={row.graph} width={fit.width} lane={fit.lane} hollow={worktree} />
               <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                 {labels.get(row.hash)?.map((label) => (
                   <span

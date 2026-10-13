@@ -27,8 +27,8 @@ import {
 import { loadUiState, onMessage, post, saveUiState } from './vscode';
 
 const NONE: ReadonlySet<string> = new Set();
-/** The widths of the panes beside the commits, in pixels, until they are dragged to others. */
-const WIDTHS = { refsWidth: 210, detailWidth: 320 };
+/** The widths of the panes beside the commits, in pixels, until they are dragged to others. The graph chooses its own. */
+const WIDTHS: { refsWidth: number; detailWidth: number; graphWidth: number | null } = { refsWidth: 210, detailWidth: 320, graphWidth: null };
 
 function buildLabels(state: RepoState): Map<string, Label[]> {
   const labels = new Map<string, Label[]>();
@@ -59,7 +59,8 @@ function withRowsOf(previous: RepoState | null, next: RepoState): RepoState {
   return { ...next, rows };
 }
 
-export function App() {
+/** `compact` is the graph as it fits in the side bar: the commits and their details, with the references left to the view beside it. */
+export function App({ compact = false }: { compact?: boolean }) {
   const [state, setState] = useState<RepoState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -72,7 +73,8 @@ export function App() {
   const [rebase, setRebase] = useState<Row[] | null>(null);
   const [comparing, setComparing] = useState<Comparing | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
-  const [{ refsWidth, detailWidth }, setWidths] = useState(() => loadUiState(WIDTHS));
+  const [{ refsWidth, detailWidth, graphWidth }, setWidths] = useState(() => loadUiState(WIDTHS));
+  const resize = (changed: Partial<typeof WIDTHS>) => setWidths((widths) => ({ ...widths, ...changed }));
   const openMenu = useMenu();
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -95,6 +97,12 @@ export function App() {
     },
     [show],
   );
+
+  const compare = useCallback((next: Comparing) => {
+    setComparing(next);
+    setComparison(null);
+    post({ type: 'getComparison', from: next.from, to: next.to });
+  }, []);
 
   useEffect(() => {
     const stop = onMessage((message) => {
@@ -123,15 +131,17 @@ export function App() {
       } else if (message.type === 'reveal') {
         select(message.hash);
         setReveal({ hash: message.hash });
+      } else if (message.type === 'compare') {
+        compare(message.comparing);
       }
     });
     post({ type: 'ready' });
     return stop;
-  }, [select]);
+  }, [select, compare]);
 
   useEffect(() => {
-    saveUiState({ refsWidth, detailWidth });
-  }, [refsWidth, detailWidth]);
+    saveUiState({ refsWidth, detailWidth, graphWidth });
+  }, [refsWidth, detailWidth, graphWidth]);
 
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
 
@@ -153,12 +163,6 @@ export function App() {
     },
     [select],
   );
-
-  const compare = useCallback((next: Comparing) => {
-    setComparing(next);
-    setComparison(null);
-    post({ type: 'getComparison', from: next.from, to: next.to });
-  }, []);
 
   const nextMatch = useCallback(() => {
     if (!matches?.length) return;
@@ -228,12 +232,14 @@ export function App() {
       <Toolbar
         state={state}
         busy={busy}
+        compact={compact}
         matchCount={matches?.length ?? null}
         onQuery={setQuery}
         onNextMatch={nextMatch}
       />
-      <OperationBanner state={state} busy={busy !== null} />
-      <BisectBanner state={state} busy={busy !== null} onShow={jump} />
+      {/* In the side bar the Changes view, right above, already says what is under way. */}
+      {!compact && <OperationBanner state={state} busy={busy !== null} />}
+      {!compact && <BisectBanner state={state} busy={busy !== null} onShow={jump} />}
       <FilterBar state={state} />
       {markedRows.length > 1 && (
         <div className="filterbar" role="status">
@@ -263,17 +269,21 @@ export function App() {
         </div>
       )}
       <div
-        className={`main${hasDetail ? ' has-detail' : ''}`}
+        className={`main${hasDetail ? ' has-detail' : ''}${compact ? ' compact' : ''}`}
         style={{ '--refs-width': `${refsWidth}px`, '--detail-width': `${detailWidth}px` } as CSSProperties}
       >
-        <RefsTree state={state} selected={selected} onSelect={jump} onCompare={compare} />
-        <Sash pane="refs" width={refsWidth} initial={WIDTHS.refsWidth} onResize={(width) => setWidths((widths) => ({ ...widths, refsWidth: width }))} />
+        {!compact && <RefsTree state={state} selected={selected} onSelect={jump} onCompare={compare} />}
+        {!compact && (
+          <Sash pane="refs" width={refsWidth} onResize={(width) => resize({ refsWidth: width })} onReset={() => resize({ refsWidth: WIDTHS.refsWidth })} />
+        )}
         <CommitList
           rows={state.rows}
           empty={state.filter ? 'No commits found' : state.head ? 'No commits to show' : 'No commits yet'}
           hasMore={state.hasMore}
           labels={labels}
           matches={matches}
+          graphWidth={graphWidth}
+          onGraphWidth={(width) => resize({ graphWidth: width })}
           selected={selected}
           marked={marked}
           reveal={reveal}
@@ -288,12 +298,12 @@ export function App() {
           canDrop={(row) => dropEntries(row).length > 0}
           onDrop={(event, row) => openMenu(event, dropEntries(row))}
         />
-        {hasDetail && (
+        {hasDetail && !compact && (
           <Sash
             pane="detail"
             width={detailWidth}
-            initial={WIDTHS.detailWidth}
-            onResize={(width) => setWidths((widths) => ({ ...widths, detailWidth: width }))}
+            onResize={(width) => resize({ detailWidth: width })}
+            onReset={() => resize({ detailWidth: WIDTHS.detailWidth })}
           />
         )}
         {comparing ? (

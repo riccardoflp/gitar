@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
-import type { SyncAction } from '../shared/protocol';
+import type { RepoState, SyncAction, ViewKind } from '../shared/protocol';
 import { BlameAnnotator } from './blame';
 import { GitContentProvider, SCHEME } from './content';
 import { Controller } from './controller';
 
 const GRAPH_VIEW = 'gitar.graph';
 const CHANGES_VIEW = 'gitar.changes';
+const COMMITS_VIEW = 'gitar.commits';
+const BRANCHES_VIEW = 'gitar.branches';
+const STASHES_VIEW = 'gitar.stashes';
 
 /** What the extension hands to whoever activates it: the end-to-end tests drive it through this. */
 export interface GitarApi {
@@ -35,6 +38,17 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
       view.onDidDispose(() => vscode.Disposable.from(attachment, badge).dispose());
     },
   };
+
+  /** One of the views of the side bar. `describe` is what its header says after its name, such as how many stashes there are. */
+  const sideView = (kind: ViewKind, describe?: (state: RepoState) => string | undefined): vscode.WebviewViewProvider => ({
+    resolveWebviewView(view) {
+      const attachment = controller.attach(view.webview, kind);
+      const described = controller.onDidChangeState((state) => {
+        view.description = state && describe ? describe(state) : undefined;
+      });
+      view.onDidDispose(() => vscode.Disposable.from(attachment, described).dispose());
+    },
+  });
 
   const openInEditor = () => {
     const panel = vscode.window.createWebviewPanel('gitar.graphEditor', 'Gitar', vscode.ViewColumn.Active, {
@@ -67,11 +81,32 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.selectRepository', () => controller.command('selectRepository')),
     command('gitar.remotes', () => controller.command('remotes')),
     command('gitar.bisectReset', () => controller.action({ kind: 'bisectReset' })),
+    command('gitar.compare', () => controller.compare()),
+    command('gitar.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),
     vscode.window.registerWebviewViewProvider(CHANGES_VIEW, changesProvider, webviewOptions),
+    vscode.window.registerWebviewViewProvider(
+      COMMITS_VIEW,
+      // There is no room there for the box that names the repository, which matters when there are several.
+      sideView('commits', (state) => (state.repos.length > 1 ? state.name : undefined)),
+      webviewOptions,
+    ),
+    vscode.window.registerWebviewViewProvider(
+      BRANCHES_VIEW,
+      sideView('branches', (state) => state.branch ?? (state.head ? `detached at ${state.head.slice(0, 7)}` : undefined)),
+      webviewOptions,
+    ),
+    vscode.window.registerWebviewViewProvider(
+      STASHES_VIEW,
+      sideView('stashes', (state) => (state.stashes.length ? String(state.stashes.length) : undefined)),
+      webviewOptions,
+    ),
     command('gitar.openGraph', () => vscode.commands.executeCommand(`${GRAPH_VIEW}.focus`)),
     command('gitar.openChanges', () => vscode.commands.executeCommand(`${CHANGES_VIEW}.focus`)),
+    command('gitar.openCommits', () => vscode.commands.executeCommand(`${COMMITS_VIEW}.focus`)),
+    command('gitar.openBranches', () => vscode.commands.executeCommand(`${BRANCHES_VIEW}.focus`)),
+    command('gitar.openStashes', () => vscode.commands.executeCommand(`${STASHES_VIEW}.focus`)),
     command('gitar.openInEditor', openInEditor),
     command('gitar.refresh', () => controller.refresh()),
     command('gitar.showLog', () => log.show()),

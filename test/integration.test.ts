@@ -639,6 +639,14 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     });
     expect((await repo.compare(main, main))!.files).toEqual([]);
     expect(await repo.compare('HEAD; rm -rf', main)).toBeNull();
+
+    // Either side can be typed: a name, a short hash, or an expression git turns into a commit.
+    expect(await repo.resolve('other')).toBe(other);
+    expect(await repo.resolve(next.slice(0, 7))).toBe(next);
+    expect(await repo.resolve('HEAD~1')).toBe(main);
+    await git(root, ['tag', '-a', 'v1', '-m', 'First', main]);
+    expect(await repo.resolve('v1')).toBe(main);
+    for (const nothing of ['', 'no-such-thing', '--all', 'other..HEAD', `${next}:new.txt`]) expect(await repo.resolve(nothing)).toBeNull();
   });
 
   it('pulls with a rebase', async () => {

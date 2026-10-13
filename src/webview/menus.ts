@@ -2,6 +2,7 @@ import {
   WORKTREE,
   type Action,
   type Branch,
+  type Comparing,
   type NamedRef,
   type PullRequest,
   type RepoState,
@@ -45,13 +46,7 @@ export function rebaseRange(hash: string, state: RepoState): Row[] | null {
   return null;
 }
 
-/** Two commits to compare, with the names to show for them. */
-export interface Comparing {
-  from: string;
-  to: string;
-  fromName: string;
-  toName: string;
-}
+export type { Comparing };
 
 function compareWithHead(name: string, hash: string, state: RepoState, onCompare: (comparing: Comparing) => void): MenuEntry {
   const head = state.head;
@@ -59,6 +54,12 @@ function compareWithHead(name: string, hash: string, state: RepoState, onCompare
   const current = state.branch ?? 'HEAD';
   return { label: `Compare with ${current}`, run: () => onCompare({ from: hash, to: head, fromName: name, toName: current }) };
 }
+
+/** Asks what to compare it with: any branch, tag or commit. */
+const compareWith = (name: string, hash: string): MenuEntry => ({
+  label: 'Compare with…',
+  run: () => post({ type: 'compare', from: { name, hash } }),
+});
 
 const showOnly = (ref: string): MenuEntry => ({
   label: 'Show only this history',
@@ -114,6 +115,7 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
       label: `Compare with ${shortHash(selected)}, selected before`,
       run: () => onCompare({ from: selected, to: hash, fromName: shortHash(selected), toName: short }),
     },
+    compareWith(short, hash),
     'separator',
     !state.operation && mark('good'),
     !state.operation && mark('bad'),
@@ -181,6 +183,7 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
     ...(branch.current ? [] : integrate(refArg('branch', name, state), branch.hash, state)),
     'separator',
     compareWithHead(name, branch.hash, state, onCompare),
+    compareWith(name, branch.hash),
     showOnly(`refs/heads/${name}`),
     pullEntry(pushedName(branch, state), state, true),
     'separator',
@@ -200,6 +203,7 @@ export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (co
     ...integrate(refArg('remote', name, state), ref.hash, state),
     'separator',
     compareWithHead(name, ref.hash, state, onCompare),
+    compareWith(name, ref.hash),
     showOnly(`refs/remotes/${name}`),
     pullEntry(state.github ? nameOnRemote(name, state) : null, state, false),
     'separator',
@@ -219,6 +223,7 @@ export function tagMenu(tag: NamedRef, state: RepoState, onCompare: (comparing: 
     { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: refArg('tag', name, state) }) },
     'separator',
     compareWithHead(name, tag.hash, state, onCompare),
+    compareWith(name, tag.hash),
     showOnly(`refs/tags/${name}`),
     'separator',
     state.remotes.length > 0 && { label: 'Push tag', run: () => act({ kind: 'pushTag', name }) },

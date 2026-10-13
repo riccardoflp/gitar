@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { discoverRepos, repoName } from '../git/discover';
 import { parseGitHubRemote } from '../git/github';
 import { Repo } from '../git/repo';
-import type { Filter, HostMessage, WebviewMessage } from '../shared/protocol';
+import type { Filter, HostMessage, ViewKind, WebviewMessage } from '../shared/protocol';
 
 // Usage: node dist/dev-server.js [--port=5174] [folder...]   (every repository found in the folders can be chosen in the page)
 // Read-only: actions that would change the repository or open an editor are only logged.
@@ -47,13 +47,16 @@ const THEMES = {
   },
 };
 
-function page(theme: keyof typeof THEMES, view: 'graph' | 'changes'): string {
+const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'branches', 'stashes'];
+
+function page(theme: keyof typeof THEMES, view: ViewKind): string {
   const t = THEMES[theme];
   const dark = theme === 'dark';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gitar preview</title>
 <style>
 :root {
@@ -162,6 +165,8 @@ async function main() {
         const comparison = await repo?.compare(message.from, message.to);
         return comparison ? [{ type: 'comparison', comparison }] : [];
       }
+      case 'show':
+        return [{ type: 'reveal', hash: message.hash }];
       case 'getDetail':
         return [{ type: 'detail', hash: message.hash, detail: (await repo?.commitDetail(message.hash)) ?? null }];
       case 'getHunks': {
@@ -188,7 +193,7 @@ async function main() {
         } else if (url.pathname === '/') {
           response.setHeader('Content-Type', 'text/html');
           const theme = url.searchParams.get('theme') === 'light' ? 'light' : 'dark';
-          response.end(page(theme, url.searchParams.get('view') === 'changes' ? 'changes' : 'graph'));
+          response.end(page(theme, VIEWS.find((view) => view === url.searchParams.get('view')) ?? 'graph'));
         } else {
           const file = path.join(assets, path.basename(url.pathname));
           response.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream');

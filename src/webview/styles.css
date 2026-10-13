@@ -308,6 +308,20 @@ input:focus-visible,
   right: calc(var(--detail) - 4px);
 }
 
+/* The one at the edge of the graph is inside the list, and stays in sight while the commits scroll under it. */
+.graph-edge {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 0;
+}
+
+.sash.graph-sash {
+  bottom: auto;
+  left: calc(var(--graph) - 2px);
+  height: var(--list-height);
+}
+
 .sash::after {
   content: '';
   position: absolute;
@@ -498,6 +512,11 @@ input:focus-visible,
   flex: none;
 }
 
+/* A graph with more lanes than it has room for fades out, to say that it goes on. */
+.commits.cut .graph {
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+}
+
 .graph path {
   fill: none;
   stroke-width: 2;
@@ -627,6 +646,19 @@ input:focus-visible,
   .author,
   .hash {
     display: none;
+  }
+}
+
+/* As narrow as the side bar: the first label keeps its name, the others are left with their icon, and the message with some room. */
+@container (max-width: 420px) {
+  .message .label {
+    max-width: 55%;
+  }
+
+  .message .label ~ .label {
+    gap: 0;
+    padding: 0 4px;
+    font-size: 0;
   }
 }
 
@@ -978,10 +1010,19 @@ input:focus-visible,
   min-width: 180px;
   /* Padding and border included, or a long menu would still be a few pixels taller than a short panel. */
   box-sizing: border-box;
+  max-width: calc(100vw - 8px);
   max-height: calc(100vh - 8px);
   overflow-y: auto;
   outline: 0;
   box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgb(0 0 0 / 35%));
+}
+
+/* In a view narrower than its longest entry, the end of that one is cut. */
+.menu.context button {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Too many entries for the height of the view: side by side, and it only scrolls if even that is not enough. */
@@ -1173,8 +1214,9 @@ input:focus-visible,
 /* Narrow placements, such as the side bar: drop the references and stack the details under the list. */
 
 @container (max-width: 720px) {
+  /* Not the one at the edge of the graph, which is inside the list. */
   .refs,
-  .sash {
+  .main > .sash {
     display: none;
   }
 
@@ -1195,4 +1237,75 @@ input:focus-visible,
   .search {
     width: 140px;
   }
+}
+
+/* The views of the side bar */
+
+/* The commits: the search, and no buttons, which are in the header of the view. */
+.toolbar.compact .search {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* However wide the side bar is dragged, the details go under the commits there. */
+.main.compact,
+.main.compact.has-detail {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.main.compact.has-detail {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.main.compact .detail,
+.side .detail {
+  border-left: 0;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* The branches, with a comparison under them, and the stashes. */
+.side {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.side .refs {
+  flex: 1;
+  min-height: 0;
+  border-right: 0;
+}
+
+.side .detail {
+  flex: none;
+  max-height: 60%;
+}
+
+.side.stashes {
+  display: block;
+  padding: 4px 0;
+  overflow-y: auto;
+}
+
+.side .none {
+  margin: 4px 0;
+}
+
+/* A stash is told by its message, however long: the date gives way to it. */
+.stash .name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.stash .dir {
+  flex: none;
+}
+
+.stash-files .file {
+  padding-left: 30px;
+}
+
+.stash-files .none {
+  padding-left: 30px;
 }

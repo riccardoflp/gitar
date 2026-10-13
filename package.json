@@ -44,7 +44,27 @@
         {
           "type": "webview",
           "id": "gitar.changes",
-          "name": "Changes"
+          "name": "Changes",
+          "initialSize": 5
+        },
+        {
+          "type": "webview",
+          "id": "gitar.commits",
+          "name": "Commits",
+          "initialSize": 4
+        },
+        {
+          "type": "webview",
+          "id": "gitar.branches",
+          "name": "Branches",
+          "initialSize": 3
+        },
+        {
+          "type": "webview",
+          "id": "gitar.stashes",
+          "name": "Stashes",
+          "visibility": "collapsed",
+          "initialSize": 1
         }
       ]
     },
@@ -69,12 +89,14 @@
       {
         "command": "gitar.fetch",
         "title": "Fetch",
-        "category": "Gitar"
+        "category": "Gitar",
+        "icon": "$(repo-fetch)"
       },
       {
         "command": "gitar.pull",
         "title": "Pull",
-        "category": "Gitar"
+        "category": "Gitar",
+        "icon": "$(repo-pull)"
       },
       {
         "command": "gitar.pullRebase",
@@ -84,7 +106,8 @@
       {
         "command": "gitar.push",
         "title": "Push",
-        "category": "Gitar"
+        "category": "Gitar",
+        "icon": "$(repo-push)"
       },
       {
         "command": "gitar.pushForceWithLease",
@@ -109,7 +132,8 @@
       {
         "command": "gitar.stash",
         "title": "Stash Changes",
-        "category": "Gitar"
+        "category": "Gitar",
+        "icon": "$(git-stash)"
       },
       {
         "command": "gitar.undo",
@@ -165,6 +189,33 @@
         "command": "gitar.bisectReset",
         "title": "End Bisect",
         "category": "Gitar"
+      },
+      {
+        "command": "gitar.compare",
+        "title": "Compare Branches, Tags or Commits…",
+        "category": "Gitar",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "gitar.createBranch",
+        "title": "Create Branch…",
+        "category": "Gitar",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitar.openCommits",
+        "title": "Show Commits in the Side Bar",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.openBranches",
+        "title": "Show Branches",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.openStashes",
+        "title": "Show Stashes",
+        "category": "Gitar"
       }
     ],
     "menus": {
@@ -198,13 +249,83 @@
       "view/title": [
         {
           "command": "gitar.refresh",
-          "when": "view == gitar.graph || view == gitar.changes",
-          "group": "navigation@1"
+          "when": "view =~ /^gitar\\./",
+          "group": "navigation@9"
         },
         {
           "command": "gitar.openInEditor",
           "when": "view == gitar.graph",
+          "group": "navigation@8"
+        },
+        {
+          "command": "gitar.fetch",
+          "when": "view == gitar.commits",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitar.pull",
+          "when": "view == gitar.commits",
           "group": "navigation@2"
+        },
+        {
+          "command": "gitar.push",
+          "when": "view == gitar.commits",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitar.compare",
+          "when": "view == gitar.commits",
+          "group": "navigation@4"
+        },
+        {
+          "command": "gitar.pullRebase",
+          "when": "view == gitar.commits",
+          "group": "1_sync@1"
+        },
+        {
+          "command": "gitar.pushForceWithLease",
+          "when": "view == gitar.commits",
+          "group": "1_sync@2"
+        },
+        {
+          "command": "gitar.pushForce",
+          "when": "view == gitar.commits",
+          "group": "1_sync@3"
+        },
+        {
+          "command": "gitar.undo",
+          "when": "view == gitar.commits",
+          "group": "2_more@1"
+        },
+        {
+          "command": "gitar.reflog",
+          "when": "view == gitar.commits",
+          "group": "2_more@2"
+        },
+        {
+          "command": "gitar.createBranch",
+          "when": "view == gitar.branches",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitar.compare",
+          "when": "view == gitar.branches",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitar.cleanupBranches",
+          "when": "view == gitar.branches",
+          "group": "1_more@1"
+        },
+        {
+          "command": "gitar.remotes",
+          "when": "view == gitar.branches",
+          "group": "1_more@2"
+        },
+        {
+          "command": "gitar.stash",
+          "when": "view == gitar.stashes",
+          "group": "navigation@1"
         }
       ]
     },

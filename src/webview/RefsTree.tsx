@@ -6,11 +6,15 @@ import { endDrag, startDrag, type DragSource } from './drag';
 import { act, branchMenu, pullOf, pushedName, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
 import { loadUiState, saveUiState } from './vscode';
 
+export type SectionId = 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
+
 interface Props {
   state: RepoState;
   selected: string | null;
   onSelect(hash: string): void;
   onCompare(comparing: Comparing): void;
+  /** The sections to list, when not all of them. */
+  sections?: SectionId[];
 }
 
 interface Item {
@@ -41,7 +45,7 @@ function pullTitle(pull: PullRequest): string {
   return `${pull.draft ? 'Draft pull' : 'Pull'} request #${pull.number}: ${pull.title}${checks}`;
 }
 
-export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare }: Props) {
+export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, sections }: Props) {
   const [collapsed, setCollapsed] = useState(() => loadUiState({ collapsed: {} as Record<string, boolean> }).collapsed);
   // Sections listed in full. Not remembered: the next time the short list is the better start again.
   const [full, setFull] = useState<Record<string, boolean>>({});
@@ -55,7 +59,8 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     saveUiState({ collapsed: next });
   };
 
-  const section = (id: string, title: string, icon: string, all: Item[]): ReactNode => {
+  const section = (id: SectionId, title: string, icon: string, all: Item[]): ReactNode => {
+    if (sections && !sections.includes(id)) return null;
     const items = needle ? all.filter((item) => item.label.toLowerCase().includes(needle)) : all;
     // A filter is there to find something: what it finds shows, whether the section was closed or not.
     const open = needle ? items.length > 0 : !collapsed[id];
@@ -128,7 +133,13 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
       drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
     };
   });
-  const names = state.branches.length + state.remoteBranches.length + state.tags.length + state.stashes.length;
+  // Only the names that are listed here count towards having a filter.
+  const shown = (id: SectionId, count: number) => (!sections || sections.includes(id) ? count : 0);
+  const names =
+    shown('branches', state.branches.length) +
+    shown('remotes', state.remoteBranches.length) +
+    shown('tags', state.tags.length) +
+    shown('stashes', state.stashes.length);
 
   return (
     <nav className="refs" aria-label="References">

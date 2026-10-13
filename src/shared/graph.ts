@@ -64,3 +64,37 @@ export function laneCount(row: GraphRow): number {
   for (const line of row.bottom) max = Math.max(max, line.from, line.to);
   return max + 1;
 }
+
+/** The room a lane takes when there is plenty of it, and the least it is given: closer than that, the lines run together. */
+export const LANE_WIDTH = 14;
+export const MIN_LANE_WIDTH = 8;
+const GRAPH_PADDING = 6;
+/** As wide as the graph gets on its own: sixteen lanes at their ease. */
+const AUTO_WIDTH = 16 * LANE_WIDTH + GRAPH_PADDING;
+/** The most of the list the graph takes on its own, and the most it can be dragged to. */
+const AUTO_SHARE = 1 / 3;
+const MAX_SHARE = 0.6;
+
+export interface GraphFit {
+  /** The width the graph is drawn in. */
+  width: number;
+  /** The room each lane gets in it. */
+  lane: number;
+  /** Whether some lanes are left out, past the edge. */
+  cut: boolean;
+  /** The width at which every lane has all its room: there is nothing to gain past it. */
+  natural: number;
+}
+
+/**
+ * How a graph of so many lanes is drawn in the room it has. `wanted` is the width it was dragged to, or null to let
+ * it choose; `available` is the width of the list, or 0 while that is not known. A graph too wide for its room has
+ * its lanes drawn closer first, and only then is cut off: the messages beside it matter more than its far end.
+ */
+export function fitGraph(lanes: number, wanted: number | null, available: number): GraphFit {
+  const natural = lanes * LANE_WIDTH + GRAPH_PADDING;
+  const share = available > 0 ? available * (wanted === null ? AUTO_SHARE : MAX_SHARE) : Infinity;
+  const width = Math.max(LANE_WIDTH + GRAPH_PADDING, Math.round(Math.min(natural, wanted ?? AUTO_WIDTH, share)));
+  const lane = Math.max(MIN_LANE_WIDTH, Math.min(LANE_WIDTH, (width - GRAPH_PADDING) / lanes));
+  return { width, lane, cut: lanes * lane + GRAPH_PADDING > width + 0.5, natural };
+}
