@@ -520,6 +520,57 @@ export async function run(): Promise<void> {
     assert.deepEqual(errors, []);
   });
 
+  await step('pulls with the changes that are not committed set aside, and says when they do not fit on what came in', async () => {
+    const start = state().head!;
+    const stashes = state().stashes.length;
+    const remote = path.join(workspace, '..', 'remote.git');
+    const other = path.join(workspace, '..', 'other');
+    await git(workspace, ['clone', remote, other]);
+    /** Someone else changes a file and pushes. */
+    const theirs = async (file: string, content: string, message: string) => {
+      fs.writeFileSync(path.join(other, file), content);
+      await git(other, ['add', '--all']);
+      await git(other, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitar.invalid', 'commit', '-m', message]);
+      await git(other, ['push', 'origin', 'HEAD:main']);
+    };
+    const read = (file: string) => fs.readFileSync(path.join(app, file), 'utf8');
+    const original = read('a.txt');
+    try {
+      // A change in a file the pull does not touch is there after it.
+      await theirs('theirs.txt', 'theirs\n', 'Their file');
+      write('a.txt', `${original}mine\n`);
+      logged.length = 0;
+      asked.length = 0;
+      await controller.sync('pullAutostash');
+      assert.ok(logged.includes('> git pull --autostash'), logged.join('\n'));
+      assert.equal(subjects().filter((subject) => subject === 'Their file').length, 1);
+      assert.equal(read('a.txt'), `${original}mine\n`);
+      assert.equal(state().stashes.length, stashes);
+      assert.equal(asked.length, 0);
+
+      // A change where the pull changes too is left in conflict and in the stash git made, which is said.
+      write('a.txt', original);
+      write('theirs.txt', 'mine\n');
+      await theirs('theirs.txt', 'THEIRS\n', 'Their change');
+      await controller.sync('pullRebaseAutostash');
+      assert.ok(logged.includes('> git pull --rebase --autostash'), logged.join('\n'));
+      assert.equal(subjects().filter((subject) => subject === 'Their change').length, 1);
+      assert.equal(state().stashes.length, stashes + 1);
+      assert.match(state().stashes[0].message, /autostash/);
+      assert.match(read('theirs.txt'), /<<<<<<</);
+      assert.ok(asked.some((question) => /do not fit on what came in/.test(question.message) && question.items.includes('Show Stashes')), JSON.stringify(asked));
+      assert.deepEqual(errors, []);
+    } finally {
+      // As it was before, here and on the remote, for the steps that follow.
+      await git(app, ['reset', '--hard', start]);
+      if (state().stashes.length > stashes) await git(app, ['stash', 'drop']);
+      await git(app, ['push', '--force', 'origin', `${start}:main`]);
+      await vscode.commands.executeCommand('gitar.refresh');
+    }
+    assert.equal(state().head, start);
+    assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 0);
+  });
+
   await step('warns about what a force push overwrites', async () => {
     // Rewrite the last commit, so that the remote has one the local branch does not.
     await git(app, ['commit', '--amend', '--allow-empty', '-m', 'Add a file, reworded']);

@@ -33,6 +33,8 @@ interface Props {
 const PULL_VARIANTS: { action: SyncAction; label: string }[] = [
   { action: 'pull', label: 'Pull' },
   { action: 'pullRebase', label: 'Pull (rebase)' },
+  { action: 'pullAutostash', label: 'Pull (autostash)' },
+  { action: 'pullRebaseAutostash', label: 'Pull (rebase, autostash)' },
 ];
 
 const PUSH_VARIANTS: { action: SyncAction; label: string }[] = [

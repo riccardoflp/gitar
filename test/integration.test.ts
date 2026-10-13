@@ -817,6 +817,49 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     }
   });
 
+  it('pulls with changes that are not committed set aside and put back, and keeps them in a stash when they no longer fit', async () => {
+    write('a.txt', 'one\ntwo\n');
+    write('b.txt', 'bee\n');
+    await commitAll('base');
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-remote-'));
+    try {
+      await git(remote, ['init', '--bare', '--initial-branch=main']);
+      await git(root, ['remote', 'add', 'origin', remote]);
+      await run(syncOp('push', await state()));
+      /** Someone else changes a file and pushes, and this clone is put back where it was. */
+      const theirs = async (file: string, content: string, message: string) => {
+        const mine = (await state()).head!;
+        write(file, content);
+        await commitAll(message);
+        await git(root, ['push', 'origin', 'main']);
+        await git(root, ['reset', '--hard', mine]);
+      };
+      /** The commits, without the line that stands for what is not committed. */
+      const committed = async () => (await subjects()).filter((subject) => !subject.startsWith('Uncommitted changes'));
+      expect(syncOp('pullAutostash', await state()).commands).toEqual([['pull', '--autostash']]);
+      expect(syncOp('pullRebaseAutostash', await state()).commands).toEqual([['pull', '--rebase', '--autostash']]);
+
+      // A change in a file the pull does not touch is there after it, and no stash is left.
+      await theirs('a.txt', 'ONE\ntwo\n', 'Their a');
+      write('b.txt', 'bee\nmine\n');
+      await expect(run(syncOp('pullRebase', await state()))).rejects.toThrow();
+      await run(syncOp('pullAutostash', await state()));
+      expect(await committed()).toEqual(['Their a', 'base']);
+      expect(fs.readFileSync(path.join(root, 'b.txt'), 'utf8')).toBe('bee\nmine\n');
+      expect((await state()).stashes).toEqual([]);
+
+      // A change where the pull changes too is left in conflict, and whole in the stash git made.
+      await theirs('b.txt', 'BEE\n', 'Their b');
+      write('b.txt', 'mine\n');
+      await run(syncOp('pullRebaseAutostash', await state()));
+      expect(await committed()).toEqual(['Their b', 'Their a', 'base']);
+      expect((await state()).stashes.map((stash) => stash.message)).toEqual(['autostash']);
+      expect(fs.readFileSync(path.join(root, 'b.txt'), 'utf8')).toContain('<<<<<<<');
+    } finally {
+      fs.rmSync(remote, { recursive: true, force: true });
+    }
+  });
+
   it('finds the repositories of a workspace, nested ones and submodules included', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');

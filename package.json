@@ -102,6 +102,16 @@
         "category": "Gitar"
       },
       {
+        "command": "gitar.pullAutostash",
+        "title": "Pull (Autostash)",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.pullRebaseAutostash",
+        "title": "Pull (Rebase, Autostash)",
+        "category": "Gitar"
+      },
+      {
         "command": "gitar.push",
         "title": "Push",
         "category": "Gitar",
@@ -411,14 +421,24 @@
           "group": "1_sync@1"
         },
         {
-          "command": "gitar.pushForceWithLease",
+          "command": "gitar.pullAutostash",
           "when": "view == gitar.commits",
           "group": "1_sync@2"
         },
         {
-          "command": "gitar.pushForce",
+          "command": "gitar.pullRebaseAutostash",
           "when": "view == gitar.commits",
           "group": "1_sync@3"
+        },
+        {
+          "command": "gitar.pushForceWithLease",
+          "when": "view == gitar.commits",
+          "group": "1_sync@4"
+        },
+        {
+          "command": "gitar.pushForce",
+          "when": "view == gitar.commits",
+          "group": "1_sync@5"
         },
         {
           "command": "gitar.undo",

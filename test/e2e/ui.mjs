@@ -123,6 +123,18 @@ try {
     }
   });
 
+  await step('the button beside Pull lists the ways to pull, with and without setting changes aside', async () => {
+    const graph = await webview('graph');
+    await graph.click('.toolbar button[aria-label="More pull options"]');
+    const items = await until('the menu', () =>
+      graph.evaluate(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent); return items.length ? items : null; })()`),
+    );
+    await shot('pull-menu');
+    assert(items.join('|') === 'Pull|Pull (rebase)|Pull (autostash)|Pull (rebase, autostash)', `menu: ${items}`);
+    await key('Escape');
+    await until('the menu closed', () => graph.evaluate(`document.querySelectorAll('[role="menuitem"]').length === 0`));
+  });
+
   /** The headers of the views in the side bar, top to bottom, and whether each view is unfolded. */
   const panes = () =>
     page.evaluate(`[...document.querySelectorAll('.sidebar .pane-header')].map((header) => ({

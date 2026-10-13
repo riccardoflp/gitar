@@ -71,6 +71,9 @@ export function syncOp(action: SyncAction, state: RepoState): GitOp {
   if (action === 'fetch') return { title: 'Fetch', commands: [['fetch', '--all', '--prune']] };
   if (action === 'pull') return { title: 'Pull', commands: [['pull']] };
   if (action === 'pullRebase') return { title: 'Pull (rebase)', commands: [['pull', '--rebase']] };
+  // Git stashes what is not committed, pulls, and applies the stash again: when it no longer fits, it keeps it.
+  if (action === 'pullAutostash') return { title: 'Pull (autostash)', commands: [['pull', '--autostash']] };
+  if (action === 'pullRebaseAutostash') return { title: 'Pull (rebase, autostash)', commands: [['pull', '--rebase', '--autostash']] };
 
   const branch = state.branches.find((candidate) => candidate.current);
   if (!branch) throw new Error('Cannot push: HEAD is detached. Check out a branch first.');

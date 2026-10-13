@@ -193,7 +193,16 @@ export interface CommitDetail extends Commit {
   untracked?: { hash: string; files: FileChange[] };
 }
 
-export type SyncAction = 'fetch' | 'pull' | 'pullRebase' | 'push' | 'pushForceWithLease' | 'pushForce';
+export type SyncAction =
+  | 'fetch'
+  | 'pull'
+  | 'pullRebase'
+  /** The two ways to pull, with the changes that are not committed set aside first and put back after. */
+  | 'pullAutostash'
+  | 'pullRebaseAutostash'
+  | 'push'
+  | 'pushForceWithLease'
+  | 'pushForce';
 
 /** The files that differ between two commits, going from `from` to `to`. */
 export interface Comparison {

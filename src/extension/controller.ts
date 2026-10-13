@@ -689,6 +689,17 @@ export class Controller implements vscode.Disposable {
       const result = await this.run(op);
       if (!result.ok) return;
       void this.refreshPulls(true);
+      // The changes that were set aside no longer fit on what came in: git leaves them in conflict in the files, and
+      // keeps the stash it made, which nothing says unless its output is read.
+      const kept = this.state?.stashes[0];
+      if (action.endsWith('Autostash') && kept && this.state!.stashes.length > state.stashes.length && /autostash/i.test(kept.message)) {
+        void vscode.window
+          .showWarningMessage(
+            `Gitar: pulled, but your changes do not fit on what came in. They are in conflict in the files, and whole in the stash "${kept.message}": resolve the conflicts, then drop the stash.`,
+            'Show Stashes',
+          )
+          .then((choice) => choice && vscode.commands.executeCommand('gitar.openStashes'));
+      }
       // The first push of a branch is the natural moment to open a pull request for it.
       const branch = state.branch;
       if (action.startsWith('push') && branch && !upstream && this.github && !this.pulls[branch]) {

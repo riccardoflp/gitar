@@ -93,7 +93,16 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
   );
 
   const command = (id: string, handler: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(id, handler);
-  const syncActions: SyncAction[] = ['fetch', 'pull', 'pullRebase', 'push', 'pushForceWithLease', 'pushForce'];
+  const syncActions: SyncAction[] = [
+    'fetch',
+    'pull',
+    'pullRebase',
+    'pullAutostash',
+    'pullRebaseAutostash',
+    'push',
+    'pushForceWithLease',
+    'pushForce',
+  ];
   const webviewOptions = { webviewOptions: { retainContextWhenHidden: true } };
 
   context.subscriptions.push(
