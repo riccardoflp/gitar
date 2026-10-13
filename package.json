@@ -2,8 +2,9 @@
   "name": "gitar",
   "displayName": "Gitar",
   "description": "Commit graph, history and everyday Git operations in a single panel.",
-  "version": "0.0.1",
-  "publisher": "pozzi",
+  "version": "0.1.0",
+  "publisher": "RiccardoFilippozzi",
+  "repository": "https://github.com/riccardoflp/gitar",
   "private": true,
   "engines": {
     "vscode": "^1.100.0"
