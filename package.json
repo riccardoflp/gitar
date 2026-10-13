@@ -186,6 +186,55 @@
         "icon": "$(eye-closed)"
       },
       {
+        "command": "gitar.toggleBlameEveryFile",
+        "title": "Toggle File Blame in Every File",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.blameEveryFile",
+        "title": "Keep File Blame On in Every File",
+        "category": "Gitar",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "gitar.blameChosenFiles",
+        "title": "Stop Keeping File Blame On in Every File",
+        "category": "Gitar",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "gitar.toggleBlameWhitespace",
+        "title": "Toggle Ignoring Whitespace and Moved Lines in Blame",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.blameIgnoreWhitespace",
+        "title": "Ignore Whitespace and Moved Lines in Blame",
+        "category": "Gitar",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "gitar.blameCountWhitespace",
+        "title": "Stop Ignoring Whitespace and Moved Lines in Blame",
+        "category": "Gitar",
+        "icon": "$(filter-filled)"
+      },
+      {
+        "command": "gitar.openLineCommit",
+        "title": "Open Commit of Current Line in Editor",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.revealLineCommit",
+        "title": "Reveal Commit of Current Line in Graph",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.blamePrevious",
+        "title": "Blame File Before Commit of Current Line",
+        "category": "Gitar"
+      },
+      {
         "command": "gitar.switchIdentity",
         "title": "Switch Identity",
         "category": "Gitar"
@@ -266,6 +315,22 @@
         {
           "command": "gitar.hideFileBlame",
           "when": "false"
+        },
+        {
+          "command": "gitar.blameEveryFile",
+          "when": "false"
+        },
+        {
+          "command": "gitar.blameChosenFiles",
+          "when": "false"
+        },
+        {
+          "command": "gitar.blameIgnoreWhitespace",
+          "when": "false"
+        },
+        {
+          "command": "gitar.blameCountWhitespace",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -285,6 +350,21 @@
           "command": "gitar.toggleFileBlame",
           "when": "resourceScheme == file && gitar.hasRepository",
           "group": "z_gitar@2"
+        },
+        {
+          "command": "gitar.openLineCommit",
+          "when": "resourceScheme == file && gitar.hasRepository",
+          "group": "z_gitar@3"
+        },
+        {
+          "command": "gitar.revealLineCommit",
+          "when": "resourceScheme == file && gitar.hasRepository",
+          "group": "z_gitar@4"
+        },
+        {
+          "command": "gitar.blamePrevious",
+          "when": "resourceScheme == file && gitar.hasRepository",
+          "group": "z_gitar@5"
         }
       ],
       "editor/title/context": [
@@ -389,8 +469,28 @@
         },
         {
           "command": "gitar.hideFileBlame",
-          "when": "resourceScheme == file && gitar.hasRepository && gitar.fileBlame",
+          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/",
           "group": "navigation@90"
+        },
+        {
+          "command": "gitar.blameIgnoreWhitespace",
+          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && !config.gitar.blame.ignoreWhitespaceAndMoves",
+          "group": "navigation@91"
+        },
+        {
+          "command": "gitar.blameCountWhitespace",
+          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && config.gitar.blame.ignoreWhitespaceAndMoves",
+          "group": "navigation@91"
+        },
+        {
+          "command": "gitar.blameEveryFile",
+          "when": "resourceScheme == file && gitar.hasRepository && !config.gitar.fileBlame.everyFile",
+          "group": "navigation@92"
+        },
+        {
+          "command": "gitar.blameChosenFiles",
+          "when": "resourceScheme == file && gitar.hasRepository && config.gitar.fileBlame.everyFile",
+          "group": "navigation@92"
         }
       ]
     },
@@ -400,6 +500,18 @@
         "key": "ctrl+f",
         "mac": "cmd+f",
         "when": "gitar.searchFocus"
+      },
+      {
+        "command": "gitar.openLineCommit",
+        "key": "alt+b",
+        "mac": "ctrl+alt+b",
+        "when": "editorTextFocus && gitar.hasRepository"
+      },
+      {
+        "command": "gitar.revealLineCommit",
+        "key": "shift+alt+b",
+        "mac": "ctrl+shift+alt+b",
+        "when": "editorTextFocus && gitar.hasRepository"
       }
     ],
     "configuration": {
@@ -448,6 +560,49 @@
           "type": "boolean",
           "default": true,
           "description": "Show who last changed the current line, and when, at the end of that line in the editor."
+        },
+        "gitar.blame.ignoreWhitespaceAndMoves": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Leave a line to who wrote it when all that was changed since is its whitespace, or where in the file it is (`git blame -w -M`). It holds for the blame of the line under the cursor and for the blame of a file, and the funnel at the top right of an editor that shows its blame switches it."
+        },
+        "gitar.fileBlame.everyFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the blame of a file beside its lines in every file that is opened, rather than in the ones it is asked for. The pin at the top right of an editor switches it, and the button of the blame still hides it file by file."
+        },
+        "gitar.fileBlame.format": {
+          "type": "string",
+          "default": "${date} ${author:20}",
+          "markdownDescription": "What the blame of a file says beside each line. `${date}` is the day of the commit, `${ago}` how long ago it was, `${author}` who made it, `${summary}` the first line of its message, and `${hash}` its hash. A number after a colon is the most letters something may take, as in `${author:20}`; a hash is 7 letters unless told otherwise. Anything else is written as it is. Example: `${ago} ${author:16} ${summary:40}`."
+        },
+        "gitar.fileBlame.groupLines": {
+          "type": "boolean",
+          "default": true,
+          "description": "In the blame of a file, say the commit beside the first of the lines it changed that follow each other, and leave the others with nothing but its colors. Turn it off to have it said beside every line."
+        },
+        "gitar.fileBlame.age.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "In the blame of a file, draw a line beside each line of the file in a color that says how long ago it was changed."
+        },
+        "gitar.fileBlame.age.recentColor": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#e5534b",
+          "markdownDescription": "The color of the age of a line that was just changed, as `#rrggbb`."
+        },
+        "gitar.fileBlame.age.oldColor": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#316dca",
+          "markdownDescription": "The color of the age of a line that was changed long ago, as `#rrggbb`. The ages in between have the colors in between."
+        },
+        "gitar.fileBlame.age.oldAfterDays": {
+          "type": "number",
+          "default": 730,
+          "minimum": 1,
+          "description": "After how many days a line has the color of the lines changed long ago. Recent days count more than old ones: a day and a week are further apart than a year and a year and a week."
         },
         "gitar.conflicts.autoResolve": {
           "type": "boolean",

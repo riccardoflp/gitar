@@ -492,8 +492,26 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     const lines = await repo.blame('a.txt');
     expect(lines?.map((line) => line.hash)).toEqual([first, second, first]);
     expect(lines?.[1]).toMatchObject({ author: 'Gitar Test', summary: 'Shout', committed: true });
-    const unsaved = await repo.blame('a.txt', 'zero\none\nTWO\nthree\n');
+    // What a commit changed was, before it, in the commit that comes before it for the file.
+    expect(lines?.[1].previous).toEqual({ hash: first, file: 'a.txt' });
+    expect(lines?.[0].previous).toBeUndefined();
+    const unsaved = await repo.blame('a.txt', { contents: 'zero\none\nTWO\nthree\n' });
     expect(unsaved?.map((line) => (line.committed ? line.hash : null))).toEqual([null, first, second, first]);
+    // As it was in a commit, whatever it has become since.
+    expect((await repo.blame('a.txt', { revision: first }))?.map((line) => line.hash)).toEqual([first, first, first]);
+
+    // A line that was only indented is left to who wrote it when that is asked.
+    write('a.txt', 'one\n  TWO\nthree\n');
+    const third = await commitAll('Indent');
+    expect((await repo.blame('a.txt'))?.map((line) => line.hash)).toEqual([first, third, first]);
+    expect((await repo.blame('a.txt', { ignoreWhitespace: true }))?.map((line) => line.hash)).toEqual([first, second, first]);
+    expect(await repo.blameLine('a.txt', 2)).toMatchObject({ hash: third });
+    expect(await repo.blameLine('a.txt', 2, { ignoreWhitespace: true })).toMatchObject({ hash: second });
+    // The name it had before it was given another.
+    await git(repo.root, ['mv', 'a.txt', 'renamed file.txt']);
+    write('renamed file.txt', 'ONE\n  TWO\nthree\n');
+    await commitAll('Rename');
+    expect((await repo.blame('renamed file.txt'))?.[0].previous).toEqual({ hash: third, file: 'a.txt' });
     write('new.txt', 'x\n');
     expect(await repo.blame('new.txt')).toBeNull();
   });
@@ -507,8 +525,8 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect(await repo.blameLine('a.txt', 1)).toMatchObject({ hash: first, author: 'Gitar Test', summary: 'Add a', committed: true });
     expect(await repo.blameLine('a.txt', 2)).toMatchObject({ hash: second, summary: 'Shout', committed: true });
     const unsaved = 'zero\none\nTWO\n';
-    expect(await repo.blameLine('a.txt', 1, unsaved)).toMatchObject({ committed: false });
-    expect(await repo.blameLine('a.txt', 2, unsaved)).toMatchObject({ hash: first, committed: true });
+    expect(await repo.blameLine('a.txt', 1, { contents: unsaved })).toMatchObject({ committed: false });
+    expect(await repo.blameLine('a.txt', 2, { contents: unsaved })).toMatchObject({ hash: first, committed: true });
     expect(await repo.blameLine('a.txt', 9)).toBeNull();
     write('new.txt', 'x\n');
     expect(await repo.blameLine('new.txt', 1)).toBeNull();

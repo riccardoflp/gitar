@@ -1,51 +1,65 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { Repo } from '../git/repo';
+import { Repo, type BlameOptions } from '../git/repo';
+import { ago } from '../shared/blameFormat';
+import { revisionOf } from './content';
 
 const DELAY = 200;
 
-function ago(seconds: number): string {
-  const elapsed = Math.max(0, Date.now() / 1000 - seconds);
-  const units: [number, string][] = [
-    [31536000, 'year'],
-    [2592000, 'month'],
-    [86400, 'day'],
-    [3600, 'hour'],
-    [60, 'minute'],
-  ];
-  for (const [size, name] of units) {
-    const count = Math.floor(elapsed / size);
-    if (count >= 1) return `${count} ${name}${count === 1 ? '' : 's'} ago`;
-  }
-  return 'just now';
+/** Where a document is in a repository: the name the file has there, and the commit it is shown as it was in, if any. */
+export interface Blamable {
+  repo: Repo;
+  file: string;
+  revision?: string;
 }
+
+/** Whether a line is left to who wrote it when only its whitespace or its place in the file changed since. */
+export const ignoresWhitespace = () => vscode.workspace.getConfiguration('gitar').get<boolean>('blame.ignoreWhitespaceAndMoves') === true;
 
 /** Finds the repository a file of the editor is in. It works before any Gitar view is opened. */
 export class BlameSource {
   /** The repository of each folder a file was opened from, found once. */
-  private readonly repos = new Map<string, Promise<Repo | undefined>>();
+  private readonly found = new Map<string, Promise<Repo | undefined>>();
+  private readonly repos = new Map<string, Repo>();
 
   constructor(private readonly log: vscode.LogOutputChannel) {}
 
+  private repo(root: string): Repo {
+    let repo = this.repos.get(root);
+    if (!repo) this.repos.set(root, (repo = new Repo(root, (command) => this.log.debug(command))));
+    return repo;
+  }
+
   private repoOf(folder: string): Promise<Repo | undefined> {
-    let repo = this.repos.get(folder);
+    let repo = this.found.get(folder);
     if (!repo) {
       repo = Repo.discover(folder).then(
-        (root) => (root ? new Repo(root, (command) => this.log.debug(command)) : undefined),
+        (root) => (root ? this.repo(root) : undefined),
         () => undefined,
       );
-      this.repos.set(folder, repo);
+      this.found.set(folder, repo);
     }
     return repo;
   }
 
-  /** The repository of a document and the name the file has in it, when it is a file on disk inside one. */
-  async of(document: vscode.TextDocument): Promise<{ repo: Repo; file: string } | undefined> {
+  /** The repository of a document, when it is a file on disk inside one or a file as it was in a commit. */
+  async of(document: vscode.TextDocument): Promise<Blamable | undefined> {
+    const past = revisionOf(document.uri);
+    if (past) return { repo: this.repo(past.root), file: past.file, revision: past.revision };
     if (document.uri.scheme !== 'file') return undefined;
     const repo = await this.repoOf(path.dirname(document.uri.fsPath));
     if (!repo) return undefined;
     const file = path.relative(repo.root, document.uri.fsPath).replace(/\\/g, '/');
     return file.startsWith('..') || path.isAbsolute(file) ? undefined : { repo, file };
+  }
+
+  /** What git is told to blame a document: the text of the editor when it is not saved, and what the settings ask. */
+  options(document: vscode.TextDocument, found: Blamable): BlameOptions {
+    return {
+      contents: !found.revision && document.isDirty ? document.getText() : undefined,
+      revision: found.revision,
+      ignoreWhitespace: ignoresWhitespace(),
+    };
   }
 }
 
@@ -96,7 +110,7 @@ export class BlameAnnotator implements vscode.Disposable {
     if (!found) return clear();
 
     const line = selection.active.line;
-    const blame = await found.repo.blameLine(found.file, line + 1, document.isDirty ? document.getText() : undefined).catch(() => null);
+    const blame = await found.repo.blameLine(found.file, line + 1, this.source.options(document, found)).catch(() => null);
     if (request !== this.request) return;
     if (!blame) return clear();
 

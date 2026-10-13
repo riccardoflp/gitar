@@ -23,7 +23,10 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
   const log = vscode.window.createOutputChannel('Gitar', { log: true });
   const controller = new Controller(context.extensionUri, log, context.workspaceState);
   const blameSource = new BlameSource(log);
-  const fileBlame = new FileBlame(blameSource);
+  const fileBlame = new FileBlame(blameSource, {
+    open: (hash, repo) => controller.openCommit(hash, repo),
+    reveal: (hash) => controller.reveal(hash),
+  });
 
   const graphProvider: vscode.WebviewViewProvider = {
     resolveWebviewView(view) {
@@ -54,9 +57,10 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     panel.onDidDispose(() => attachment.dispose());
   };
 
-  const toggleBlame = () => {
+  /** Turns a setting that is on or off into the other, for the user wherever they work. */
+  const toggleSetting = (name: string) => () => {
     const config = vscode.workspace.getConfiguration('gitar');
-    return config.update('blame.enabled', !config.get<boolean>('blame.enabled'), vscode.ConfigurationTarget.Global);
+    return config.update(name, !config.get<boolean>(name), vscode.ConfigurationTarget.Global);
   };
 
   // A way to the graph that is always in sight, as a tab of the editor: the one the panel opens from its own header.
@@ -88,7 +92,7 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     }),
   );
 
-  const command = (id: string, handler: (argument?: unknown) => unknown) => vscode.commands.registerCommand(id, handler);
+  const command = (id: string, handler: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(id, handler);
   const syncActions: SyncAction[] = ['fetch', 'pull', 'pullRebase', 'push', 'pushForceWithLease', 'pushForce'];
   const webviewOptions = { webviewOptions: { retainContextWhenHidden: true } };
 
@@ -104,7 +108,17 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.reflog', () => controller.command('reflog')),
     command('gitar.cleanupBranches', () => controller.command('cleanupBranches')),
     command('gitar.signInGitHub', () => controller.command('signInGitHub')),
-    command('gitar.toggleBlame', toggleBlame),
+    command('gitar.toggleBlame', toggleSetting('blame.enabled')),
+    // Each of the two has a command for the palette and two for the button of the editors, in its two states.
+    ...['gitar.toggleBlameWhitespace', 'gitar.blameIgnoreWhitespace', 'gitar.blameCountWhitespace'].map((id) =>
+      command(id, toggleSetting('blame.ignoreWhitespaceAndMoves')),
+    ),
+    ...['gitar.toggleBlameEveryFile', 'gitar.blameEveryFile', 'gitar.blameChosenFiles'].map((id) =>
+      command(id, toggleSetting('fileBlame.everyFile')),
+    ),
+    command('gitar.openLineCommit', () => fileBlame.openLine()),
+    command('gitar.revealLineCommit', () => fileBlame.revealLine()),
+    command('gitar.blamePrevious', (root, hash, file) => fileBlame.previous(root, hash, file)),
     // The button of an editor names its file, which is not the active one when the button is of another group.
     ...['gitar.toggleFileBlame', 'gitar.showFileBlame', 'gitar.hideFileBlame'].map((id) =>
       command(id, (uri) => fileBlame.toggle(uri instanceof vscode.Uri ? uri : undefined)),

@@ -274,6 +274,34 @@ export interface BlameLine {
   summary: string;
   /** False for lines that are not in any commit yet. */
   committed: boolean;
+  /** The commit the file was in before this one changed it, and the name it had there. A commit that added the file has none. */
+  previous?: { hash: string; file: string };
+}
+
+/**
+ * A path as git writes it where it ends a line: as it is, or between quotes with what is not plain ASCII told byte
+ * by byte, when `core.quotePath` is left as it comes.
+ */
+export function unquotePath(text: string): string {
+  if (!text.startsWith('"') || !text.endsWith('"') || text.length < 2) return text;
+  const escapes: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+  const bytes: number[] = [];
+  const inner = text.slice(1, -1);
+  for (let at = 0; at < inner.length; at++) {
+    if (inner[at] !== '\\') {
+      bytes.push(...Buffer.from(inner[at], 'utf8'));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(inner.slice(at + 1))?.[0];
+    if (octal) {
+      bytes.push(parseInt(octal, 8));
+      at += 3;
+    } else {
+      const next = inner[++at];
+      bytes.push(escapes[next] ?? next.charCodeAt(0));
+    }
+  }
+  return Buffer.from(bytes).toString('utf8');
 }
 
 /** Parses `git blame --porcelain` for a single line. */
@@ -315,6 +343,10 @@ export function parseBlame(out: string): BlameLine[] {
       if (line.startsWith('author ')) current.author = line.slice(7);
       else if (line.startsWith('author-time ')) current.date = Number(line.slice(12));
       else if (line.startsWith('summary ')) current.summary = line.slice(8);
+      else if (line.startsWith('previous ')) {
+        const [, hash, file] = /^previous ([0-9a-f]{40,64}) (.+)$/.exec(line) ?? [];
+        if (hash) current.previous = { hash, file: unquotePath(file) };
+      }
     }
   }
   return lines;

@@ -1139,7 +1139,8 @@ export async function run(): Promise<void> {
     await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), 'typed\n'));
     const typed = () => fileBlame.linesOf(uri)?.map((line) => line?.committed);
     const after = [false, ...Array<boolean>(count).fill(true)].join();
-    assert.equal(typed()?.[0], false);
+    // Whole lines leave the ones after them as they were, with no need to ask.
+    assert.equal(typed()?.join(), after);
     await until('the blame of what is not saved', () => typed()?.join() === after);
     await sleep(1000);
     assert.equal(typed()?.join(), after);
@@ -1159,6 +1160,80 @@ export async function run(): Promise<void> {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       fs.rmSync(path.join(app, 'fresh.txt'));
     }
+    assert.equal(errors.length, before);
+  });
+
+  await step('opens the commit of a line and the file as it was before it, blames every file when asked, and re-reads when whitespace is ignored', async () => {
+    const before = errors.length;
+    const setting = (name: string) => vscode.workspace.getConfiguration('gitar').get(name);
+    const tabs = () => vscode.window.tabGroups.all.flatMap((group) => group.tabs);
+    const uri = vscode.Uri.file(path.join(app, 'a.txt'));
+    const show = async (index: number) => {
+      const editor = await vscode.window.showTextDocument(uri);
+      editor.selection = new vscode.Selection(index, 0, index, 0);
+    };
+    await show(0);
+    await vscode.commands.executeCommand('gitar.showFileBlame', uri);
+    const lines = await until('the blame', () => fileBlame.linesOf(uri));
+    const index = lines.findIndex((line) => line?.previous);
+    const changed = lines[index];
+    assert.ok(changed?.previous, 'a line changed by a commit that came after the one that added the file');
+
+    // The commit of the line, in a tab of its own.
+    await show(index);
+    await vscode.commands.executeCommand('gitar.openLineCommit');
+    await until('the tab of the commit', () =>
+      tabs().some((tab) => tab.input instanceof vscode.TabInputWebview && tab.label.startsWith(changed.hash.slice(0, 7))),
+    );
+
+    // The file as it was before that commit, named after the commit it is of, with the blame it had then.
+    await show(index);
+    await vscode.commands.executeCommand('gitar.blamePrevious');
+    const past = await until('the file as it was', () => {
+      const active = vscode.window.activeTextEditor;
+      return active?.document.uri.scheme === 'gitar' ? active.document : undefined;
+    });
+    assert.ok(past.uri.path.endsWith(`a (${changed.previous.hash.slice(0, 7)}).txt`), past.uri.path);
+    assert.equal(past.getText(), (await git(app, ['show', `${changed.previous.hash}:a.txt`])).stdout);
+    const earlier = await until('its blame', () => fileBlame.linesOf(past.uri));
+    assert.ok(earlier.length > 0 && earlier.every((line) => line?.committed && line.hash !== changed.hash), JSON.stringify(earlier));
+
+    // Every file that comes in sight, but for the ones it is hidden in.
+    const name = (await git(app, ['ls-files'])).stdout.split('\n').find((tracked) => tracked && tracked !== 'a.txt');
+    assert.ok(name, 'another file in a commit');
+    const other = vscode.Uri.file(path.join(app, name));
+    await vscode.commands.executeCommand('gitar.toggleBlameEveryFile');
+    try {
+      assert.equal(setting('fileBlame.everyFile'), true);
+      await vscode.window.showTextDocument(other);
+      await until('the blame of a file it was not asked for', () => fileBlame.linesOf(other));
+      await vscode.commands.executeCommand('gitar.hideFileBlame', other);
+      await show(index);
+      await vscode.window.showTextDocument(other);
+      await sleep(800);
+      assert.equal(fileBlame.linesOf(other), undefined);
+      // Shown again when asked, as a file that only has it because every file does.
+      await vscode.commands.executeCommand('gitar.showFileBlame', other);
+      await until('the blame it was asked for', () => fileBlame.linesOf(other));
+    } finally {
+      await vscode.commands.executeCommand('gitar.toggleBlameEveryFile');
+    }
+    assert.equal(setting('fileBlame.everyFile'), false);
+    // The ones that were asked for keep their blame.
+    await sleep(500);
+    assert.ok(fileBlame.linesOf(uri) && fileBlame.linesOf(other));
+
+    // Whitespace: git is asked again, and the file still has its blame.
+    await vscode.commands.executeCommand('gitar.toggleBlameWhitespace');
+    try {
+      assert.equal(setting('blame.ignoreWhitespaceAndMoves'), true);
+      await sleep(1500);
+      assert.equal(fileBlame.linesOf(uri)?.length, lines.length);
+    } finally {
+      await vscode.commands.executeCommand('gitar.toggleBlameWhitespace');
+    }
+    assert.equal(setting('blame.ignoreWhitespaceAndMoves'), false);
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     assert.equal(errors.length, before);
   });
 

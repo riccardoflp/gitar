@@ -43,6 +43,7 @@ import {
   parseBisectRefs,
   parseBlame,
   parseBlameLine,
+  unquotePath,
   parseIdentity,
   parseHunks,
   parseLog,
@@ -667,10 +668,18 @@ describe('blame of a whole file', () => {
     const lines = parseBlame(incremental);
     expect(lines.map((line) => line.hash)).toEqual([first, second, first, first, none]);
     expect(lines[0]).toEqual({ hash: first, author: 'Ann Lee', date: 1700000000, summary: 'author of nothing', committed: true });
-    expect(lines[1]).toMatchObject({ author: 'Bob Ray', summary: 'Shout', committed: true });
+    expect(lines[1]).toMatchObject({ author: 'Bob Ray', summary: 'Shout', committed: true, previous: { hash: first, file: 'a.txt' } });
+    expect(lines[0].previous).toBeUndefined();
     expect(lines[4].committed).toBe(false);
     // The lines of a commit are told apart from the others by being the same object.
     expect(lines[3]).toBe(lines[0]);
+  });
+
+  it('reads the name a file had before, as git writes names that are not plain', () => {
+    const renamed = incremental.replace(`previous ${first} a.txt`, `previous ${first} "caff\\303\\250 \\"old\\"\\tname.txt"`);
+    expect(parseBlame(renamed)[1].previous).toEqual({ hash: first, file: 'caffè "old"\tname.txt' });
+    expect(unquotePath('plain name.txt')).toBe('plain name.txt');
+    expect(unquotePath('"back\\\\slash"')).toBe('back\\slash');
   });
 
   it('has no lines for output that is not a blame', () => {

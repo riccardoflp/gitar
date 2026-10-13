@@ -58,12 +58,33 @@ export interface ConflictPlan {
   conflicts: Conflict[];
 }
 
-/** Larger files in conflict are left to the user. */
 /** How far back in the moves of HEAD the branches checked out last are looked for. */
 const RECENT_MOVES = 300;
+/** Larger files in conflict are left to the user. */
 const CONFLICT_BYTES = 2 * 1024 * 1024;
 /** No more files in conflict than this are read to see what can be resolved. */
 const CONFLICT_FILES = 200;
+
+export interface BlameOptions {
+  /** The text of the file when it has unsaved edits. */
+  contents?: string;
+  /** The commit to blame the file as it was in, rather than as it is in the working tree. */
+  revision?: string;
+  /**
+   * Whether a line is left to who wrote it when all that was changed since is its whitespace, or where in the file
+   * it is: `-w -M`.
+   */
+  ignoreWhitespace?: boolean;
+}
+
+/** What `git blame` is told before the name of the file. */
+function blameArgs({ contents, revision, ignoreWhitespace }: BlameOptions): string[] {
+  const args: string[] = [];
+  if (ignoreWhitespace) args.push('-w', '-M');
+  if (contents !== undefined) args.push('--contents', '-');
+  if (revision) args.push(revision);
+  return args;
+}
 
 /** Read-only view of one repository. Everything that changes the repository goes through `ops.ts` instead. */
 export class Repo {
@@ -364,13 +385,12 @@ export class Repo {
     return { hashes, more };
   }
 
-  /** Who last changed a line (1-based). `contents` is the text of the file when it has unsaved edits. */
-  async blameLine(file: string, line: number, contents?: string): Promise<BlameLine | null> {
-    const args = ['blame', '--porcelain', '-L', `${line},${line}`];
-    if (contents !== undefined) args.push('--contents', '-');
+  /** Who last changed a line (1-based). */
+  async blameLine(file: string, line: number, options: BlameOptions = {}): Promise<BlameLine | null> {
+    const args = ['blame', '--porcelain', '-L', `${line},${line}`, ...blameArgs(options)];
     this.onCommand(formatCommand([...args, '--', file]));
     try {
-      const { stdout } = await git(this.root, [...args, '--', file], { readOnly: true, input: contents });
+      const { stdout } = await git(this.root, [...args, '--', file], { readOnly: true, input: options.contents });
       return parseBlameLine(stdout);
     } catch {
       // Untracked files, and lines past the end of the committed file, have no blame.
@@ -378,16 +398,12 @@ export class Repo {
     }
   }
 
-  /**
-   * Who last changed each line of a file, the first one at 0, or null for a file that is in no commit. `contents` is
-   * the text of the file when it has unsaved edits.
-   */
-  async blame(file: string, contents?: string): Promise<BlameLine[] | null> {
-    const args = ['blame', '--incremental'];
-    if (contents !== undefined) args.push('--contents', '-');
+  /** Who last changed each line of a file, the first one at 0, or null for a file that is in no commit. */
+  async blame(file: string, options: BlameOptions = {}): Promise<BlameLine[] | null> {
+    const args = ['blame', '--incremental', ...blameArgs(options)];
     this.onCommand(formatCommand([...args, '--', file]));
     try {
-      const { stdout } = await git(this.root, [...args, '--', file], { readOnly: true, input: contents });
+      const { stdout } = await git(this.root, [...args, '--', file], { readOnly: true, input: options.contents });
       return parseBlame(stdout);
     } catch {
       return null;

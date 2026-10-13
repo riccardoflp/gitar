@@ -297,7 +297,7 @@ try {
     assert(/Gitar Test, .+ • Change a/.test(blame), `annotation: ${blame}`);
   });
 
-  await step('the button of the editor shows who changed each line beside it, the lines of the commit under the cursor standing out, and hides it again', async () => {
+  await step('the button of the editor shows who changed each line beside it, with the color of its age and the lines of the commit under the cursor standing out, and the file as it was before a commit', async () => {
     /** What stands before each line of the editor, and where the text of the line starts. */
     const beside = () =>
       page.evaluate(`[...document.querySelectorAll('.editor-instance .view-line')]
@@ -309,6 +309,7 @@ try {
             label: before ? before.content.replace(/^"|"$/g, '').replace(/\u00a0/g, ' ') : null,
             width: before ? Math.round(parseFloat(before.width)) : 0,
             lit: before ? !['rgba(0, 0, 0, 0)', 'transparent'].includes(before.backgroundColor) : false,
+            bar: before ? before.borderLeftWidth + ' ' + before.borderLeftColor : null,
             height: Math.round(line.getBoundingClientRect().height),
             text: line.textContent,
           };
@@ -332,6 +333,12 @@ try {
     const letter = lines[0].width / '2026-10-13 Gitar Test'.length;
     assert(lines.every((line) => line.width === lines[0].width) && letter > 5 && letter < 12, `widths: ${JSON.stringify(lines)}`);
     assert(lines.every((line, index) => line.height === plain[index].height), `heights: ${JSON.stringify(lines)} were ${JSON.stringify(plain)}`);
+    // At the left of each a line in the color of its age: the one of what was just changed, which all of this was.
+    // About three pixels wide, as near as the screen draws them.
+    assert(
+      lines.every((line) => parseFloat(line.bar) >= 2 && parseFloat(line.bar) <= 4 && line.bar.endsWith(line.text ? ' rgb(229, 83, 75)' : ' rgba(0, 0, 0, 0)')),
+      `ages: ${JSON.stringify(lines)}`,
+    );
 
     // What is beside the line under the cursor stands out, and not what is beside a line of another commit.
     const lit = async () => (await beside()).map((line) => (line.lit ? line.text : '')).filter(Boolean).join();
@@ -343,7 +350,8 @@ try {
     const original = fs.readFileSync(file, 'utf8');
     try {
       fs.writeFileSync(file, `${original}three\nfour\n`);
-      await until('the lines written', async () => (await beside()).filter((line) => line.label === 'Not committed yet').map((line) => line.text).join() === 'three,four');
+      // Said once for the lines that follow each other.
+      await until('the lines written', async () => (await beside()).map((line) => line.label).slice(2, 4).join('|') === 'Not committed yet| ');
       assert((await lit()) === 'one', `standing out: ${await lit()}`);
       await clickText('.editor-instance .view-line', 'three');
       await until('the lines of no commit standing out', async () => (await lit()) === 'three,four');
@@ -352,6 +360,38 @@ try {
       fs.writeFileSync(file, original);
     }
     await until('the file as it was', async () => (await beside()).length === lines.length);
+
+    // The buttons beside it: one leaves lines to who wrote them when only their whitespace changed, one shows the blame in every file.
+    const button = (name) => `.editor-actions .action-label[aria-label^="${name}"]`;
+    const press = async (name, becomes) => {
+      await page.evaluate(`document.querySelector(${JSON.stringify(button(name))}).click()`);
+      await until(`the button "${becomes}"`, () => page.evaluate(`!!document.querySelector(${JSON.stringify(button(becomes))})`));
+    };
+    await press('Ignore Whitespace and Moved Lines in Blame', 'Stop Ignoring Whitespace and Moved Lines in Blame');
+    await press('Keep File Blame On in Every File', 'Stop Keeping File Blame On in Every File');
+    await shot('file-blame-buttons');
+    await press('Stop Ignoring Whitespace and Moved Lines in Blame', 'Ignore Whitespace and Moved Lines in Blame');
+    await press('Stop Keeping File Blame On in Every File', 'Keep File Blame On in Every File');
+    // The file had its blame asked for, and keeps it.
+    assert((await beside()).every((line) => line.label), 'the blame stays');
+
+    // The file as it was before the commit of a line, in a tab that says of which commit, with the blame it had then.
+    await clickText('.editor-instance .view-line', 'two');
+    await until('the line under the cursor', async () => (await lit()) === 'two');
+    await command('Gitar: Blame File Before Commit of Current Line');
+    const tab = await until('the tab of the file as it was', () =>
+      page.evaluate(`[...document.querySelectorAll('.tabs-container .tab.active')].map((tab) => tab.textContent).find((name) => /^a \\([0-9a-f]{7}\\)\\.txt/.test(name)) ?? null`),
+    );
+    const past = await until('its blame', async () => {
+      const now = (await beside()).filter((line) => line.text);
+      return now.length === 1 && now[0].label ? now : null;
+    });
+    await shot('file-blame-before');
+    assert(past[0].text === 'one' && /^\d{4}-\d\d-\d\d Gitar Test$/.test(past[0].label), `${tab}: ${JSON.stringify(past)}`);
+    // By the keyboard: the palette puts the commands used last first, and one of them closes every editor.
+    await clickText('.editor-instance .view-line', 'one');
+    await key('W', CTRL);
+    await until('the file again', async () => (await beside()).filter((line) => line.text).length === 2);
 
     // The button is now the one that hides it.
     await until('the button that hides it', () => page.evaluate(`!!document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]')`));
