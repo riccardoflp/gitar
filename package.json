@@ -169,6 +169,23 @@
         "category": "Gitar"
       },
       {
+        "command": "gitar.toggleFileBlame",
+        "title": "Toggle File Blame",
+        "category": "Gitar"
+      },
+      {
+        "command": "gitar.showFileBlame",
+        "title": "Show File Blame",
+        "category": "Gitar",
+        "icon": "$(person)"
+      },
+      {
+        "command": "gitar.hideFileBlame",
+        "title": "Hide File Blame",
+        "category": "Gitar",
+        "icon": "$(eye-closed)"
+      },
+      {
         "command": "gitar.switchIdentity",
         "title": "Switch Identity",
         "category": "Gitar"
@@ -241,6 +258,14 @@
         {
           "command": "gitar.resolveConflicts",
           "when": "config.gitar.conflicts.autoResolve"
+        },
+        {
+          "command": "gitar.showFileBlame",
+          "when": "false"
+        },
+        {
+          "command": "gitar.hideFileBlame",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -255,6 +280,11 @@
           "command": "gitar.fileHistory",
           "when": "resourceScheme == file",
           "group": "z_gitar@1"
+        },
+        {
+          "command": "gitar.toggleFileBlame",
+          "when": "resourceScheme == file && gitar.hasRepository",
+          "group": "z_gitar@2"
         }
       ],
       "editor/title/context": [
@@ -349,6 +379,18 @@
           "command": "gitar.stash",
           "when": "view == gitar.stashes",
           "group": "navigation@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "gitar.showFileBlame",
+          "when": "resourceScheme == file && gitar.hasRepository && !gitar.fileBlame",
+          "group": "navigation@90"
+        },
+        {
+          "command": "gitar.hideFileBlame",
+          "when": "resourceScheme == file && gitar.hasRepository && gitar.fileBlame",
+          "group": "navigation@90"
         }
       ]
     },

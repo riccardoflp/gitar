@@ -291,6 +291,35 @@ export function parseBlameLine(out: string): BlameLine | null {
   };
 }
 
+/**
+ * Parses `git blame --incremental` for a whole file: who last changed each of its lines, the first one at 0. The
+ * lines of one commit share one object. A commit is described the first time it is named, and only named after that.
+ */
+export function parseBlame(out: string): BlameLine[] {
+  const commits = new Map<string, BlameLine>();
+  const lines: BlameLine[] = [];
+  let current: BlameLine | undefined;
+  for (const line of out.split('\n')) {
+    // The commit, the line its lines had in it, the line they have now, and how many they are.
+    const group = /^([0-9a-f]{40,64}) \d+ (\d+) (\d+)$/.exec(line);
+    if (group) {
+      const hash = group[1];
+      current = commits.get(hash);
+      if (!current) {
+        current = { hash, author: '', date: 0, summary: '', committed: !/^0+$/.test(hash) };
+        commits.set(hash, current);
+      }
+      const first = Number(group[2]) - 1;
+      for (let index = first; index < first + Number(group[3]); index++) lines[index] = current;
+    } else if (current) {
+      if (line.startsWith('author ')) current.author = line.slice(7);
+      else if (line.startsWith('author-time ')) current.date = Number(line.slice(12));
+      else if (line.startsWith('summary ')) current.summary = line.slice(8);
+    }
+  }
+  return lines;
+}
+
 /** Parses the `-z --name-status` output of `git diff` and `git diff-tree`. */
 export function parseNameStatus(out: string): FileChange[] {
   const tokens = out.split('\0');

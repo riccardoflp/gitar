@@ -20,6 +20,35 @@ function ago(seconds: number): string {
   return 'just now';
 }
 
+/** Finds the repository a file of the editor is in. It works before any Gitar view is opened. */
+export class BlameSource {
+  /** The repository of each folder a file was opened from, found once. */
+  private readonly repos = new Map<string, Promise<Repo | undefined>>();
+
+  constructor(private readonly log: vscode.LogOutputChannel) {}
+
+  private repoOf(folder: string): Promise<Repo | undefined> {
+    let repo = this.repos.get(folder);
+    if (!repo) {
+      repo = Repo.discover(folder).then(
+        (root) => (root ? new Repo(root, (command) => this.log.debug(command)) : undefined),
+        () => undefined,
+      );
+      this.repos.set(folder, repo);
+    }
+    return repo;
+  }
+
+  /** The repository of a document and the name the file has in it, when it is a file on disk inside one. */
+  async of(document: vscode.TextDocument): Promise<{ repo: Repo; file: string } | undefined> {
+    if (document.uri.scheme !== 'file') return undefined;
+    const repo = await this.repoOf(path.dirname(document.uri.fsPath));
+    if (!repo) return undefined;
+    const file = path.relative(repo.root, document.uri.fsPath).replace(/\\/g, '/');
+    return file.startsWith('..') || path.isAbsolute(file) ? undefined : { repo, file };
+  }
+}
+
 /** Shows who last changed the line under the cursor, dimmed at the end of that line. */
 export class BlameAnnotator implements vscode.Disposable {
   private readonly decoration = vscode.window.createTextEditorDecorationType({
@@ -30,10 +59,8 @@ export class BlameAnnotator implements vscode.Disposable {
   private timer?: ReturnType<typeof setTimeout>;
   /** Bumped on every request, so that a slow answer for a line the cursor already left is dropped. */
   private request = 0;
-  /** The repository of each folder a file was opened from, found once. It works before any Gitar view is opened. */
-  private readonly repos = new Map<string, Promise<Repo | undefined>>();
 
-  constructor(private readonly log: vscode.LogOutputChannel) {
+  constructor(private readonly source: BlameSource) {
     const schedule = () => this.schedule();
     this.subscriptions = [
       this.decoration,
@@ -54,18 +81,6 @@ export class BlameAnnotator implements vscode.Disposable {
     this.timer = setTimeout(() => void this.update(), DELAY);
   }
 
-  private repoOf(folder: string): Promise<Repo | undefined> {
-    let repo = this.repos.get(folder);
-    if (!repo) {
-      repo = Repo.discover(folder).then(
-        (root) => (root ? new Repo(root, (command) => this.log.debug(command)) : undefined),
-        () => undefined,
-      );
-      this.repos.set(folder, repo);
-    }
-    return repo;
-  }
-
   private async update(): Promise<void> {
     const request = ++this.request;
     const editor = vscode.window.activeTextEditor;
@@ -76,14 +91,12 @@ export class BlameAnnotator implements vscode.Disposable {
     const { document, selection } = editor;
     if (!enabled || document.uri.scheme !== 'file' || !selection.isSingleLine) return clear();
 
-    const repo = await this.repoOf(path.dirname(document.uri.fsPath));
+    const found = await this.source.of(document);
     if (request !== this.request) return;
-    if (!repo) return clear();
-    const file = path.relative(repo.root, document.uri.fsPath).replace(/\\/g, '/');
-    if (file.startsWith('..') || path.isAbsolute(file)) return clear();
+    if (!found) return clear();
 
     const line = selection.active.line;
-    const blame = await repo.blameLine(file, line + 1, document.isDirty ? document.getText() : undefined).catch(() => null);
+    const blame = await found.repo.blameLine(found.file, line + 1, document.isDirty ? document.getText() : undefined).catch(() => null);
     if (request !== this.request) return;
     if (!blame) return clear();
 

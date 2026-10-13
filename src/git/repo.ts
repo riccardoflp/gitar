@@ -29,6 +29,7 @@ import {
   allChanges,
   recentBranches,
   parseBisectRefs,
+  parseBlame,
   parseBlameLine,
   parseHunks,
   parseIdentity,
@@ -373,6 +374,22 @@ export class Repo {
       return parseBlameLine(stdout);
     } catch {
       // Untracked files, and lines past the end of the committed file, have no blame.
+      return null;
+    }
+  }
+
+  /**
+   * Who last changed each line of a file, the first one at 0, or null for a file that is in no commit. `contents` is
+   * the text of the file when it has unsaved edits.
+   */
+  async blame(file: string, contents?: string): Promise<BlameLine[] | null> {
+    const args = ['blame', '--incremental'];
+    if (contents !== undefined) args.push('--contents', '-');
+    this.onCommand(formatCommand([...args, '--', file]));
+    try {
+      const { stdout } = await git(this.root, [...args, '--', file], { readOnly: true, input: contents });
+      return parseBlame(stdout);
+    } catch {
       return null;
     }
   }

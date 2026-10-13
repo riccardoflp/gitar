@@ -297,6 +297,48 @@ try {
     assert(/Gitar Test, .+ • Change a/.test(blame), `annotation: ${blame}`);
   });
 
+  await step('the button of the editor shows who changed each line beside it, and hides it again', async () => {
+    /** What stands before each line of the editor, and where the text of the line starts. */
+    const beside = () =>
+      page.evaluate(`[...document.querySelectorAll('.editor-instance .view-line')]
+        .map((line) => {
+          const span = [...line.querySelectorAll('span span')].find((candidate) => getComputedStyle(candidate, '::before').content !== 'none');
+          const before = span ? getComputedStyle(span, '::before') : null;
+          return {
+            top: line.getBoundingClientRect().top,
+            label: before ? before.content.replace(/^"|"$/g, '').replace(/\u00a0/g, ' ') : null,
+            width: before ? Math.round(parseFloat(before.width)) : 0,
+            height: Math.round(line.getBoundingClientRect().height),
+            text: line.textContent,
+          };
+        })
+        .sort((one, other) => one.top - other.top)`);
+    const plain = await beside();
+    assert(plain.length >= 2 && plain.every((line) => line.label === null), `before: ${JSON.stringify(plain)}`);
+
+    await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Show File Blame"]').click()`);
+    const lines = await until('the blame beside the lines', async () => {
+      const now = await beside();
+      return now.length && now.every((line) => line.label) ? now : null;
+    });
+    await shot('file-blame');
+    // The day and the name beside the lines that are in a commit, and room beside the empty one that ends the file.
+    assert(
+      lines.every((line) => (line.text ? /^\d{4}-\d\d-\d\d Gitar Test$/.test(line.label) : line.label === ' ')),
+      `labels: ${JSON.stringify(lines)}`,
+    );
+    // As wide for every line, no wider than what it says, and the lines as tall as they were.
+    const letter = lines[0].width / '2026-10-13 Gitar Test'.length;
+    assert(lines.every((line) => line.width === lines[0].width) && letter > 5 && letter < 12, `widths: ${JSON.stringify(lines)}`);
+    assert(lines.every((line, index) => line.height === plain[index].height), `heights: ${JSON.stringify(lines)} were ${JSON.stringify(plain)}`);
+
+    // The button is now the one that hides it.
+    await until('the button that hides it', () => page.evaluate(`!!document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]')`));
+    await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]').click()`);
+    await until('the lines alone', async () => (await beside()).every((line) => line.label === null));
+    await until('the button that shows it', () => page.evaluate(`!!document.querySelector('.editor-actions .action-label[aria-label^="Show File Blame"]')`));
+  });
+
   await step('the search counts what it finds and steps through it, in the loaded commits and in the whole history', async () => {
     const graph = await webview('graph');
     /** What the search box says, which commit is selected, and how the commits are shown. */

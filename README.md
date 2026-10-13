@@ -207,9 +207,16 @@ Type the hash of a commit in the box, or the first four characters or more of it
 
 Renames are followed: Gitar first asks git for the names the file had before (`git log --follow`), then shows the commits that changed any of them, and the bar above the graph lists the earlier names. A file that began as a copy of another is not traced back into the original. If an earlier name was later reused for a different file, the commits of that one appear too.
 
-### Inline blame
+### Blame
 
 The line under the cursor shows who last changed it, when, and the subject of that commit, dimmed at the end of the line. It takes unsaved edits into account. Hover it for a link that shows the commit in the graph. Turn it off with `gitar.blame.enabled` or **Gitar: Toggle Inline Blame**.
+
+The button with a person at the top right of an editor shows it for the whole file: beside each line, before its text, the day it was last changed and by whom. The same button, now a closed eye, hides it again, and so do **Gitar: Toggle File Blame** and the entry in the context menu of the editor. It is switched on file by file, and a file keeps it until it is closed.
+
+- Hover what is beside a line for the subject of the commit, and for links that show it in the graph or open it in an editor tab.
+- Lines that are in no commit yet say so. What you type says so at once, and git is asked again a moment after you stop, with the text as it is in the editor, saved or not.
+- A file that is in no commit has no one to name: Gitar says so and shows nothing.
+- The button is there for files on disk, whenever the workspace has a repository.
 
 ### Reflog
 
@@ -343,11 +350,11 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the branches checked out last are listed and the favorites of each repository remembered, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, that nothing about resolving conflicts automatically is offered or run until its setting is on, and that with it on the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the branches checked out last are listed and the favorites of each repository remembered, that every line of a file is given the commit that changed it last and what is typed is not committed, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, that nothing about resolving conflicts automatically is offered or run until its setting is on, and that with it on the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
-What that suite cannot see is what only eyes and hands can: how the views look, the inline blame annotation, drag and drop, the context menus of the webviews, and the real dialogs, which VS Code refuses to show while it runs tests. That is what the next one is for.
+What that suite cannot see is what only eyes and hands can: how the views look, the blame annotations, drag and drop, the context menus of the webviews, and the real dialogs, which VS Code refuses to show while it runs tests. That is what the next one is for.
 
 ### Using it like a person
 
@@ -362,6 +369,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the context menu of a commit stays inside the view with every entry in sight, and creates a branch through the real prompts;
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
+- the button of the editor puts beside each line who changed it and when, in one column, and takes it away again;
 - the search counts the commits it finds and steps through them with the keys and the arrows, goes to a commit by its hash even when no branch reaches it, highlights in the graph what git finds in the whole history or lists it alone, and counts a commit made meanwhile;
 - the branches shown in the graph are chosen from the list under the button, with one click or one by one, with the box that narrows the list, and from the context menu of a branch; the Commits view of the side bar has the same button;
 - a branch dragged onto the checked out commit offers to merge or rebase;
@@ -412,7 +420,7 @@ Measure the views with the minified build (`node esbuild.mjs --production`): the
 | --- | --- |
 | `src/git` | Running Git, finding the repositories of a workspace, parsing Git's output, building the commands for each operation, resolving the conflicts that need no choice (`conflicts.ts`), and reading GitHub's answers. No VS Code dependency. |
 | `src/shared` | Types shared by the extension and the webview, the graph lane layout, the tree the files of a commit are laid out in, how to name a reference that has namesakes, and the commit message prompt. |
-| `src/extension` | VS Code integration: views, commands, prompts, file watching, command preview, diff content, inline blame, GitHub sign-in, language model. |
+| `src/extension` | VS Code integration: views, commands, prompts, file watching, command preview, diff content, blame, GitHub sign-in, language model. |
 | `src/webview` | The React UI. |
 | `src/dev` | The browser preview server. |
 | `test` | Unit and integration tests, and `test/e2e` with the end-to-end suite, the run that uses the window, and the scripts that launch VS Code for them; `test/perf` with the scripts for large repositories. |

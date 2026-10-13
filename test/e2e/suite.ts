@@ -63,7 +63,7 @@ export async function run(): Promise<void> {
 
   const extension = vscode.extensions.getExtension<GitarApi>('pozzi.gitar');
   assert.ok(extension, 'the extension is installed');
-  const { controller, log } = await extension.activate();
+  const { controller, log, fileBlame } = await extension.activate();
   const internals = controller as unknown as Internals;
   const state = () => {
     assert.ok(internals.state, 'a repository is loaded');
@@ -1122,6 +1122,44 @@ export async function run(): Promise<void> {
     } finally {
       await autoResolve(undefined);
     }
+  });
+
+  await step('names who changed each line of a file, what is typed as not committed, and stops when asked', async () => {
+    const before = errors.length;
+    const uri = vscode.Uri.file(path.join(app, 'a.txt'));
+    const editor = await vscode.window.showTextDocument(uri);
+    const count = editor.document.getText().split('\n').filter(Boolean).length;
+    assert.equal(fileBlame.linesOf(uri), undefined);
+    await vscode.commands.executeCommand('gitar.toggleFileBlame');
+    const lines = await until('the blame', () => fileBlame.linesOf(uri));
+    assert.equal(lines.length, count);
+    assert.ok(lines.every((line) => line?.committed && line.author === 'Gitar Test' && line.summary), JSON.stringify(lines));
+
+    // A line that is typed is not committed, at once and when git has been asked.
+    await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), 'typed\n'));
+    const typed = () => fileBlame.linesOf(uri)?.map((line) => line?.committed);
+    const after = [false, ...Array<boolean>(count).fill(true)].join();
+    assert.equal(typed()?.[0], false);
+    await until('the blame of what is not saved', () => typed()?.join() === after);
+    await sleep(1000);
+    assert.equal(typed()?.join(), after);
+
+    // The button of the editor names the file.
+    await vscode.commands.executeCommand('gitar.hideFileBlame', uri);
+    assert.equal(fileBlame.linesOf(uri), undefined);
+    await vscode.commands.executeCommand('workbench.action.files.revert');
+    // A file that is in no commit has no one to name, and is told so rather than shown empty.
+    write('fresh.txt', 'x\n');
+    try {
+      const fresh = vscode.Uri.file(path.join(app, 'fresh.txt'));
+      await vscode.window.showTextDocument(fresh);
+      await vscode.commands.executeCommand('gitar.toggleFileBlame');
+      assert.equal(fileBlame.linesOf(fresh), undefined);
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      fs.rmSync(path.join(app, 'fresh.txt'));
+    }
+    assert.equal(errors.length, before);
   });
 
   await step('blames the line under the cursor without errors, and can be switched off', async () => {

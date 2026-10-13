@@ -483,6 +483,21 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect(rows.every((row) => row.graph.top.length === 0 && row.graph.bottom.length === 0)).toBe(true);
   });
 
+  it('blames every line of a file, including in content that is not saved yet', async () => {
+    write('a.txt', 'one\ntwo\nthree\n');
+    const first = await commitAll('Add a');
+    write('a.txt', 'one\nTWO\nthree\n');
+    const second = await commitAll('Shout');
+
+    const lines = await repo.blame('a.txt');
+    expect(lines?.map((line) => line.hash)).toEqual([first, second, first]);
+    expect(lines?.[1]).toMatchObject({ author: 'Gitar Test', summary: 'Shout', committed: true });
+    const unsaved = await repo.blame('a.txt', 'zero\none\nTWO\nthree\n');
+    expect(unsaved?.map((line) => (line.committed ? line.hash : null))).toEqual([null, first, second, first]);
+    write('new.txt', 'x\n');
+    expect(await repo.blame('new.txt')).toBeNull();
+  });
+
   it('blames single lines, including in content that is not saved yet', async () => {
     write('a.txt', 'one\ntwo\n');
     const first = await commitAll('Add a');

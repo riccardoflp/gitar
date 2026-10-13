@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import { discoverRepos } from '../git/discover';
 import type { RepoState, SyncAction, ViewKind } from '../shared/protocol';
-import { BlameAnnotator } from './blame';
+import { BlameAnnotator, BlameSource } from './blame';
 import { GitContentProvider, SCHEME } from './content';
 import { Controller } from './controller';
+import { FileBlame } from './fileBlame';
 
 const GRAPH_VIEW = 'gitar.graph';
 const CHANGES_VIEW = 'gitar.changes';
@@ -15,11 +16,14 @@ const STASHES_VIEW = 'gitar.stashes';
 export interface GitarApi {
   controller: Controller;
   log: vscode.LogOutputChannel;
+  fileBlame: FileBlame;
 }
 
 export function activate(context: vscode.ExtensionContext): GitarApi {
   const log = vscode.window.createOutputChannel('Gitar', { log: true });
   const controller = new Controller(context.extensionUri, log, context.workspaceState);
+  const blameSource = new BlameSource(log);
+  const fileBlame = new FileBlame(blameSource);
 
   const graphProvider: vscode.WebviewViewProvider = {
     resolveWebviewView(view) {
@@ -61,18 +65,27 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
   status.text = '$(git-commit) Gitar';
   status.tooltip = 'Open the Gitar graph in an editor tab';
   status.command = 'gitar.openInEditor';
-  // Only where there is a repository to show: looked for now, since no view may be open to read one, and again when
-  // the folders of the workspace change. A repository made later shows it as soon as a view reads it.
+  // Only where there is a repository to show, as the button of the editors that shows the blame of a file: looked
+  // for now, since no view may be open to read one, and again when the folders of the workspace change. A repository
+  // made later shows them as soon as a view reads it.
+  const hasRepository = (has: boolean) => {
+    if (has) status.show();
+    else status.hide();
+    void vscode.commands.executeCommand('setContext', 'gitar.hasRepository', has);
+  };
   const lookForRepos = async () => {
     const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
-    const found = await discoverRepos(folders).catch(() => []);
-    if (found.length) status.show();
-    else status.hide();
+    hasRepository((await discoverRepos(folders).catch(() => [])).length > 0);
   };
   void lookForRepos();
   const shown = vscode.Disposable.from(
     vscode.workspace.onDidChangeWorkspaceFolders(lookForRepos),
-    controller.onDidChangeState((state) => state && status.show()),
+    controller.onDidChangeState((state) => {
+      if (!state) return;
+      hasRepository(true);
+      // A commit made since gives its name to the lines that had none.
+      fileBlame.refresh();
+    }),
   );
 
   const command = (id: string, handler: (argument?: unknown) => unknown) => vscode.commands.registerCommand(id, handler);
@@ -84,13 +97,18 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     controller,
     status,
     shown,
-    new BlameAnnotator(log),
+    new BlameAnnotator(blameSource),
+    fileBlame,
     command('gitar.fileHistory', (uri) => controller.fileHistory(uri instanceof vscode.Uri ? uri : undefined)),
     command('gitar.revealCommit', (hash) => typeof hash === 'string' && controller.reveal(hash)),
     command('gitar.reflog', () => controller.command('reflog')),
     command('gitar.cleanupBranches', () => controller.command('cleanupBranches')),
     command('gitar.signInGitHub', () => controller.command('signInGitHub')),
     command('gitar.toggleBlame', toggleBlame),
+    // The button of an editor names its file, which is not the active one when the button is of another group.
+    ...['gitar.toggleFileBlame', 'gitar.showFileBlame', 'gitar.hideFileBlame'].map((id) =>
+      command(id, (uri) => fileBlame.toggle(uri instanceof vscode.Uri ? uri : undefined)),
+    ),
     command('gitar.switchIdentity', () => controller.command('switchIdentity')),
     command('gitar.selectRepository', () => controller.command('selectRepository')),
     command('gitar.remotes', () => controller.command('remotes')),
@@ -135,7 +153,7 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.undo', () => controller.action({ kind: 'undo' })),
     ...syncActions.map((action) => command(`gitar.${action}`, () => controller.sync(action))),
   );
-  return { controller, log };
+  return { controller, log, fileBlame };
 }
 
 export function deactivate(): void {}

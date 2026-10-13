@@ -41,6 +41,7 @@ import {
   hunkPatch,
   linesPatch,
   parseBisectRefs,
+  parseBlame,
   parseBlameLine,
   parseIdentity,
   parseHunks,
@@ -630,6 +631,51 @@ describe('blame', () => {
     expect(parseBlameLine(porcelain('0'.repeat(40)))).toMatchObject({ committed: false });
     expect(parseBlameLine('')).toBeNull();
     expect(parseBlameLine('fatal: no such path')).toBeNull();
+  });
+});
+
+describe('blame of a whole file', () => {
+  const [first, second, none] = ['a'.repeat(40), 'b'.repeat(40), '0'.repeat(40)];
+  const about = (author: string, time: number, summary: string) => [
+    `author ${author}`,
+    'author-mail <someone@x.io>',
+    `author-time ${time}`,
+    'author-tz +0100',
+    'committer Bob',
+    'committer-time 1700000500',
+    `summary ${summary}`,
+  ];
+  const incremental = [
+    `${second} 2 2 1`,
+    ...about('Bob Ray', 1700000400, 'Shout'),
+    `previous ${first} a.txt`,
+    'filename a.txt',
+    `${none} 5 5 1`,
+    ...about('Not Committed Yet', 1700000900, 'Version of a.txt from standard input'),
+    'filename a.txt',
+    `${first} 1 1 1`,
+    ...about('Ann Lee', 1700000000, 'author of nothing'),
+    'boundary',
+    'filename a.txt',
+    // A commit that was described already is only named.
+    `${first} 3 3 2`,
+    'filename a.txt',
+    '',
+  ].join('\n');
+
+  it('gives each line the commit that changed it last, whatever the order they are told in', () => {
+    const lines = parseBlame(incremental);
+    expect(lines.map((line) => line.hash)).toEqual([first, second, first, first, none]);
+    expect(lines[0]).toEqual({ hash: first, author: 'Ann Lee', date: 1700000000, summary: 'author of nothing', committed: true });
+    expect(lines[1]).toMatchObject({ author: 'Bob Ray', summary: 'Shout', committed: true });
+    expect(lines[4].committed).toBe(false);
+    // The lines of a commit are told apart from the others by being the same object.
+    expect(lines[3]).toBe(lines[0]);
+  });
+
+  it('has no lines for output that is not a blame', () => {
+    expect(parseBlame('')).toEqual([]);
+    expect(parseBlame('fatal: no such path')).toEqual([]);
   });
 });
 
