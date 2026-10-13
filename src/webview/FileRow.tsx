@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { FileChange } from '../shared/protocol';
 import { Icon } from './Icon';
 
@@ -14,6 +15,10 @@ interface Props {
   /** Set when the row can be unfolded to show something below it; undefined hides the arrow. */
   expanded?: boolean;
   onToggle?(): void;
+  /** Said after the name, before the buttons: such as how many lines changed. */
+  extra?: ReactNode;
+  /** How far in the row is, in a tree. There its directory is left out: the rows above say it. */
+  depth?: number;
 }
 
 const STATUS_TITLES: Record<string, string> = {
@@ -27,6 +32,9 @@ const STATUS_TITLES: Record<string, string> = {
   '?': 'Untracked',
 };
 
+/** The room a level of a tree takes, in pixels: what puts a file under the name of its directory, past the arrow. */
+export const INDENT = 18;
+
 export function ActionButtons({ actions }: { actions?: FileAction[] }) {
   return actions?.map((action) => (
     <button key={action.title} className="button icon" title={action.title} aria-label={action.title} onClick={action.run}>
@@ -35,23 +43,32 @@ export function ActionButtons({ actions }: { actions?: FileAction[] }) {
   ));
 }
 
-export function FileRow({ file, onOpen, actions, expanded, onToggle }: Props) {
-  const slash = file.path.lastIndexOf('/');
-  const title = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
+/** The letter git has for what happened to a file, in the color VS Code gives it. */
+export function Status({ file }: { file: FileChange }) {
   return (
-    <div className="file">
+    <span className={`status status-${file.status === '?' ? 'untracked' : file.status}`} title={STATUS_TITLES[file.status]}>
+      {file.status}
+    </span>
+  );
+}
+
+export const fileTitle = (file: FileChange) => (file.oldPath ? `${file.oldPath} → ${file.path}` : file.path);
+
+export function FileRow({ file, onOpen, actions, expanded, onToggle, extra, depth }: Props) {
+  const slash = file.path.lastIndexOf('/');
+  return (
+    <div className="file" style={depth === undefined ? undefined : { paddingLeft: 12 + depth * INDENT }}>
       {onToggle && (
         <button className="twist" onClick={onToggle} aria-expanded={!!expanded} aria-label={`${expanded ? 'Hide' : 'Show'} hunks of ${file.path}`}>
           <Icon name={expanded ? 'chevron-down' : 'chevron-right'} />
         </button>
       )}
-      <button className="file-open" title={title} onClick={onOpen}>
-        <span className={`status status-${file.status === '?' ? 'untracked' : file.status}`} title={STATUS_TITLES[file.status]}>
-          {file.status}
-        </span>
+      <button className="file-open" title={fileTitle(file)} onClick={onOpen}>
+        <Status file={file} />
         <span className="name">{file.path.slice(slash + 1)}</span>
-        <span className="dir">{file.path.slice(0, Math.max(0, slash))}</span>
+        {depth === undefined && <span className="dir">{file.path.slice(0, Math.max(0, slash))}</span>}
       </button>
+      {extra}
       <ActionButtons actions={actions} />
     </div>
   );

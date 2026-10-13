@@ -23,6 +23,16 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
       <button className="button icon close" onClick={onClose} aria-label="Close details" title="Close">
         <Icon name="close" />
       </button>
+      {!worktree && (
+        <button
+          className="button icon open-tab"
+          onClick={() => post({ type: 'openCommit', hash })}
+          aria-label="Open in an editor tab"
+          title="Open in an editor tab, with its changes"
+        >
+          <Icon name="link-external" />
+        </button>
+      )}
       {!detail ? (
         <p className="muted">Loading…</p>
       ) : (

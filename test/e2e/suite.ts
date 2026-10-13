@@ -699,6 +699,93 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   });
 
+  await step('opens a commit in an editor tab of its own, with what it changed, whichever repository the views show by then', async () => {
+    const hashes = (await git(app, ['log', '--all', '--format=%H %P', '--grep=^Change a$'])).stdout.trim().split('\n');
+    const [hash, parent] = hashes.at(-1)!.split(' ');
+    const short = hash.slice(0, 7);
+    const tabs = () => vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.input instanceof vscode.TabInputWebview);
+    const commitViews = () => [...internals.views.entries()].filter(([, kind]) => kind === 'commit').map(([webview]) => webview as vscode.Webview);
+    const told = (type: HostMessage['type'], to: unknown) => posted.filter((outgoing, index) => outgoing.type === type && addressed[index] === to);
+
+    received.length = 0;
+    posted.length = 0;
+    addressed.length = 0;
+    // As a double click on its row asks.
+    await fromWebview({ type: 'openCommit', hash });
+    const tab = await until('the tab of the commit', () => tabs().find((candidate) => candidate.label.startsWith(short)));
+    assert.equal(tab.label, `${short} Change a`);
+    assert.ok(tab.isActive);
+    const [webview] = commitViews();
+    assert.match(webview.html, new RegExp(`data-view="commit" data-commit="${hash}" data-root="[^"]+" data-files="tree"`));
+
+    // The page asks for its commit by itself: it loaded under the content security policy, and read which one it is of.
+    await until('the page to ask for the changes', () => received.some((incoming) => incoming.type === 'getPatch' && incoming.hash === hash));
+    const detail = await until('the details', () => told('detail', webview)[0]);
+    assert.ok(detail.type === 'detail' && detail.detail);
+    assert.deepEqual([detail.detail.subject, detail.detail.parents], ['Change a', [parent]]);
+    const patch = await until('the changes', () => told('patch', webview)[0]);
+    assert.ok(patch.type === 'patch' && patch.patch);
+    assert.deepEqual(
+      patch.patch.map((file) => [file.file.status, file.file.path, file.added, file.removed, file.hunks?.[0].lines]),
+      [['M', 'a.txt', 1, 0, [' one', '+two']]],
+    );
+    // It is told the state as well, for the labels of its commit.
+    assert.equal(told('state', webview).length, 1);
+
+    // Asked for again, the commit has its tab: that one is shown.
+    await vscode.commands.executeCommand('gitar.openGraph');
+    await controller.openCommit(hash);
+    assert.equal(commitViews().length, 1);
+    assert.equal(tabs().filter((candidate) => candidate.label.startsWith(short)).length, 1);
+
+    // Its parent, from the link in the page, has another. So has a revision typed in the prompt of the command.
+    await internals.onMessage(webview, { type: 'openCommit', hash: parent });
+    await until('the tab of the parent', () => tabs().some((candidate) => candidate.label === `${parent.slice(0, 7)} Add b`));
+    await internals.onMessage(webview, { type: 'setFilesLayout', layout: 'list' });
+    inputs = ['feature'];
+    await vscode.commands.executeCommand('gitar.openCommit');
+    await until('the tab of the typed revision', () => tabs().some((candidate) => /^\w{7} Add feature$/.test(candidate.label)));
+    assert.equal(commitViews().length, 3);
+    // The layout chosen in one tab is the one the next opens with.
+    assert.match(commitViews()[2].html, /data-files="list"/);
+    await internals.onMessage(webview, { type: 'setFilesLayout', layout: 'tree' });
+
+    // The other views move on to another repository: the tab is still of its own.
+    await controller.selectRepo(state().repos[1].root);
+    assert.equal(state().name, 'lib');
+    posted.length = 0;
+    addressed.length = 0;
+    await internals.onMessage(webview, { type: 'getDetail', hash });
+    const [again] = told('detail', webview);
+    assert.ok(again.type === 'detail' && again.detail?.subject === 'Change a');
+    await internals.onMessage(webview, { type: 'openDiff', source: { kind: 'commit', hash, parent }, file: { status: 'M', path: 'a.txt' } });
+    const diff = await until('the diff editor', () => {
+      const active = vscode.window.tabGroups.activeTabGroup.activeTab;
+      return active?.input instanceof vscode.TabInputTextDiff ? active.input : undefined;
+    });
+    assert.equal((await vscode.workspace.openTextDocument(diff.modified)).getText(), 'one\ntwo\n');
+    assert.equal((await vscode.workspace.openTextDocument(diff.original)).getText(), 'one\n');
+
+    // And its button for the graph brings the graph back to the repository of the commit.
+    await internals.onMessage(webview, { type: 'reveal', hash });
+    assert.equal(state().name, 'app');
+    assert.ok(posted.some((outgoing) => outgoing.type === 'reveal' && outgoing.hash === hash));
+
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await until('the tabs to detach', () => commitViews().length === 0);
+    // A closed tab is not kept for the next time.
+    await controller.openCommit(hash);
+    await until('a new tab', () => commitViews().length === 1);
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await until('the tab to detach', () => commitViews().length === 0);
+
+    // What is not a commit of the repository is said, and opens nothing.
+    asked.length = 0;
+    await controller.openCommit('0123456789abcdef0123456789abcdef01234567');
+    assert.match(asked.at(-1)!.message, /0123456 is not a commit of this repository/);
+    assert.equal(commitViews().length, 0);
+  });
+
   await step('adds, renames and removes a remote, and offers to add one when there is none', async () => {
     const pickRemote = (name: string, then: string) => (items: Item[], options: vscode.QuickPickOptions) =>
       byLabel(options.title?.startsWith('Remotes of') ? name : then)(items);

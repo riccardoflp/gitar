@@ -4,6 +4,7 @@ import type {
   Commit,
   FileChange,
   FileHunks,
+  FilePatch,
   Hunk,
   Identity,
   NamedRef,
@@ -124,6 +125,40 @@ export function parseHunks(out: string): FileHunks {
     else result.hunks[result.hunks.length - 1].lines.push(line);
   }
   return result;
+}
+
+/**
+ * Cuts the diff of several files, as printed by `git diff <from> <to>`, into what each file changed. `files` are the
+ * ones `--name-status` lists for the same two commits, which git prints in the same order. Hunks are left out, as null,
+ * from the file that would take the lines sent past `limit`, and counted all the same.
+ * Null when the diff is not of those files.
+ */
+export function parsePatch(files: FileChange[], out: string, limit: number): FilePatch[] | null {
+  // No line of a hunk starts like this: they all start with a space, a sign or a backslash.
+  const parts = out.split(/^(?=diff --git )/m).filter((part) => part.startsWith('diff --git '));
+  let next = 0;
+  let sent = 0;
+  const patches: FilePatch[] = [];
+  for (const file of files) {
+    // A file that became a link, or the other way round, is printed as one deleted and one added.
+    const own = parts.slice(next, (next += file.status === 'T' ? 2 : 1)).map(parseHunks);
+    if (!own.length) return null;
+    const hunks = own.flatMap((part) => part.hunks);
+    let added = 0;
+    let removed = 0;
+    let lines = hunks.length;
+    for (const hunk of hunks) {
+      lines += hunk.lines.length;
+      for (const line of hunk.lines) {
+        if (line[0] === '+') added++;
+        else if (line[0] === '-') removed++;
+      }
+    }
+    const fits = sent + lines <= limit;
+    if (fits) sent += lines;
+    patches.push({ file, added, removed, binary: own.some((part) => part.binary), hunks: fits ? hunks : null });
+  }
+  return next === parts.length ? patches : null;
 }
 
 /** The patch that applies only `hunk`. */

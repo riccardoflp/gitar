@@ -200,6 +200,11 @@
         "category": "Gitar"
       },
       {
+        "command": "gitar.openCommit",
+        "title": "Open Commit in Editor…",
+        "category": "Gitar"
+      },
+      {
         "command": "gitar.createBranch",
         "title": "Create Branch…",
         "category": "Gitar",

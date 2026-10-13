@@ -362,5 +362,85 @@ describe('awkward repositories', { timeout: 60_000 }, () => {
     expect(hunks.hunks[0].lines.join('\n')).toMatch(/-Subproject commit \w+\n\+Subproject commit \w+/);
     await run(stageOp(['vendor/lib']));
     expect((await state()).working.staged).toEqual([{ status: 'M', path: 'vendor/lib' }]);
+
+    // In the tab of a commit a submodule is one file with two lines, however git is set up to print it.
+    await git(root, ['config', 'diff.submodule', 'log']);
+    const moved = await commitAll('Move the library on');
+    const patch = await repo.commitPatch((await repo.commitDetail(moved))!, 1000);
+    expect(patch).toMatchObject([{ file: { status: 'M', path: 'vendor/lib' }, added: 1, removed: 1, binary: false }]);
+    expect(patch![0].hunks![0].lines.join('\n')).toMatch(/^-Subproject commit \w+\n\+Subproject commit \w+$/);
+  });
+
+  it('says what a commit changed in each of its files, whatever they are called and however git is told to print', async () => {
+    // What a user may have in their configuration, each of which changes what `git diff` prints.
+    for (const [key, value] of [
+      ['color.ui', 'always'],
+      ['diff.noprefix', 'true'],
+      ['diff.mnemonicPrefix', 'true'],
+      ['diff.renames', 'copies'],
+      ['core.quotePath', 'true'],
+    ]) {
+      await git(root, ['config', key, value]);
+    }
+
+    for (const name of NAMES) write(name, 'one\ntwo\nthree\n');
+    write('logo.bin', '\0\x01\x02binary');
+    write('gone.txt', 'going\n');
+    write('old name.txt', `${'a line that stays\n'.repeat(20)}`);
+    const first = await commitAll('Add awkward files');
+
+    // The first commit of all: every file is added, and none is taken for the copy of another.
+    const added = await repo.commitPatch((await repo.commitDetail(first))!, 10_000);
+    expect(added!.map((file) => file.file)).toEqual((await repo.commitDetail(first))!.files);
+    expect(added!.every((file) => file.file.status === 'A' && file.removed === 0)).toBe(true);
+    expect(added!.find((file) => file.file.path === 'logo.bin')).toMatchObject({ binary: true, added: 0, hunks: [] });
+    expect(added!.find((file) => file.file.path === 'città/日本語.txt')).toMatchObject({ added: 3, hunks: [{ lines: ['+one', '+two', '+three'] }] });
+
+    for (const name of NAMES) write(name, 'one\n2\nthree\nfour\n');
+    write('logo.bin', '\0\x01\x03other');
+    fs.rmSync(path.join(root, 'gone.txt'));
+    fs.renameSync(path.join(root, 'old name.txt'), path.join(root, 'new name.txt'));
+    write('empty.txt', '');
+    const second = await commitAll('Change them all');
+
+    const detail = (await repo.commitDetail(second))!;
+    const patch = (await repo.commitPatch(detail, 10_000))!;
+    // File by file as the details list them, which is what the tab shows them by.
+    expect(patch.map((file) => file.file)).toEqual(detail.files);
+    for (const name of NAMES) {
+      expect(patch.find((file) => file.file.path === name), name).toMatchObject({
+        file: { status: 'M' },
+        added: 2,
+        removed: 1,
+        binary: false,
+        hunks: [{ header: '@@ -1,3 +1,4 @@', lines: [' one', '-two', '+2', ' three', '+four'] }],
+      });
+    }
+    expect(patch.find((file) => file.file.path === 'logo.bin')).toMatchObject({ file: { status: 'M' }, binary: true, hunks: [] });
+    expect(patch.find((file) => file.file.path === 'gone.txt')).toMatchObject({ file: { status: 'D' }, added: 0, removed: 1 });
+    expect(patch.find((file) => file.file.path === 'new name.txt')).toMatchObject({ file: { status: 'R', oldPath: 'old name.txt' }, added: 0, removed: 0, hunks: [] });
+    expect(patch.find((file) => file.file.path === 'empty.txt')).toMatchObject({ file: { status: 'A' }, added: 0, removed: 0, hunks: [] });
+
+    // With room for a few lines only, the first files are sent whole and the others counted.
+    const few = (await repo.commitPatch(detail, 12))!;
+    expect(few.filter((file) => file.hunks?.length).length).toBe(2);
+    expect(few.filter((file) => !file.hunks).length).toBe(NAMES.length - 2 + 1);
+    expect(few.reduce((sum, file) => sum + file.added, 0)).toBe(NAMES.length * 2);
+  });
+
+  it('shows a merge by what it changed against its first parent, in the lines as in the list of files', async () => {
+    write('a.txt', 'base\n');
+    await commitAll('Base');
+    await run(createBranchOp('feature', 'HEAD', true));
+    write('b.txt', 'from the feature\n');
+    await commitAll('Feature');
+    await run(checkoutOp('branch', 'main'));
+    write('a.txt', 'base\nmain\n');
+    await commitAll('Main');
+    await run(mergeOp('feature', 'main'));
+
+    const detail = (await repo.commitDetail((await state()).head!))!;
+    expect(detail.parents).toHaveLength(2);
+    expect(await repo.commitPatch(detail, 1000)).toMatchObject([{ file: { status: 'A', path: 'b.txt' }, added: 1, removed: 0 }]);
   });
 });

@@ -45,6 +45,10 @@ interface Props {
   /** A new object each time a row should be scrolled into view. */
   reveal: { hash: string } | null;
   onSelect(hash: string, mode: SelectMode): void;
+  /** A commit was double-clicked, to see it whole. */
+  onOpen(hash: string): void;
+  /** Two lines to a commit: who made it and when go under its message, where a narrow list has the room for them. */
+  tall?: boolean;
   onRowMenu(event: MouseEvent, row: Row): void;
   onLabelMenu(event: MouseEvent, label: Label, row: Row): void;
   /** What dragging a row, or one of its labels, carries. Null when it cannot be dragged. */
@@ -54,8 +58,12 @@ interface Props {
 }
 
 const ROW_HEIGHT = 24;
+/** With the author and the date under the message, as in the side bar. */
+const TALL_ROW_HEIGHT = 42;
+/** How many labels a commit shows there, the last of which counts the others when there are more. */
+const TALL_LABELS = 3;
 const OVERSCAN = 8;
-const LABEL_ICONS = {
+export const LABEL_ICONS = {
   head: 'target',
   branch: 'git-branch',
   remote: 'cloud',
@@ -68,19 +76,20 @@ const LABEL_ICONS = {
 interface GraphProps {
   graph: GraphRow;
   width: number;
+  height: number;
   /** The room each lane has: less than usual when the graph is squeezed. */
   lane: number;
   hollow: boolean;
 }
 
-const Graph = memo(function Graph({ graph, width, lane, hollow }: GraphProps) {
-  const mid = ROW_HEIGHT / 2;
+const Graph = memo(function Graph({ graph, width, height, lane, hollow }: GraphProps) {
+  const mid = height / 2;
   const laneX = (index: number) => lane / 2 + 3 + index * lane;
   const x = laneX(graph.col);
   // Smaller dots where the lines are close, or they would sit on the lines beside them.
   const radius = lane < 11 ? 3 : 4;
   return (
-    <svg className="graph" width={width} height={ROW_HEIGHT} aria-hidden="true">
+    <svg className="graph" width={width} height={height} aria-hidden="true">
       {graph.top.map((line, index) => {
         const from = laneX(line.from);
         const to = laneX(line.to);
@@ -92,8 +101,8 @@ const Graph = memo(function Graph({ graph, width, lane, hollow }: GraphProps) {
         const to = laneX(line.to);
         const d =
           from === to
-            ? `M${from} ${mid}V${ROW_HEIGHT}`
-            : `M${from} ${mid}C${from} ${ROW_HEIGHT} ${to} ${mid} ${to} ${ROW_HEIGHT}`;
+            ? `M${from} ${mid}V${height}`
+            : `M${from} ${mid}C${from} ${height} ${to} ${mid} ${to} ${height}`;
         return <path key={`b${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={hollow ? '3 3' : undefined} />;
       })}
       {hollow ? (
@@ -107,7 +116,8 @@ const Graph = memo(function Graph({ graph, width, lane, hollow }: GraphProps) {
 
 export function CommitList(props: Props) {
   const { rows, empty, hasMore, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
-  const { dragSource, canDrop, onDrop } = props;
+  const { dragSource, canDrop, onDrop, onOpen, tall } = props;
+  const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const drag = (label: Label | null, row: Row) => {
@@ -142,8 +152,8 @@ export function CommitList(props: Props) {
   const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
 
-  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const end = Math.min(rows.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
+  const end = Math.min(rows.length, Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN);
 
   // Ask for the next page once per loaded length, when the end of the list gets close.
   const requestedAt = useRef(0);
@@ -157,11 +167,11 @@ export function CommitList(props: Props) {
   const scrollTo = (index: number, center: boolean) => {
     const element = scroller.current;
     if (!element || index < 0) return;
-    const top = index * ROW_HEIGHT;
-    if (center) element.scrollTop = top - element.clientHeight / 2 + ROW_HEIGHT / 2;
+    const top = index * rowHeight;
+    if (center) element.scrollTop = top - element.clientHeight / 2 + rowHeight / 2;
     else if (top < element.scrollTop) element.scrollTop = top;
-    else if (top + ROW_HEIGHT > element.scrollTop + element.clientHeight) {
-      element.scrollTop = top + ROW_HEIGHT - element.clientHeight;
+    else if (top + rowHeight > element.scrollTop + element.clientHeight) {
+      element.scrollTop = top + rowHeight - element.clientHeight;
     }
   };
 
@@ -171,6 +181,8 @@ export function CommitList(props: Props) {
   }, [reveal]);
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // Enter does what a double click does.
+    if (event.key === 'Enter' && selected && selected !== WORKTREE) return onOpen(selected);
     const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
     if (!step || !rows.length) return;
     event.preventDefault();
@@ -204,24 +216,49 @@ export function CommitList(props: Props) {
           />
         </div>
       )}
-      <div className="spacer" style={{ height: rows.length * ROW_HEIGHT }}>
+      <div className="spacer" style={{ height: rows.length * rowHeight }}>
         {rows.slice(start, end).map((row, offset) => {
           const index = start + offset;
           const worktree = row.hash === WORKTREE;
-          const classes = ['row'];
+          const classes = tall ? ['row', 'tall'] : ['row'];
           const isSelected = row.hash === selected || marked.has(row.hash);
           if (isSelected) classes.push('selected');
           if (worktree) classes.push('worktree');
           if (matchSet && !matchSet.has(row.hash)) classes.push('dimmed');
           if (row.hash === dropTarget) classes.push('drop-target');
+          const all = labels.get(row.hash) ?? [];
+          // Squeezed side by side, many labels would be left with a letter each: a few keep their names, what is
+          // checked out before the others, and the rest are counted.
+          const named = tall && all.length > TALL_LABELS ? [...all].sort((one, other) => Number(!!other.current) - Number(!!one.current)).slice(0, TALL_LABELS - 1) : all;
+          const counted = all.filter((label) => !named.includes(label));
+          const chips = named.map((label) => (
+            <span
+              key={`${label.kind}:${label.name}`}
+              className={`label ${label.kind}${label.current ? ' current' : ''}`}
+              title={label.name}
+              onContextMenu={(event) => onLabelMenu(event, label, row)}
+              {...drag(label, row)}
+            >
+              <Icon name={LABEL_ICONS[label.kind]} />
+              <span className="text">{label.name}</span>
+            </span>
+          ));
+          if (counted.length) {
+            chips.push(
+              <span key="more" className="label more" title={counted.map((label) => label.name).join(', ')}>
+                +{counted.length}
+              </span>,
+            );
+          }
           return (
             <div
               key={row.hash}
               className={classes.join(' ')}
-              style={{ top: index * ROW_HEIGHT }}
+              style={{ top: index * rowHeight, height: rowHeight }}
               role="option"
               aria-selected={isSelected}
               onClick={(event) => onSelect(row.hash, event.shiftKey ? 'range' : event.ctrlKey || event.metaKey ? 'toggle' : 'single')}
+              onDoubleClick={worktree ? undefined : () => onOpen(row.hash)}
               onContextMenu={(event) => onRowMenu(event, row)}
               {...drag(null, row)}
               onDragOver={(event) => {
@@ -237,23 +274,32 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
-              <Graph graph={row.graph} width={fit.width} lane={fit.lane} hollow={worktree} />
-              <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
-                {labels.get(row.hash)?.map((label) => (
-                  <span
-                    key={`${label.kind}:${label.name}`}
-                    className={`label ${label.kind}${label.current ? ' current' : ''}`}
-                    title={label.name}
-                    onContextMenu={(event) => onLabelMenu(event, label, row)}
-                    {...drag(label, row)}
-                  >
-                    <Icon name={LABEL_ICONS[label.kind]} />
-                    {label.name}
-                  </span>
-                ))}
-                <span className="subject">{row.subject}</span>
-              </div>
-              {!worktree && (
+              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} hollow={worktree} />
+              {tall ? (
+                <div className="lines">
+                  <span className="subject">{row.subject}</span>
+                  {/* Under the message the labels have the room to keep their names. */}
+                  <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
+                    {chips}
+                    {worktree ? (
+                      <span className="who">Not committed yet</span>
+                    ) : (
+                      <>
+                        <span className="who">{row.author}</span>
+                        <span className="when" title={fullDate(row.date)}>
+                          {relativeTime(row.date)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
+                  {chips}
+                  <span className="subject">{row.subject}</span>
+                </div>
+              )}
+              {!worktree && !tall && (
                 <>
                   <div className="author">{row.author}</div>
                   <div className="date" title={fullDate(row.date)}>

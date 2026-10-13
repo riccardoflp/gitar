@@ -640,6 +640,23 @@ try {
     await sleep(500);
     const commits = await webview('commits');
     await until('the commits', async () => (await subjects(commits)).includes('Add a'));
+    // A list this narrow gives each commit two lines: its message, and under it its labels, who made it and when.
+    const rows = await commits.evaluate(`[...document.querySelectorAll('.row')].map((row) => ({
+      subject: row.querySelector('.subject').textContent,
+      height: row.getBoundingClientRect().height,
+      under: row.querySelector('.message').getBoundingClientRect().top >= row.querySelector('.subject').getBoundingClientRect().bottom - 1,
+      who: row.querySelector('.who')?.textContent,
+      when: row.querySelector('.when')?.textContent,
+      labels: [...row.querySelectorAll('.label')].map((label) => ({
+        name: label.textContent,
+        read: label.querySelector('.text').scrollWidth <= label.querySelector('.text').clientWidth + 1,
+      })),
+    }))`);
+    assert(rows.length >= 4 && rows.every((row) => row.height === 42 && row.under), `two lines to a commit: ${JSON.stringify(rows)}`);
+    assert(rows.filter((row) => row.who === 'Gitar Test' && row.when).length >= 4, `who and when: ${JSON.stringify(rows)}`);
+    const labelled = rows.find((row) => row.labels.length > 1);
+    // Side by side on the line of their own, the labels of a commit keep their names.
+    assert(labelled && labelled.labels.every((label) => label.read), `labels with their names: ${JSON.stringify(rows.map((row) => row.labels))}`);
     await commits.click('.row', 'Add b');
     await until('the details', () => commits.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add b'`));
     await shot('side-commits');
@@ -842,6 +859,98 @@ try {
     await shot('editor-tab');
     const bar = await toolbar(graph);
     assert(bar.fits && bar.branch === 'main', `toolbar: ${JSON.stringify(bar)}`);
+  });
+
+  await step('a commit opens in an editor tab, with its whole message, its files as a tree or as a list, and what it changed in each', async () => {
+    // A commit with something to show: a message of several lines, directories, and a file changed as well as added ones.
+    const file = (name, content) => {
+      fs.mkdirSync(path.dirname(path.join(app, name)), { recursive: true });
+      fs.writeFileSync(path.join(app, name), content);
+    };
+    file('notes.txt', 'one\ntwo\nthree\n');
+    git(app, 'add', 'notes.txt');
+    git(app, 'commit', '-m', 'Add notes');
+    file('notes.txt', 'one\n2\nthree\nfour\n');
+    file('src/main.txt', 'main\n');
+    file('src/parts/list.txt', 'first\nsecond\n');
+    git(app, 'add', 'notes.txt', 'src');
+    git(app, 'commit', '-m', 'Add parts\n\nWith a body that says why,\non two lines.');
+
+    // The graph of the panel, under the one that is an editor tab.
+    const graph = await webview('graph', (frame) => frame.y >= 300);
+    await until('the new commit', async () => (await subjects(graph)).includes('Add parts'));
+    const row = await graph.locate('.row', 'Add parts');
+    await mouse(row.x, row.y);
+    await mouse(row.x, row.y, 'left', 2);
+
+    const commit = await webview('commit');
+    await until('the commit', () => commit.evaluate(`document.querySelector('.commit-head h1')?.textContent === 'Add parts'`));
+    await until('its changes', () => commit.evaluate(`document.querySelectorAll('.file-diff .diff-lines').length === 3`));
+    await shot('commit-tab');
+    const files = () => commit.evaluate(`[...document.querySelectorAll('.commit-files .file')].map((file) => file.textContent)`);
+    const seen = await commit.evaluate(`({
+      body: document.querySelector('.commit-head .body').textContent,
+      current: document.querySelector('.commit-labels .label.current')?.textContent,
+      author: document.querySelector('.commit-head dd').textContent,
+      hash: document.querySelector('.commit-head dd .mono').textContent.trim(),
+      total: document.querySelector('.commit-files h2 .grow').textContent,
+      pressed: [...document.querySelectorAll('.commit-files h2 button')].map((button) => button.getAttribute('aria-pressed')).join(),
+      diffs: [...document.querySelectorAll('.file-diff')].map((diff) => diff.querySelector('.path').textContent + ' ' + diff.querySelector('.stat').textContent),
+      lines: [...document.querySelector('.file-diff').querySelectorAll('.line:not(.at)')].map((line) => [...line.children].map((cell) => cell.textContent).join('|')),
+      wider: document.documentElement.scrollWidth > innerWidth,
+    })`);
+    assert(seen.body === 'With a body that says why,\non two lines.', `body: ${seen.body}`);
+    assert(seen.current === 'main', `the label of the branch: ${seen.current}`);
+    assert(seen.author.startsWith('Gitar Test') && seen.author.includes('@'), `author: ${seen.author}`);
+    assert(/^[0-9a-f]{40}$/.test(seen.hash), `hash: ${seen.hash}`);
+    assert(seen.total === '3 changed files+5−1', `total: ${seen.total}`);
+    assert(seen.diffs.join() === 'notes.txt +2−1,src/main.txt +1,src/parts/list.txt +2', `diffs: ${seen.diffs}`);
+    // Each line with the number it has before and after.
+    assert(seen.lines.join() === '1|1| one,2||-two,|2|+2,3|3| three,|4|+four', `lines: ${seen.lines}`);
+    assert(!seen.wider, 'the page is as wide as the tab');
+    // The tab is named after the commit.
+    const tabs = await page.evaluate(`[...document.querySelectorAll('.tabs-container .tab')].map((tab) => tab.textContent)`);
+    assert(tabs.some((tab) => tab.includes(`${seen.hash.slice(0, 7)} Add parts`)), `tabs: ${tabs}`);
+
+    // Under their directories first, which fold.
+    assert(seen.pressed === 'true,false', `layout: ${seen.pressed}`);
+    assert((await files()).join() === 'src,parts,Alist.txt+2,Amain.txt+1,Mnotes.txt+2−1', `tree: ${await files()}`);
+    await commit.click('.commit-files .file.directory', 'parts');
+    await until('the directory folded', async () => (await files()).join() === 'src,parts,Amain.txt+1,Mnotes.txt+2−1');
+    await commit.click('.commit-files .file.directory', 'parts');
+    // Then one after the other, each with where it is.
+    await commit.click('.commit-files h2 button[aria-label="Files as a list"]');
+    await until('the list', async () => (await files()).join() === 'Mnotes.txt+2−1,Amain.txtsrc+1,Alist.txtsrc/parts+2');
+    await shot('commit-tab-list');
+
+    // The changes of a file fold away, and all of them come back at once.
+    await commit.click('.file-diff .twist');
+    await until('one diff folded', () => commit.evaluate(`document.querySelectorAll('.file-diff .diff-lines').length === 2`));
+    await commit.click('.commit-diffs h2 .button', 'Unfold all');
+    await until('all the diffs', () => commit.evaluate(`document.querySelectorAll('.file-diff .diff-lines').length === 3`));
+
+    // The button in the details of a commit does what the double click does, for another commit: its tab opens with the layout chosen last.
+    // The page is searched with the box VS Code has for the pages of extensions.
+    await commit.click('.commit-head h1');
+    await key('F', CTRL);
+    await until('the search box of the tab', () => page.evaluate(`!!document.querySelector('.simple-find-part.visible')`));
+    await shot('commit-tab-find');
+    await key('Escape');
+
+    // The first tab is closed before: a tab that is behind another keeps its page, and would be taken for the new one.
+    await command('View: Close Editor');
+    await until('the tab closed', async () => !(await page.evaluate(`[...document.querySelectorAll('.tabs-container .tab')].some((tab) => tab.textContent.includes('Add parts'))`)));
+    await graph.click('.row', 'Add notes');
+    await graph.click('.detail .open-tab');
+    await until('the tab of the other commit', () => page.evaluate(`[...document.querySelectorAll('.tabs-container .tab')].some((tab) => tab.textContent.includes('Add notes'))`));
+    const other = await webview('commit');
+    await until('the other commit', () => other.evaluate(`document.querySelector('.commit-head h1')?.textContent === 'Add notes'`));
+    await until('the list again', () => other.evaluate(`document.querySelector('.commit-files h2 button[aria-label="Files as a list"]')?.getAttribute('aria-pressed') === 'true'`));
+    await other.click('.commit-files h2 button[aria-label="Files as a tree"]');
+
+    // And from the tab back to the graph, where its commit is selected.
+    await other.click('.commit-actions .button', 'Show in the graph');
+    await until('the commit selected in the graph', () => graph.evaluate(`document.querySelector('.row.selected .subject')?.textContent === 'Add notes'`));
   });
 } catch (error) {
   await finish(error);

@@ -47,9 +47,11 @@ const THEMES = {
   },
 };
 
-const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'branches', 'stashes'];
+const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'branches', 'stashes', 'commit'];
 
-function page(theme: keyof typeof THEMES, view: ViewKind): string {
+/** `data` is what the extension would write on the page: the view it is, and for a commit which one. */
+function page(theme: keyof typeof THEMES, data: Record<string, string>): string {
+  const attributes = Object.entries(data).map(([name, value]) => `data-${name}="${value.replace(/[&<>"]/g, '')}"`).join(' ');
   const t = THEMES[theme];
   const dark = theme === 'dark';
   return `<!DOCTYPE html>
@@ -85,6 +87,8 @@ function page(theme: keyof typeof THEMES, view: ViewKind): string {
   --vscode-testing-iconQueued: ${dark ? '#cca700' : '#bf8803'};
   --vscode-diffEditor-insertedLineBackground: ${dark ? '#9bb95533' : '#9ccc2c40'};
   --vscode-diffEditor-removedLineBackground: ${dark ? '#ff000033' : '#ff000033'};
+  --vscode-editorLineNumber-foreground: ${dark ? '#6e7681' : '#6e7681'};
+  --vscode-editorGroupHeader-tabsBackground: ${dark ? '#181818' : '#f8f8f8'};
   --vscode-list-dropBackground: ${dark ? '#383b3d' : '#d6ebff'};
   --vscode-inputValidation-warningBackground: ${dark ? '#352a05' : '#f6f5d2'};
   --vscode-inputValidation-warningBorder: #b89500;
@@ -110,7 +114,7 @@ body { background: ${t.background}; }
 </style>
 <link href="/webview.css" rel="stylesheet">
 </head>
-<body data-view="${view}">
+<body ${attributes}>
 <div id="root"></div>
 <script>
 window.acquireVsCodeApi = () => ({
@@ -205,6 +209,10 @@ async function main() {
       }
       case 'getDetail':
         return [{ type: 'detail', hash: message.hash, detail: (await repo?.commitDetail(message.hash)) ?? null }];
+      case 'getPatch': {
+        const detail = await repo?.commitDetail(message.hash);
+        return [{ type: 'patch', hash: message.hash, patch: (detail && (await repo?.commitPatch(detail, 20_000))) ?? null }];
+      }
       case 'getHunks': {
         const { path: file, staged } = message;
         return [{ type: 'hunks', path: file, staged, hunks: (await repo?.hunks(file, staged)) ?? null }];
@@ -229,7 +237,11 @@ async function main() {
         } else if (url.pathname === '/') {
           response.setHeader('Content-Type', 'text/html');
           const theme = url.searchParams.get('theme') === 'light' ? 'light' : 'dark';
-          response.end(page(theme, VIEWS.find((view) => view === url.searchParams.get('view')) ?? 'graph'));
+          const view = VIEWS.find((candidate) => candidate === url.searchParams.get('view')) ?? 'graph';
+          // The tab of a commit: of the one asked for with `commit=`, or of the last.
+          const commit = view === 'commit' ? await repo?.resolve(url.searchParams.get('commit') ?? 'HEAD') : null;
+          const files = url.searchParams.get('files') === 'list' ? 'list' : 'tree';
+          response.end(page(theme, commit && repo ? { view, commit, root: repo.root, files } : { view }));
         } else {
           const file = path.join(assets, path.basename(url.pathname));
           response.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream');

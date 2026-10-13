@@ -6,8 +6,12 @@ import type { ViewKind } from '../shared/protocol';
 import { App } from './App';
 import { BranchesApp } from './BranchesApp';
 import { ChangesApp } from './ChangesApp';
+import { CommitApp } from './CommitApp';
 import { MenuProvider } from './ContextMenu';
 import { StashesApp } from './StashesApp';
+
+// What the extension wrote on the page for the view it is.
+const { view: kind, commit = '', root = '', files } = document.body.dataset;
 
 const VIEWS: Record<ViewKind, () => ReactNode> = {
   graph: () => <App />,
@@ -16,8 +20,8 @@ const VIEWS: Record<ViewKind, () => ReactNode> = {
   changes: () => <ChangesApp />,
   branches: () => <BranchesApp />,
   stashes: () => <StashesApp />,
+  commit: () => <CommitApp hash={commit} root={root} layout={files === 'list' ? 'list' : 'tree'} />,
 };
-const kind = document.body.dataset.view as ViewKind;
-const view = (VIEWS[kind] ?? VIEWS.graph)();
+const view = (VIEWS[kind as ViewKind] ?? VIEWS.graph)();
 
 createRoot(document.getElementById('root')!).render(<MenuProvider>{view}</MenuProvider>);

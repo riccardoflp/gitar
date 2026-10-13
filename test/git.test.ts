@@ -46,6 +46,7 @@ import {
   parseHunks,
   parseLog,
   parseNameStatus,
+  parsePatch,
   parseRefs,
   parseStatus,
   parseWorktrees,
@@ -152,6 +153,106 @@ describe('parsers', () => {
     );
     expect(parseHunks('diff --git a/x.png b/x.png\nBinary files a/x.png and b/x.png differ\n')).toMatchObject({ binary: true, hunks: [] });
     expect(parseHunks('')).toEqual({ prelude: '', hunks: [], binary: false });
+  });
+
+  it('cuts the diff of a commit into its files, and counts the lines each one gained and lost', () => {
+    const diff = [
+      'diff --git a/a.txt b/a.txt',
+      'index 111..222 100644',
+      '--- a/a.txt',
+      '+++ b/a.txt',
+      '@@ -1,2 +1,3 @@',
+      '-one',
+      '+ONE',
+      '+more',
+      ' two',
+      'diff --git a/logo.png b/logo.png',
+      'index 333..444 100644',
+      'Binary files a/logo.png and b/logo.png differ',
+      'diff --git a/old.txt b/new.txt',
+      'similarity index 100%',
+      'rename from old.txt',
+      'rename to new.txt',
+      'diff --git a/z.txt b/z.txt',
+      'new file mode 100644',
+      'index 000..555',
+      '--- /dev/null',
+      '+++ b/z.txt',
+      '@@ -0,0 +1 @@',
+      // A line of a file that looks like the start of another is still a line: it has its sign before it.
+      '+diff --git a/fake b/fake',
+      '\\ No newline at end of file',
+      '',
+    ].join('\n');
+    const files = [
+      { status: 'M', path: 'a.txt' },
+      { status: 'M', path: 'logo.png' },
+      { status: 'R', path: 'new.txt', oldPath: 'old.txt' },
+      { status: 'A', path: 'z.txt' },
+    ];
+    const patch = parsePatch(files, diff, 1000)!;
+    expect(patch.map((file) => [file.file.path, file.added, file.removed, file.binary, file.hunks?.length])).toEqual([
+      ['a.txt', 2, 1, false, 1],
+      ['logo.png', 0, 0, true, 0],
+      ['new.txt', 0, 0, false, 0],
+      ['z.txt', 1, 0, false, 1],
+    ]);
+    expect(patch[0].hunks![0]).toEqual({ header: '@@ -1,2 +1,3 @@', lines: ['-one', '+ONE', '+more', ' two'] });
+    expect(patch[3].hunks![0].lines).toEqual(['+diff --git a/fake b/fake', '\\ No newline at end of file']);
+
+    // Past the lines that are sent a file keeps its counts and loses its hunks; a shorter one after it is still sent.
+    const short = parsePatch(files, diff, 4)!;
+    expect(short.map((file) => [file.added, file.removed, file.hunks?.length ?? null])).toEqual([
+      [2, 1, null],
+      [0, 0, 0],
+      [0, 0, 0],
+      [1, 0, 1],
+    ]);
+
+    // A diff of other files than the ones listed is not guessed at.
+    expect(parsePatch(files.slice(1), diff, 1000)).toBeNull();
+    expect(parsePatch([...files, { status: 'A', path: 'more.txt' }], diff, 1000)).toBeNull();
+    expect(parsePatch([], '', 1000)).toEqual([]);
+  });
+
+  it('reads a file that became a link, which git prints as one deleted and one added, as one file', () => {
+    const diff = [
+      'diff --git a/link b/link',
+      'deleted file mode 100644',
+      'index 111..000',
+      '--- a/link',
+      '+++ /dev/null',
+      '@@ -1 +0,0 @@',
+      '-a file',
+      'diff --git a/link b/link',
+      'new file mode 120000',
+      'index 000..222',
+      '--- /dev/null',
+      '+++ b/link',
+      '@@ -0,0 +1 @@',
+      '+target',
+      '\\ No newline at end of file',
+      'diff --git a/z.txt b/z.txt',
+      'index 333..444 100644',
+      '--- a/z.txt',
+      '+++ b/z.txt',
+      '@@ -1 +1 @@',
+      '-z',
+      '+Z',
+      '',
+    ].join('\n');
+    const patch = parsePatch(
+      [
+        { status: 'T', path: 'link' },
+        { status: 'M', path: 'z.txt' },
+      ],
+      diff,
+      1000,
+    )!;
+    expect(patch.map((file) => [file.file.path, file.added, file.removed, file.hunks?.length])).toEqual([
+      ['link', 1, 1, 2],
+      ['z.txt', 1, 1, 1],
+    ]);
   });
 });
 

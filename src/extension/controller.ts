@@ -29,6 +29,7 @@ import type {
   Comparing,
   DiffSource,
   FileChange,
+  FilesLayout,
   Filter,
   HostMessage,
   Operation,
@@ -67,6 +68,12 @@ const REFLOG_ENTRIES = 200;
 const REPO_KEY = 'gitar.repository';
 /** The branches chosen for the graph of each repository, by its folder. */
 const SCOPE_KEY = 'gitar.scope';
+/** How the files of a commit are laid out in its tab: as a tree until a list is asked for. */
+const FILES_KEY = 'gitar.commitFiles';
+/** How many lines of what a commit changed are sent to its tab. The diff editor shows a commit longer than that. */
+const PATCH_LINES = 20_000;
+/** What fits of the message of a commit in the title of its tab. */
+const TITLE_LENGTH = 32;
 /** Pull requests change on GitHub's side, so they are re-read at most this often unless something asks for it. */
 const PULLS_MAX_AGE = 120_000;
 
@@ -125,6 +132,9 @@ export class Controller implements vscode.Disposable {
   /** Every repository of the workspace; `repo` is the one being shown. */
   private repos: RepoInfo[] = [];
   private readonly views = new Map<vscode.Webview, ViewKind>();
+  /** The tabs of the commits, by repository and hash, and the repository each is of: not always the one being shown. */
+  private readonly commitTabs = new Map<string, vscode.WebviewPanel>();
+  private readonly pinned = new Map<vscode.Webview, Repo>();
   /** The views with a search box that have the keyboard: one at most, but each says so on its own. */
   private readonly focused = new Set<vscode.Webview>();
   /** What identifies the commits each view that lists them was last sent. */
@@ -159,11 +169,11 @@ export class Controller implements vscode.Disposable {
     for (const subscription of this.subscriptions) subscription.dispose();
   }
 
-  /** Loads the UI into a webview and wires it to this controller. */
-  attach(webview: vscode.Webview, kind: ViewKind): vscode.Disposable {
+  /** Loads the UI into a webview and wires it to this controller. `data` is written on the page for the view to read. */
+  attach(webview: vscode.Webview, kind: ViewKind, data: Record<string, string> = {}): vscode.Disposable {
     const dist = vscode.Uri.joinPath(this.extensionUri, 'dist');
     webview.options = { enableScripts: true, localResourceRoots: [dist] };
-    webview.html = this.html(webview, dist, kind);
+    webview.html = this.html(webview, dist, { view: kind, ...data });
     this.views.set(webview, kind);
     const listener = webview.onDidReceiveMessage((message: WebviewMessage) => this.onMessage(webview, message));
     return new vscode.Disposable(() => {
@@ -342,6 +352,44 @@ export class Controller implements vscode.Disposable {
     }
     await this.include(hash);
     this.post({ type: 'reveal', hash }, asker);
+  }
+
+  /**
+   * Opens a commit in an editor tab of its own, with its message, its files and what it changed in them, or shows the
+   * tab it has already. Without a hash it asks for one, or for anything else git understands.
+   */
+  async openCommit(hash?: unknown, repo = this.repo): Promise<void> {
+    if (hash === undefined) {
+      repo = ((await this.requireState()) && this.repo) || undefined;
+      hash = repo && (await this.askRevision(repo, 'Open commit'))?.hash;
+    }
+    if (!repo || !isHash(hash)) return;
+    const detail = await repo.commitDetail(hash).catch(() => null);
+    if (!detail) {
+      void vscode.window.showWarningMessage(`Gitar: ${hash.slice(0, 7)} is not a commit of this repository.`);
+      return;
+    }
+    const key = `${repo.root}\n${detail.hash}`;
+    const open = this.commitTabs.get(key);
+    if (open) return open.reveal();
+
+    const subject = detail.subject.length > TITLE_LENGTH ? `${detail.subject.slice(0, TITLE_LENGTH).trimEnd()}…` : detail.subject;
+    const panel = vscode.window.createWebviewPanel('gitar.commit', `${detail.hash.slice(0, 7)} ${subject}`, vscode.ViewColumn.Active, {
+      retainContextWhenHidden: true,
+      // The search of VS Code, for a word among the changes.
+      enableFindWidget: true,
+    });
+    const layout = this.memento.get<FilesLayout>(FILES_KEY, 'tree');
+    // Kept at hand: a panel that is closed no longer says which webview was its own.
+    const { webview } = panel;
+    const attachment = this.attach(webview, 'commit', { commit: detail.hash, root: repo.root, files: layout });
+    this.pinned.set(webview, repo);
+    this.commitTabs.set(key, panel);
+    panel.onDidDispose(() => {
+      attachment.dispose();
+      this.pinned.delete(webview);
+      this.commitTabs.delete(key);
+    });
   }
 
   /** Asks for a hash or a revision, and shows its commit in the graph. */
@@ -968,10 +1016,14 @@ export class Controller implements vscode.Disposable {
   }
 
   private async onMessage(webview: vscode.Webview, message: WebviewMessage): Promise<void> {
+    // What the tab of a commit asks is about the repository of its commit.
+    const repo = this.pinned.get(webview) ?? this.repo;
     switch (message.type) {
       case 'focus':
         return this.setFocused(webview, message.focused === true);
       case 'ready':
+        // The tab of a commit reads its commit by itself, and nothing in it goes stale: the repository is not read for it.
+        if (this.views.get(webview) === 'commit') return this.post({ type: 'state', state: this.state }, webview);
         // A view that has just loaded has nothing yet.
         this.sentRows.delete(webview);
         if (this.located && !this.loading) this.post({ type: 'state', state: this.state }, webview);
@@ -995,9 +1047,22 @@ export class Controller implements vscode.Disposable {
         this.limit += PAGE_SIZE;
         return this.refresh();
       case 'getDetail': {
-        const detail = (await this.repo?.commitDetail(message.hash).catch(() => null)) ?? null;
+        const detail = (await repo?.commitDetail(message.hash).catch(() => null)) ?? null;
         return this.post({ type: 'detail', hash: message.hash, detail }, webview);
       }
+      case 'getPatch': {
+        const detail = await repo?.commitDetail(message.hash).catch(() => null);
+        const patch = (detail && (await repo?.commitPatch(detail, PATCH_LINES).catch(() => null))) ?? null;
+        return this.post({ type: 'patch', hash: message.hash, patch }, webview);
+      }
+      case 'openCommit':
+        return this.openCommit(message.hash, repo);
+      case 'reveal':
+        // In the repository the commit is of, when the tab that asks is of another than the one shown.
+        if (repo && repo.root !== this.repo?.root) await this.selectRepo(repo.root);
+        return this.reveal(message.hash);
+      case 'setFilesLayout':
+        return void this.memento.update(FILES_KEY, message.layout === 'list' ? 'list' : 'tree');
       case 'compare':
         return this.compare(message.from, webview);
       case 'show':
@@ -1013,9 +1078,9 @@ export class Controller implements vscode.Disposable {
         return this.post({ type: 'hunks', path: message.path, staged: message.staged, hunks }, webview);
       }
       case 'openDiff':
-        return this.openDiff(message.source, message.file);
+        return this.openDiff(message.source, message.file, repo);
       case 'openChanges':
-        return this.openChanges(message.title, message.source, message.files);
+        return this.openChanges(message.title, message.source, message.files, repo);
       case 'sync':
         return this.sync(message.action);
       case 'action':
@@ -1118,8 +1183,7 @@ export class Controller implements vscode.Disposable {
   }
 
   /** Opens the diffs of several files in a single editor, one under the other. */
-  private async openChanges(title: string, source: DiffSource, files: FileChange[]): Promise<void> {
-    const repo = this.repo;
+  private async openChanges(title: string, source: DiffSource, files: FileChange[], repo = this.repo): Promise<void> {
     if (!repo) return;
     const resources = files.flatMap((file) => {
       const sides = this.sides(repo, source, file);
@@ -1128,8 +1192,7 @@ export class Controller implements vscode.Disposable {
     if (resources.length) await vscode.commands.executeCommand('vscode.changes', title, resources);
   }
 
-  private async openDiff(source: DiffSource, file: FileChange): Promise<void> {
-    const repo = this.repo;
+  private async openDiff(source: DiffSource, file: FileChange, repo = this.repo): Promise<void> {
     if (!repo) return;
     const onDisk = vscode.Uri.file(path.join(repo.root, file.path));
     const at = (ref: string) => contentUri(repo.root, ref, file.path);
@@ -1169,7 +1232,10 @@ export class Controller implements vscode.Disposable {
     }
   }
 
-  private html(webview: vscode.Webview, dist: vscode.Uri, kind: ViewKind): string {
+  /** `data` becomes the `data-` attributes of the body, which is where the page reads what view it is. */
+  private html(webview: vscode.Webview, dist: vscode.Uri, data: Record<string, string>): string {
+    const escape = (text: string) => text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
+    const attributes = Object.entries(data).map(([name, value]) => `data-${name}="${escape(value)}"`).join(' ');
     const nonce = Array.from({ length: 32 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.js'));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.css'));
@@ -1182,7 +1248,7 @@ export class Controller implements vscode.Disposable {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${style}" rel="stylesheet">
 </head>
-<body data-view="${kind}">
+<body ${attributes}>
   <div id="root"></div>
   <script nonce="${nonce}" src="${script}"></script>
 </body>

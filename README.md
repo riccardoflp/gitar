@@ -33,6 +33,7 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 - Uncommitted changes shown as the first row of the graph, also before the first commit of a new repository.
 - References tree: local branches with ahead and behind counts, remote branches, tags, stashes and worktrees. From 15 branches and tags on, a filter box appears above it, and a section with more than 100 entries lists the first 100 and a **Show all** entry.
 - Commit details with the list of changed files; selecting a file opens it in the VS Code diff editor, and the button next to the count opens the diffs of all of them in one editor.
+- Double-click a commit to read it whole in an editor tab, with what it changed under its message: see [A commit in an editor tab](#a-commit-in-an-editor-tab).
 - Selecting a stash shows what it holds, including the untracked files it took, which git keeps apart from the rest.
 - Fetch, pull (merge or `--rebase`), push, push with `--force-with-lease` and push with `--force`.
 - Search across the loaded commits or the whole history: see [Search](#search).
@@ -46,7 +47,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 
 | On | Operations |
 | --- | --- |
-| Commit | Check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
+| Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
 | Local branch | Check out (also by double-click), merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
 | Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
@@ -86,7 +87,7 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 
 Gitar has no icon of its own in the activity bar: its views are in the **Source Control** side bar, the one VS Code keeps for Git, under **Changes** and **Graph**. Three of them show what the graph of Gitar shows, each on its own:
 
-- **Commits** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. In a list this narrow the first label of a commit keeps its name and the others are left with their icon; hover one to read it.
+- **Commits** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. A list this narrow gives each commit two lines: its message, and under it its labels with their names, who made it and when. A commit with more than three labels names two of them, what is checked out first, and counts the others: hover the count to read them.
 - **Branches** is the references tree: local branches, remote branches, tags and worktrees, with the same context menus. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
 - **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
 
@@ -95,6 +96,23 @@ The fourth, **Gitar Changes**, stages and commits: see [Changes](#changes). VS C
 VS Code shows the views an extension adds to this side bar folded: click the header of one to unfold it, or run **Gitar: Show Commits in the Side Bar**, **Gitar: Show Branches** or **Gitar: Show Stashes**. It remembers what you fold and unfold from then on. The context menus open inside the view they belong to, so in a short one they scroll: drag the border between two views to give one more room, or fold the ones you are not using.
 
 If you had Gitar before its views moved here and they are still where they were, **View: Reset View Locations** brings them over.
+
+### A commit in an editor tab
+
+The details beside the graph are a summary. To read a commit whole, open it in a tab of the editor:
+
+- double-click it in the graph or in the Commits view, or press `Enter` on the selected one;
+- press the button beside the one that closes its details;
+- choose **Open in an editor tab** in its context menu;
+- run **Gitar: Open Commit in Editor…** and type a hash, or anything else git turns into a commit.
+
+The tab has the message in full, the labels of the commit, its author, committer and dates, its hash, which a click copies, and its parents, which open in tabs of their own. **Show in the graph** selects the commit in the graph, and **Open in the diff editor** opens all of its changes in the editor VS Code has for that.
+
+Under them are the files the commit changed, each with the lines it gained and lost, as a tree of directories or as a list: the two buttons beside the count choose, and the choice is remembered for the tabs opened later. Click a file to go to its changes, further down in the same page: every file has its diff there, with the number each line has before and after, under a header that stays in sight while its lines scroll. The arrow on the header folds a diff away, and **Fold all** and **Unfold all** do so with all of them. The button at the end of a header, or on the row of a file, opens that file in the diff editor.
+
+A file changed in more than 800 lines starts folded, and so do the ones that come after 5,000 lines are showing. A commit is sent to its tab up to 20,000 lines: the files past that say so, with a link to the diff editor. A merge is shown against its first parent, as in the details. `Ctrl`+`F` searches the page with the search box of VS Code.
+
+Each commit has one tab: asking for it again shows the one it has. A tab stays of the repository its commit is in, also after the other views are pointed at another, and **Show in the graph** brings them back to it.
 
 ### Compare
 
@@ -290,13 +308,13 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 | `npm run test:ui` | Builds, then uses the extension in a real VS Code window, with real clicks and keys, saving screenshots: see below. |
 | `npm run package` | Makes a minified build and packs it into `gitar-<version>.vsix`. It leaves the minified build in `dist/`; `npm run build` brings the development one back. |
 | `npm run test:vsix` | Packages, then runs the end-to-end tests on what the `.vsix` contains instead of on this folder. |
-| `npm run preview -- <folder>...` | Serves the webview at `http://localhost:5174` against the repositories found in the folders, read-only, to work on the UI without an Extension Host. Add `?view=changes`, `commits`, `branches` or `stashes` for a view of the side bar and `?theme=light` for the light theme, and `--port=<number>` before the folders to serve a second one beside it. |
+| `npm run preview -- <folder>...` | Serves the webview at `http://localhost:5174` against the repositories found in the folders, read-only, to work on the UI without an Extension Host. Add `?view=changes`, `commits`, `branches` or `stashes` for a view of the side bar, `?view=commit&commit=<revision>` for the tab of a commit, and `?theme=light` for the light theme, and `--port=<number>` before the folders to serve a second one beside it. |
 
 ### End-to-end tests
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -320,10 +338,11 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - a branch dragged onto the checked out commit offers to merge or rebase;
 - the references and the details get wider when the line beside them is dragged, and a double click undoes it;
 - a graph of twenty branches side by side keeps to its width by drawing them closer, gets narrower and wider when its edge is dragged, and a double click undoes it;
-- the Commits view of the side bar lists the commits with the details under them, and its header has the buttons;
+- the Commits view of the side bar lists the commits on two lines each, with their labels named, the details under them, and its header has the buttons;
 - the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know;
 - the Stashes view unfolds a stash to its files, and its header counts the stashes;
-- the graph opens as an editor tab, with the details of a commit beside it.
+- the graph opens as an editor tab, with the details of a commit beside it;
+- a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost and their diffs numbered line by line; the button in the details opens another the same way, and **Show in the graph** leads back.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.
 
@@ -360,7 +379,7 @@ Measure the views with the minified build (`node esbuild.mjs --production`): the
 | Path | Contents |
 | --- | --- |
 | `src/git` | Running Git, finding the repositories of a workspace, parsing Git's output, building the commands for each operation, and reading GitHub's answers. No VS Code dependency. |
-| `src/shared` | Types shared by the extension and the webview, the graph lane layout, how to name a reference that has namesakes, and the commit message prompt. |
+| `src/shared` | Types shared by the extension and the webview, the graph lane layout, the tree the files of a commit are laid out in, how to name a reference that has namesakes, and the commit message prompt. |
 | `src/extension` | VS Code integration: views, commands, prompts, file watching, command preview, diff content, inline blame, GitHub sign-in, language model. |
 | `src/webview` | The React UI. |
 | `src/dev` | The browser preview server. |

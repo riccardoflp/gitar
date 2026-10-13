@@ -7,6 +7,7 @@ import {
   type CommitDetail,
   type Comparison,
   type FileHunks,
+  type FilePatch,
   type Filter,
   type Operation,
   type RepoState,
@@ -34,6 +35,7 @@ import {
   type ReflogEntry,
   parseLog,
   parseNameStatus,
+  parsePatch,
   parseRefs,
   parseStashes,
   parseStatus,
@@ -392,6 +394,23 @@ export class Repo {
       files: parseNameStatus(files),
       untracked,
     };
+  }
+
+  /**
+   * What a commit changed in each of its files, relative to its first parent: the lines of the files `commitDetail`
+   * lists, in the same order, and no more than `limit` of them. Null when the two do not match.
+   */
+  async commitPatch(detail: CommitDetail, limit: number): Promise<FilePatch[] | null> {
+    if (!isHash(detail.hash)) return null;
+    // As plain as git prints it, whatever the configuration says of colors, of other programs to compare with, of
+    // files turned into text first or of submodules, which could be listed with their commits.
+    const plain = ['--no-color', '--no-ext-diff', '--no-textconv', '--submodule=short'];
+    const [parent] = detail.parents;
+    // The same two commands that list the files, asked for the lines this time.
+    const out = parent
+      ? await this.read(['diff', ...plain, '-M', parent, detail.hash])
+      : await this.read(['diff-tree', '--root', '--no-commit-id', '-r', '-p', ...plain, detail.hash]);
+    return parsePatch(detail.files, out, limit);
   }
 
   /** The unstaged diff of a file, or its staged diff, split into hunks. */

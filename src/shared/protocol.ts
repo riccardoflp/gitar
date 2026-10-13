@@ -197,15 +197,19 @@ export interface ComparedRef {
 }
 
 /**
- * What a view shows. `graph` is everything, in the panel or in an editor tab. The others are the views of the side bar:
- * `commits` is the graph without the references beside it.
+ * What a view shows. `graph` is everything, in the panel or in an editor tab. `changes`, `commits`, `branches` and
+ * `stashes` are the views of the side bar: `commits` is the graph without the references beside it. `commit` is one
+ * commit in an editor tab, with its message, its files and what it changed in them.
  */
-export type ViewKind = 'graph' | 'changes' | 'commits' | 'branches' | 'stashes';
+export type ViewKind = 'graph' | 'changes' | 'commits' | 'branches' | 'stashes' | 'commit';
 
 /** The views that list commits, and so are sent them. */
 export const listsCommits = (kind: ViewKind) => kind === 'graph' || kind === 'commits';
 /** The views that can show the files that differ between two commits. */
-export const showsComparisons = (kind: ViewKind) => kind !== 'changes' && kind !== 'stashes';
+export const showsComparisons = (kind: ViewKind) => kind === 'graph' || kind === 'commits' || kind === 'branches';
+
+/** How the files of a commit are laid out in its editor tab: under their directories, or one after the other. */
+export type FilesLayout = 'tree' | 'list';
 
 /** One `@@` block of a diff. `header` is the `@@ -a,b +c,d @@` line, `lines` the context, `+` and `-` lines after it. */
 export interface Hunk {
@@ -218,6 +222,17 @@ export interface FileHunks {
   prelude: string;
   hunks: Hunk[];
   binary: boolean;
+}
+
+/** What a commit changed in one of its files. */
+export interface FilePatch {
+  file: FileChange;
+  /** Lines added and removed: both 0 for a binary file, whose lines are not counted. */
+  added: number;
+  removed: number;
+  binary: boolean;
+  /** Null when the commit changes more lines than are sent to a view: the diff editor shows those. */
+  hunks: Hunk[] | null;
 }
 
 export type RebaseAction = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop';
@@ -285,6 +300,8 @@ export type HostMessage =
    */
   | { type: 'state'; state: RepoState | null; sameRows?: true }
   | { type: 'detail'; hash: string; detail: CommitDetail | null }
+  /** What a commit changed, file by file in the order of its details. Null when git and the list of files disagree. */
+  | { type: 'patch'; hash: string; patch: FilePatch[] | null }
   | { type: 'comparison'; comparison: Comparison }
   | { type: 'busy'; title: string | null }
   | { type: 'committed' }
@@ -320,6 +337,13 @@ export type WebviewMessage =
   | { type: 'refresh' }
   | { type: 'loadMore' }
   | { type: 'getDetail'; hash: string }
+  | { type: 'getPatch'; hash: string }
+  /** Opens a commit in an editor tab of its own, or shows the tab it already has. */
+  | { type: 'openCommit'; hash: string }
+  /** Selects a commit in the graph, opening the graph for it. */
+  | { type: 'reveal'; hash: string }
+  /** The layout the tabs of the commits open with from now on. */
+  | { type: 'setFilesLayout'; layout: FilesLayout }
   | { type: 'getComparison'; from: string; to: string }
   /** Asks the user what to compare, or what to compare `from` with, and shows the comparison in this view. */
   | { type: 'compare'; from?: ComparedRef }

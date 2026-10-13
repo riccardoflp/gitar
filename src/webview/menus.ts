@@ -106,6 +106,8 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
     run: () => act({ kind: 'bisect', mark: which, hash }),
   });
   return [
+    { label: 'Open in an editor tab', run: () => post({ type: 'openCommit', hash }) },
+    'separator',
     !isHead && { label: 'Check out commit (detached)', run: () => act({ kind: 'checkout', target: 'detached', ref: hash }) },
     { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: hash }) },
     { label: 'Create tag here…', run: () => act({ kind: 'createTag', at: hash }) },

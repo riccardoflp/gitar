@@ -30,7 +30,8 @@ const NONE: ReadonlySet<string> = new Set();
 /** The widths of the panes beside the commits, in pixels, until they are dragged to others. The graph chooses its own. */
 const WIDTHS: { refsWidth: number; detailWidth: number; graphWidth: number | null } = { refsWidth: 210, detailWidth: 320, graphWidth: null };
 
-function buildLabels(state: RepoState): Map<string, Label[]> {
+/** The branches, tags and bisect marks of each commit that has some. */
+export function buildLabels(state: RepoState): Map<string, Label[]> {
   const labels = new Map<string, Label[]>();
   const add = (hash: string, label: Label) => {
     const list = labels.get(hash);
@@ -363,6 +364,8 @@ export function App({ compact = false }: { compact?: boolean }) {
           marked={marked}
           reveal={reveal}
           onSelect={onRowSelect}
+          onOpen={(hash) => post({ type: 'openCommit', hash })}
+          tall={compact}
           onRowMenu={onRowMenu}
           onLabelMenu={onLabelMenu}
           dragSource={(label, row) => {
