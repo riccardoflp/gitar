@@ -7,6 +7,7 @@ import { App } from './App';
 import { BranchesApp } from './BranchesApp';
 import { ChangesApp } from './ChangesApp';
 import { CommitApp } from './CommitApp';
+import { CommitsApp } from './CommitsApp';
 import { MenuProvider } from './ContextMenu';
 import { StashesApp } from './StashesApp';
 
@@ -15,8 +16,9 @@ const { view: kind, commit = '', root = '', files } = document.body.dataset;
 
 const VIEWS: Record<ViewKind, () => ReactNode> = {
   graph: () => <App />,
+  commits: () => <CommitsApp />,
   // The graph as it fits beside the editor: without the references, which have a view of their own there.
-  commits: () => <App compact />,
+  sideGraph: () => <App compact />,
   changes: () => <ChangesApp />,
   branches: () => <BranchesApp />,
   stashes: () => <StashesApp />,

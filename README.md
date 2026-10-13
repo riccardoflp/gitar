@@ -2,10 +2,11 @@
 
 Commit graph, history and everyday Git operations in a single VS Code panel.
 
-Gitar has a view in the bottom panel and four in the Source Control side bar of VS Code:
+Gitar has a view in the bottom panel and five in the Source Control side bar of VS Code:
 
 - **Graph**, in the panel next to the terminal: the commit graph, the references and the commit details, side by side.
-- **Commits**, **Branches** and **Stashes**, in the side bar under the views of VS Code: the same history, references and stashes, for when the panel is closed.
+- **Commits**, in the side bar under the views of VS Code: the commits of the branch that is checked out, each with whether it is pushed and the files it changed.
+- **Gitar Graph**, **Branches** and **Stashes**, in the side bar too: the same history, references and stashes as the panel, for when it is closed.
 - **Gitar Changes**, hidden until you ask for it: staging and committing, where VS Code has its own.
 
 See [Side bar](#side-bar). Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitar: Open Graph in Editor** opens the graph as an editor tab. So does the **Gitar** button in the status bar, which is there whenever the workspace has a repository; like any item of the status bar it can be hidden from the menu a right click on the bar opens.
@@ -91,15 +92,25 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 
 ### Side bar
 
-Gitar has no icon of its own in the activity bar: its views are in the **Source Control** side bar, the one VS Code keeps for Git, under **Changes** and **Graph**. Three of them show what the graph of Gitar shows, each on its own:
+Gitar has no icon of its own in the activity bar: its views are in the **Source Control** side bar, the one VS Code keeps for Git, under **Changes** and **Graph**.
 
-- **Commits** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. A list this narrow gives each commit two lines: its message, and under it its labels with their names, who made it and when. A commit with more than three labels names two of them, what is checked out first, and counts the others: hover the count to read them.
+**Commits** lists the commits of what is checked out, newest first, and nothing else: it is apart from the graph, so what the graph is narrowed to, searched for or scrolled to changes nothing here. Its header names the branch.
+
+- Each commit says whether it is pushed. A cloud with an arrow, in color, marks the ones that are not in the upstream of the branch yet: what the next push sends. A plain cloud marks the ones that are. The line above the list counts the first, and the commits there are to pull. A branch with no upstream is compared with every remote branch instead, and in a repository with no remote nothing is marked.
+- Click a commit to unfold the files it added, changed, deleted or renamed, and a file to open its diff. Hover a commit for its hash, who made it and when.
+- The buttons on a commit open it in an editor tab, with its changes, or show it in the graph. Its context menu also checks it out, creates a branch or a tag on it, reverts it, resets the branch to it and copies its hash or its message.
+- Its header has fetch, pull and push, with the other ways to pull and push and undo under **…**.
+- The first hundred commits are read, and **Load more commits…** at the end reads the next.
+
+Three other views show what the graph of Gitar shows, each on its own:
+
+- **Gitar Graph** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. A list this narrow gives each commit two lines: its message, and under it its labels with their names, who made it and when. A commit with more than three labels names two of them, what is checked out first, and counts the others: hover the count to read them.
 - **Branches** is the references tree: the recent branches and the favorites, local branches, remote branches, tags and worktrees, with the same context menus, and only the branches the graph is narrowed to while it is. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
 - **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
 
-The fourth, **Gitar Changes**, stages and commits: see [Changes](#changes). VS Code already has a view for that right above, so this one is hidden until you ask for it, with **Gitar: Show Changes** or by ticking it in the **…** menu of the side bar, and stays until you hide it again. The number on the icon of the side bar is the one VS Code counts.
+The fifth, **Gitar Changes**, stages and commits: see [Changes](#changes). VS Code already has a view for that right above, so this one is hidden until you ask for it, with **Gitar: Show Changes** or by ticking it in the **…** menu of the side bar, and stays until you hide it again. The number on the icon of the side bar is the one VS Code counts.
 
-VS Code shows the views an extension adds to this side bar folded: click the header of one to unfold it, or run **Gitar: Show Commits in the Side Bar**, **Gitar: Show Branches** or **Gitar: Show Stashes**. It remembers what you fold and unfold from then on. The context menus open inside the view they belong to, so in a short one they scroll: drag the border between two views to give one more room, or fold the ones you are not using.
+VS Code shows the views an extension adds to this side bar folded: click the header of one to unfold it, or run **Gitar: Show Commits in the Side Bar**, **Gitar: Open Graph in the Side Bar**, **Gitar: Show Branches** or **Gitar: Show Stashes**. It remembers what you fold and unfold from then on. The context menus open inside the view they belong to, so in a short one they scroll: drag the border between two views to give one more room, or fold the ones you are not using.
 
 If you had Gitar before its views moved here and they are still where they were, **View: Reset View Locations** brings them over.
 
@@ -107,7 +118,8 @@ If you had Gitar before its views moved here and they are still where they were,
 
 The details beside the graph are a summary. To read a commit whole, open it in a tab of the editor:
 
-- double-click it in the graph or in the Commits view, or press `Enter` on the selected one;
+- double-click it in the graph, in the panel or in the side bar, or press `Enter` on the selected one;
+- use the button on its row in the Commits view;
 - press the button beside the one that closes its details;
 - choose **Open in an editor tab** in its context menu;
 - run **Gitar: Open Commit in Editor…** and type a hash, or anything else git turns into a commit.
@@ -122,7 +134,7 @@ Each commit has one tab: asking for it again shows the one it has. A tab stays o
 
 ### Compare
 
-**Gitar: Compare Branches, Tags or Commits…**, also the compare button in the headers of the Commits and Branches views and the first entry under **…** in the toolbar, asks for the two sides one after the other. Each is chosen from the list of branches, remote branches and tags, or typed with **Enter a hash or a revision…**: a commit hash, or anything else git turns into a commit, such as `HEAD~3`, `v1.0^` or `main@{yesterday}`. What git does not know is refused while you type.
+**Gitar: Compare Branches, Tags or Commits…**, also the compare button in the headers of the Gitar Graph and Branches views and the first entry under **…** in the toolbar, asks for the two sides one after the other. Each is chosen from the list of branches, remote branches and tags, or typed with **Enter a hash or a revision…**: a commit hash, or anything else git turns into a commit, such as `HEAD~3`, `v1.0^` or `main@{yesterday}`. What git does not know is refused while you type.
 
 The files that differ between the two are listed in place of the commit details; selecting a file opens the diff, and the button next to the count opens all of them in one editor. **Swap** reverses the direction. The comparison shows in the view it was asked from: the graph, the Commits view, or the Branches view, under the tree. Asked from the command palette, it shows in the graph.
 
@@ -149,7 +161,7 @@ The same can be done from the context menu of a branch or tag, on its label in t
 | **Hide this history** | Takes it out of the ones shown |
 | **Show all branches** | Shows everything again |
 
-While the graph is narrowed the button is pressed in, and a bar above the commits says to what, with **Show all branches** to undo it. The choice is one for the graph and the Commits view of the side bar, and is remembered for each repository of the workspace. A branch that is deleted is forgotten.
+While the graph is narrowed the button is pressed in, and a bar above the commits says to what, with **Show all branches** to undo it. The choice is one for the graph in the panel and the one of the side bar, and is remembered for each repository of the workspace. A branch that is deleted is forgotten.
 
 What narrows the graph further works inside the branches shown: the history of a file is the one it has on them, and a search finds only their commits. Going to a commit that is on none of them, by its hash or from the reflog, shows all the branches again. The uncommitted changes are listed above the graph only when the commit they are made on is in it.
 
@@ -186,7 +198,7 @@ The commits found stay where they are in the graph and the others are dimmed. Th
 | --- | --- |
 | `Enter`, `F3` or the arrow down | Selects the next match, and starts again from the first after the last |
 | `Shift+Enter`, `Shift+F3` or the arrow up | Selects the previous one |
-| `Ctrl+F` (`Cmd+F` on macOS) | Puts the cursor in the box, from anywhere in the view. While the graph or the Commits view has the keyboard the key is theirs, and the editor behind does not open its own search |
+| `Ctrl+F` (`Cmd+F` on macOS) | Puts the cursor in the box, from anywhere in the view. While the graph, in the panel or in the side bar, has the keyboard the key is its own, and the editor behind does not open its own search |
 | `Escape` | Empties the box |
 
 A match further back than the history is loaded is loaded when you step to it. What a search of the whole history found is found again when the commits change, so a commit made or fetched meanwhile is counted too; a search stops counting at 5,000 commits and says so with a `+`.
@@ -201,7 +213,7 @@ Type the hash of a commit in the box, or the first four characters or more of it
 - left out by the filter in use, such as the history of a file or of a branch: the filter is removed;
 - on no branch or tag, such as a commit lost to a reset or a rebase: the graph shows the history of that commit alone, until you choose **Show all commits**.
 
-**Gitar: Go to Commit…**, also under **…** in the toolbar and in the header of the Commits view, asks for anything git takes for a commit instead: a hash, a branch, a tag, `HEAD~3`, `main@{yesterday}`.
+**Gitar: Go to Commit…**, also under **…** in the toolbar and in the header of the Gitar Graph view, asks for anything git takes for a commit instead: a hash, a branch, a tag, `HEAD~3`, `main@{yesterday}`.
 
 ### File history
 
@@ -382,11 +394,12 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the line under the cursor is annotated with who changed it;
 - the button of the editor puts beside each line who changed it and when, in one column, with a bar in the color of its age and the lines of the commit under the cursor standing out, and takes it away again; the buttons beside it change state when pressed, and the file opens as it was before the commit of a line, with its own blame;
 - the search counts the commits it finds and steps through them with the keys and the arrows, goes to a commit by its hash even when no branch reaches it, highlights in the graph what git finds in the whole history or lists it alone, and counts a commit made meanwhile;
-- the branches shown in the graph are chosen from the list under the button, with one click or one by one, with the box that narrows the list, and from the context menu of a branch; the Commits view of the side bar has the same button;
+- the branches shown in the graph are chosen from the list under the button, with one click or one by one, with the box that narrows the list, and from the context menu of a branch; the graph of the side bar has the same button;
 - a branch dragged onto the checked out commit offers to merge or rebase;
 - the references and the details get wider when the line beside them is dragged, and a double click undoes it;
 - a graph of twenty branches side by side keeps to its width by drawing them closer, gets narrower and wider when its edge is dragged, and a double click undoes it;
-- the Commits view of the side bar lists the commits on two lines each, with their labels named, the details under them, and its header has the buttons;
+- the Commits view of the side bar lists the commits of the branch and not those of the others, says which are pushed and how many are left to push, unfolds one to its files, and has its menu and the buttons of its header;
+- the graph of the side bar lists the commits on two lines each, with their labels named, the details under them, and its header has the buttons;
 - the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know;
 - the Stashes view unfolds a stash to its files, and its header counts the stashes;
 - the graph opens as an editor tab, with the details of a commit beside it;

@@ -47,7 +47,7 @@ const THEMES = {
   },
 };
 
-const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'branches', 'stashes', 'commit'];
+const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'sideGraph', 'branches', 'stashes', 'commit'];
 
 /** `data` is what the extension would write on the page: the view it is, and for a commit which one. */
 function page(theme: keyof typeof THEMES, data: Record<string, string>): string {
@@ -183,6 +183,10 @@ async function main() {
       case 'ready':
       case 'refresh':
         return state();
+      case 'getLog': {
+        const log = await repo?.branchLog(message.limit);
+        return log ? [{ type: 'log', log }] : [];
+      }
       case 'getComparison': {
         const comparison = await repo?.compare(message.from, message.to);
         return comparison ? [{ type: 'comparison', comparison }] : [];

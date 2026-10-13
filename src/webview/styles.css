@@ -1548,6 +1548,7 @@ input:focus-visible,
   max-height: 60%;
 }
 
+.side.log,
 .side.stashes {
   display: block;
   padding: 4px 0;
@@ -1568,12 +1569,58 @@ input:focus-visible,
   flex: none;
 }
 
+.commit-files .file,
 .stash-files .file {
   padding-left: 30px;
 }
 
+.commit-files .none,
 .stash-files .none {
   padding-left: 30px;
+}
+
+/* The commits of what is checked out: how many are left to push, then each with whether it is pushed. */
+.log-summary {
+  margin: 0 0 4px;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9em;
+}
+
+/* A commit is told by its message: who made it and when give way to it. */
+.commit .name {
+  flex: 0 1 auto;
+  min-width: 3em;
+}
+
+.commit .meta {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.push-state {
+  flex: none;
+  display: flex;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+}
+
+/* The ones still to push stand out, in the color VS Code gives to what is changed and not committed. */
+.commit.unpushed .push-state {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+  opacity: 1;
+}
+
+.file.more {
+  width: 100%;
+  padding-left: 30px;
+  color: var(--vscode-textLink-foreground);
 }
 
 /* Two lines to a commit, in the side bar: the message, and under it its labels, who made it and when. */

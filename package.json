@@ -52,6 +52,14 @@
         },
         {
           "type": "webview",
+          "id": "gitar.sideGraph",
+          "name": "Gitar Graph",
+          "contextualTitle": "Gitar",
+          "visibility": "collapsed",
+          "initialSize": 4
+        },
+        {
+          "type": "webview",
           "id": "gitar.branches",
           "name": "Branches",
           "contextualTitle": "Gitar",
@@ -304,6 +312,11 @@
         "category": "Gitar"
       },
       {
+        "command": "gitar.openSideGraph",
+        "title": "Open Graph in the Side Bar",
+        "category": "Gitar"
+      },
+      {
         "command": "gitar.openBranches",
         "title": "Show Branches",
         "category": "Gitar"
@@ -403,67 +416,67 @@
         },
         {
           "command": "gitar.fetch",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "navigation@1"
         },
         {
           "command": "gitar.pull",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "navigation@2"
         },
         {
           "command": "gitar.push",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "navigation@3"
         },
         {
           "command": "gitar.compare",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.sideGraph",
           "group": "navigation@4"
         },
         {
           "command": "gitar.pullPlain",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "1_sync@1"
         },
         {
           "command": "gitar.pullRebase",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "1_sync@2"
         },
         {
           "command": "gitar.pullAutostash",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "1_sync@3"
         },
         {
           "command": "gitar.pullRebaseAutostash",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "1_sync@4"
         },
         {
           "command": "gitar.pushForceWithLease",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "1_sync@5"
         },
         {
           "command": "gitar.pushForce",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "1_sync@6"
         },
         {
           "command": "gitar.undo",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.commits || view == gitar.sideGraph",
           "group": "2_more@1"
         },
         {
           "command": "gitar.reflog",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.sideGraph",
           "group": "2_more@2"
         },
         {
           "command": "gitar.goToCommit",
-          "when": "view == gitar.commits",
+          "when": "view == gitar.sideGraph",
           "group": "2_more@3"
         },
         {

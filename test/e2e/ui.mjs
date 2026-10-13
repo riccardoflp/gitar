@@ -174,8 +174,8 @@ try {
     await shot('source-control');
     const titles = first.map((pane) => pane.title);
     // Under the views of VS Code, in this order, and none of them open before it is wanted.
-    assert(titles.slice(-3).join() === 'Commits,Branches,Stashes', `views: ${titles}`);
-    assert(first.slice(-3).every((pane) => !pane.open), `folded: ${JSON.stringify(first)}`);
+    assert(titles.slice(-4).join() === 'Commits,Gitar Graph,Branches,Stashes', `views: ${titles}`);
+    assert(first.slice(-4).every((pane) => !pane.open), `folded: ${JSON.stringify(first)}`);
     assert(!titles.includes('Gitar Changes'), `the changes of Gitar are not shown: ${titles}`);
     // Gitar has no icon of its own in the activity bar: the graph is in the panel, and the rest is here.
     const icons = await page.evaluate(`[...document.querySelectorAll('.activitybar .action-item a')].map((icon) => icon.getAttribute('aria-label') ?? '')`);
@@ -749,7 +749,7 @@ try {
   /** What the header of a view of the side bar says after its name, and the buttons it has. */
   const header = (title) =>
     page.evaluate(`(() => {
-      const header = [...document.querySelectorAll('.pane-header')].find((candidate) => candidate.querySelector('.title')?.textContent === ${JSON.stringify(title)});
+      const header = [...document.querySelectorAll('.sidebar .pane-header')].find((candidate) => candidate.querySelector('.title')?.textContent === ${JSON.stringify(title)});
       if (!header) return null;
       return {
         description: header.querySelector('.description')?.textContent ?? '',
@@ -767,13 +767,71 @@ try {
       files: [...document.querySelectorAll('.detail .file .name')].map((file) => file.textContent),
     })`);
 
-  await step('the side bar lists the commits too, with the details under them and the buttons in the header of the view', async () => {
+  await step('the side bar lists the commits of the branch, apart from the graph: each says whether it is pushed and unfolds to its files', async () => {
     // The changes had their turn: their room goes to the views under them.
     await fold('Gitar Changes');
     await command('Gitar: Show Commits in the Side Bar');
     await until('the view', async () => (await panes()).some((pane) => pane.title === 'Commits' && pane.open));
     await sleep(500);
     const commits = await webview('commits');
+    const listed = () =>
+      commits.evaluate(`[...document.querySelectorAll('.commit')].map((row) => ({
+        subject: row.querySelector('.name').textContent,
+        pushed: row.classList.contains('pushed'),
+        unpushed: row.classList.contains('unpushed'),
+        icon: row.querySelector('.push-state .codicon').className,
+        title: row.querySelector('.file-open').title,
+        read: row.querySelector('.name').getBoundingClientRect().width >= 40,
+      }))`);
+    const rows = await until('the commits', async () => {
+      const now = await listed();
+      return now.some((row) => row.subject === 'Add a') ? now : null;
+    });
+    // The ones made here are still to push, and the ones the remote has say so.
+    const made = rows.find((row) => row.subject === 'Commit from the UI');
+    const old = rows.find((row) => row.subject === 'Add a');
+    assert(made?.unpushed && made.icon.includes('cloud-upload') && made.title.includes('Not pushed to origin/main'), `not pushed: ${JSON.stringify(made)}`);
+    assert(old?.pushed && old.title.includes('Pushed: it is in origin/main'), `pushed: ${JSON.stringify(old)}`);
+    assert(rows.every((row) => row.pushed !== row.unpushed && row.read), `each says which: ${JSON.stringify(rows)}`);
+    // Only what is checked out: the commit of another branch is in the graph, and not here.
+    assert(!rows.some((row) => row.subject === 'Add feature'), `only the branch: ${rows.map((row) => row.subject)}`);
+    const waiting = rows.filter((row) => row.unpushed).length;
+    const summary = await commits.evaluate(`document.querySelector('.log-summary').textContent`);
+    assert(summary === waiting + (waiting === 1 ? ' commit' : ' commits') + ' to push to origin/main', `summary: ${summary}`);
+    await until('what its header says', async () => (await header('Commits'))?.description === 'workspace/app · main');
+
+    // A commit unfolds to the files it changed, with what happened to each.
+    await commits.click('.commit .file-open', 'Add b');
+    const files = await until('its files', () =>
+      commits.evaluate(`(() => {
+        const files = [...document.querySelectorAll('.commit-files .file')].map((file) => file.querySelector('.status').textContent + ' ' + file.querySelector('.name').textContent);
+        return files.length ? files : null;
+      })()`),
+    );
+    assert(files.join() === 'A b.txt', `files: ${files}`);
+    await shot('side-commits');
+    const at = await commits.locate('.commit', 'Add b');
+    await mouse(at.x, at.y, 'right');
+    const items = await menuItems(commits);
+    await key('Escape');
+    assert(items.includes('Show in the graph') && items.includes('Open in an editor tab'), `menu: ${items}`);
+    await commits.click('.commit .file-open', 'Add b');
+    await until('the files put away', () => commits.evaluate(`!document.querySelector('.commit-files')`));
+
+    const { actions } = await header('Commits');
+    for (const wanted of ['Fetch', 'Pull', 'Push', 'Refresh']) {
+      assert(actions.some((action) => action.startsWith(wanted)), `the header has ${wanted}: ${actions}`);
+    }
+    assert(!actions.some((action) => action.startsWith('Compare')), `what is of the graph is not here: ${actions}`);
+  });
+
+  await step('the side bar has the graph too, with the details under the commits and the buttons in the header of the view', async () => {
+    // The commits had their turn: their room goes to the views under them.
+    await fold('Commits');
+    await command('Gitar: Open Graph in the Side Bar');
+    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Gitar Graph' && pane.open));
+    await sleep(500);
+    const commits = await webview('sideGraph');
     await until('the commits', async () => (await subjects(commits)).includes('Add a'));
     // A list this narrow gives each commit two lines: its message, and under it its labels, who made it and when.
     const rows = await commits.evaluate(`[...document.querySelectorAll('.row')].map((row) => ({
@@ -794,7 +852,7 @@ try {
     assert(labelled && labelled.labels.every((label) => label.read), `labels with their names: ${JSON.stringify(rows.map((row) => row.labels))}`);
     await commits.click('.row', 'Add b');
     await until('the details', () => commits.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add b'`));
-    await shot('side-commits');
+    await shot('side-graph');
     const layout = await commits.evaluate(`(() => {
       const box = (selector) => document.querySelector(selector).getBoundingClientRect();
       return {
@@ -829,7 +887,7 @@ try {
     await key('Escape');
     await until('the list closed', () => commits.evaluate(`!document.querySelector('.scope-picker')`));
 
-    const { actions } = await header('Commits');
+    const { actions } = await header('Gitar Graph');
     for (const wanted of ['Fetch', 'Pull', 'Push', 'Compare Branches, Tags or Commits…', 'Refresh']) {
       assert(actions.some((action) => action.startsWith(wanted)), `the header has ${wanted}: ${actions}`);
     }
@@ -837,8 +895,8 @@ try {
   });
 
   await step('the branches in the side bar compare two of them, or one with a revision typed in the real prompts', async () => {
-    // A view as short as the others leave it has little room for its menu: the commits make way.
-    await fold('Commits');
+    // A view as short as the others leave it has little room for its menu: the graph makes way.
+    await fold('Gitar Graph');
     await command('Gitar: Show Branches');
     await until('the view', async () => (await panes()).some((pane) => pane.title === 'Branches' && pane.open));
     await sleep(500);
@@ -923,8 +981,8 @@ try {
     assert(files.join() === 'new.txt', `files: ${files}`);
     assert(items.some((item) => item.startsWith('Apply')) && items.some((item) => item.startsWith('Drop')), `menu: ${items}`);
     await until('the count in the header', async () => (await header('Stashes'))?.description === '1');
-    // Four views, one under the other, and each still has its place.
-    for (const kind of ['changes', 'commits', 'branches', 'stashes']) {
+    // Five views, one under the other, and each still has its place.
+    for (const kind of ['changes', 'commits', 'sideGraph', 'branches', 'stashes']) {
       const { frame } = await webview(kind);
       assert(frame.height >= 60, `the ${kind} view is ${frame.height}px tall`);
     }

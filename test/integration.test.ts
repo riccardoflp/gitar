@@ -791,6 +791,49 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     await expect(repo.matches({ kind: 'regex', query: '[' }, null, 10)).rejects.toThrow();
   });
 
+  it('lists the commits of what is checked out, and tells the ones that are not pushed', async () => {
+    const none = { root: repo.root, commits: [], hasMore: false, unpushed: null, upstream: null };
+    expect(await repo.branchLog(10)).toEqual(none);
+    write('a.txt', 'one\n');
+    const base = await commitAll('base');
+    const hashes = async (limit = 10) => (await repo.branchLog(limit)).commits.map((commit) => commit.hash);
+    // With no remote there is nothing to say about what is pushed.
+    expect(await repo.branchLog(10)).toEqual({ ...none, commits: [expect.objectContaining({ hash: base, subject: 'base' })] });
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-remote-'));
+    try {
+      await git(remote, ['init', '--bare', '--initial-branch=main']);
+      await git(root, ['remote', 'add', 'origin', remote]);
+      // A remote, and nothing pushed to it yet: no remote branch has the commit.
+      expect(await repo.branchLog(10)).toMatchObject({ unpushed: [base], upstream: null });
+      await run(syncOp('push', await state()));
+      expect(await repo.branchLog(10)).toMatchObject({ unpushed: [], upstream: 'origin/main' });
+
+      write('a.txt', 'one\ntwo\n');
+      const second = await commitAll('second');
+      write('a.txt', 'one\ntwo\nthree\n');
+      const third = await commitAll('third');
+      expect(await hashes()).toEqual([third, second, base]);
+      expect(await repo.branchLog(10)).toMatchObject({ hasMore: false, unpushed: [third, second], upstream: 'origin/main' });
+      // As many as asked for, and whether there are others.
+      expect(await hashes(2)).toEqual([third, second]);
+      expect(await repo.branchLog(2)).toMatchObject({ hasMore: true, unpushed: [third, second] });
+      expect(await repo.branchLog(1)).toMatchObject({ hasMore: true, unpushed: [third] });
+
+      // A branch with no upstream is compared with every remote branch.
+      await git(root, ['checkout', '-q', '-b', 'side']);
+      write('b.txt', 'bee\n');
+      const fourth = await commitAll('fourth');
+      expect(await hashes()).toEqual([fourth, third, second, base]);
+      expect(await repo.branchLog(10)).toMatchObject({ unpushed: [fourth, third, second], upstream: null });
+      // And so is a commit checked out on its own.
+      await git(root, ['checkout', '-q', '--detach', base]);
+      expect(await hashes()).toEqual([base]);
+      expect(await repo.branchLog(10)).toMatchObject({ unpushed: [], upstream: null });
+    } finally {
+      fs.rmSync(remote, { recursive: true, force: true });
+    }
+  });
+
   it('pulls with a rebase', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');

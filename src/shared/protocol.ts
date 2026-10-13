@@ -185,6 +185,19 @@ export interface RepoState {
   pulls: Record<string, PullRequest>;
 }
 
+/** The commits of what is checked out, for the view that lists them apart from the graph. */
+export interface BranchLog {
+  /** The repository they are of. */
+  root: string;
+  /** Newest first. */
+  commits: Commit[];
+  hasMore: boolean;
+  /** The ones among them that are not pushed. Null where there is no remote to push to. */
+  unpushed: string[] | null;
+  /** What they are not in: the upstream of the branch, by its short name. Null when it is every remote branch. */
+  upstream: string | null;
+}
+
 export interface CommitDetail extends Commit {
   committer: string;
   committerEmail: string;
@@ -231,16 +244,17 @@ export interface ComparedRef {
 }
 
 /**
- * What a view shows. `graph` is everything, in the panel or in an editor tab. `changes`, `commits`, `branches` and
- * `stashes` are the views of the side bar: `commits` is the graph without the references beside it. `commit` is one
- * commit in an editor tab, with its message, its files and what it changed in them.
+ * What a view shows. `graph` is everything, in the panel or in an editor tab. `changes`, `commits`, `sideGraph`,
+ * `branches` and `stashes` are the views of the side bar: `commits` lists the commits of what is checked out, each
+ * with its files, apart from the graph, and `sideGraph` is the graph without the references beside it. `commit` is
+ * one commit in an editor tab, with its message, its files and what it changed in them.
  */
-export type ViewKind = 'graph' | 'changes' | 'commits' | 'branches' | 'stashes' | 'commit';
+export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit';
 
-/** The views that list commits, and so are sent them. */
-export const listsCommits = (kind: ViewKind) => kind === 'graph' || kind === 'commits';
+/** The views that show the graph, and so are sent its commits. */
+export const showsGraph = (kind: ViewKind) => kind === 'graph' || kind === 'sideGraph';
 /** The views that can show the files that differ between two commits. */
-export const showsComparisons = (kind: ViewKind) => kind === 'graph' || kind === 'commits' || kind === 'branches';
+export const showsComparisons = (kind: ViewKind) => kind === 'graph' || kind === 'sideGraph' || kind === 'branches';
 
 /** How the files of a commit are laid out in its editor tab: under their directories, or one after the other. */
 export type FilesLayout = 'tree' | 'list';
@@ -337,6 +351,8 @@ export type HostMessage =
    * uncommitted changes, if there is one, because the number of changes it tells may be another.
    */
   | { type: 'state'; state: RepoState | null; sameRows?: true }
+  /** The commits of what is checked out, for the view that asked. */
+  | { type: 'log'; log: BranchLog }
   | { type: 'detail'; hash: string; detail: CommitDetail | null }
   /** What a commit changed, file by file in the order of its details. Null when git and the list of files disagree. */
   | { type: 'patch'; hash: string; patch: FilePatch[] | null }
@@ -374,6 +390,8 @@ export type WebviewMessage =
   | { type: 'focus'; focused: boolean }
   | { type: 'refresh' }
   | { type: 'loadMore' }
+  /** Asks for the commits of what is checked out, that many at most, and which of them are pushed. */
+  | { type: 'getLog'; limit: number }
   | { type: 'getDetail'; hash: string }
   | { type: 'getPatch'; hash: string }
   /** Opens a commit in an editor tab of its own, or shows the tab it already has. */

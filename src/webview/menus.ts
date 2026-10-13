@@ -2,6 +2,7 @@ import {
   WORKTREE,
   type Action,
   type Branch,
+  type Commit,
   type Comparing,
   type NamedRef,
   type PullRequest,
@@ -146,6 +147,26 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
     'separator',
     { label: 'Copy hash', run: () => copy(hash) },
     { label: 'Copy message', run: () => copy(row.subject) },
+  ];
+}
+
+/** What can be done with a commit of what is checked out, where they are listed apart from the graph. */
+export function logMenu(commit: Commit, state: RepoState): MenuEntry[] {
+  const { hash } = commit;
+  const isHead = hash === state.head;
+  return [
+    { label: 'Open in an editor tab', run: () => post({ type: 'openCommit', hash }) },
+    { label: 'Show in the graph', run: () => post({ type: 'reveal', hash }) },
+    'separator',
+    !isHead && { label: 'Check out commit (detached)', run: () => act({ kind: 'checkout', target: 'detached', ref: hash }) },
+    { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: hash }) },
+    { label: 'Create tag here…', run: () => act({ kind: 'createTag', at: hash }) },
+    'separator',
+    { label: `Revert ${shortHash(hash)}`, run: () => act({ kind: 'revert', hash, isMerge: commit.parents.length > 1 }) },
+    !isHead && { label: `Reset ${state.branch ?? 'HEAD'} to here…`, run: () => act({ kind: 'reset', hash }) },
+    'separator',
+    { label: 'Copy hash', run: () => copy(hash) },
+    { label: 'Copy message', run: () => copy(commit.subject) },
   ];
 }
 

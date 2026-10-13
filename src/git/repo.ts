@@ -4,6 +4,7 @@ import { GraphLayout } from '../shared/graph';
 import {
   WORKTREE,
   type Bisect,
+  type BranchLog,
   type CommitDetail,
   type Comparison,
   type FileHunks,
@@ -384,6 +385,34 @@ export class Repo {
     const more = hashes.length > limit;
     if (more) hashes.length = limit;
     return { hashes, more };
+  }
+
+  /**
+   * The commits of what is checked out, newest first and `limit` at most, whatever the graph is narrowed to; and which
+   * of them are not pushed: not in the upstream of the branch, or in no remote branch when it has none.
+   */
+  async branchLog(limit: number): Promise<BranchLog> {
+    const [logOut, upstreamOut, remoteOut] = await Promise.all([
+      // Before the first commit there is nothing to list.
+      this.read(['log', '-z', `--format=${LOG_FORMAT}`, `--max-count=${limit + 1}`, 'HEAD', '--'], true),
+      // Git has no answer without an upstream, or with one whose branch is gone from the remote.
+      this.read(['rev-parse', '--symbolic-full-name', '@{upstream}'], true),
+      this.read(['remote']),
+    ]);
+    const commits = parseLog(logOut);
+    const hasMore = commits.length > limit;
+    if (hasMore) commits.length = limit;
+    const upstream = upstreamOut.trim().startsWith('refs/') ? upstreamOut.trim() : null;
+    if (!commits.length || (!upstream && !remoteOut.trim())) return { root: this.root, commits, hasMore, unpushed: null, upstream: null };
+    // In the order of the list, so that the ones of the commits listed are among the first as many.
+    const unpushed = await this.read(['rev-list', `--max-count=${limit}`, 'HEAD', '--not', ...(upstream ? [upstream] : ['--remotes']), '--']);
+    return {
+      root: this.root,
+      commits,
+      hasMore,
+      unpushed: unpushed.split('\n').filter(Boolean),
+      upstream: upstream && upstream.replace(/^refs\/(remotes|heads)\//, ''),
+    };
   }
 
   /** Who last changed a line (1-based). */

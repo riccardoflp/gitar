@@ -166,16 +166,16 @@ export async function run(): Promise<void> {
     assert.deepEqual([...internals.views.values()], ['graph']);
   });
 
-  await step('the four views of the side bar load too, and the graph opens as an editor tab', async () => {
+  await step('the five views of the side bar load too, and the graph opens as an editor tab', async () => {
     const before = received.filter((incoming) => incoming.type === 'ready').length;
     // The stashes start folded, and a folded view is not loaded: its command unfolds it.
-    for (const name of ['Changes', 'Commits', 'Branches', 'Stashes']) await vscode.commands.executeCommand(`gitar.open${name}`);
-    await until('the webviews of the side bar', () => kinds().join() === 'branches,changes,commits,graph,stashes');
+    for (const name of ['Changes', 'Commits', 'SideGraph', 'Branches', 'Stashes']) await vscode.commands.executeCommand(`gitar.open${name}`);
+    await until('the webviews of the side bar', () => kinds().join() === 'branches,changes,commits,graph,sideGraph,stashes');
     await vscode.commands.executeCommand('gitar.openInEditor');
-    await until('the new webviews to say they are ready', () => received.filter((incoming) => incoming.type === 'ready').length >= before + 5);
-    assert.deepEqual(kinds(), ['branches', 'changes', 'commits', 'graph', 'graph', 'stashes']);
+    await until('the new webviews to say they are ready', () => received.filter((incoming) => incoming.type === 'ready').length >= before + 6);
+    assert.deepEqual(kinds(), ['branches', 'changes', 'commits', 'graph', 'graph', 'sideGraph', 'stashes']);
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    await until('the editor tab to detach', () => internals.views.size === 5);
+    await until('the editor tab to detach', () => internals.views.size === 6);
   });
 
   await step('notices commits and files that come from outside the editor', async () => {
@@ -290,7 +290,7 @@ export async function run(): Promise<void> {
     assert.ok(comparison.comparison.files.some((file) => file.path === 'b.txt' && file.status === 'A'));
   });
 
-  await step('gives the commits to the views that list them, and spares the others', async () => {
+  await step('gives the commits of the graph to the views that show it, and spares the others', async () => {
     const told = async (kind: ViewKind) => {
       const webview = view(kind);
       const sent: Extract<HostMessage, { type: 'state' }>[] = [];
@@ -309,8 +309,9 @@ export async function run(): Promise<void> {
     };
     const commits = state().rows.length;
     assert.ok(commits >= 5);
-    assert.equal((await told('commits')).rows.length, commits);
-    for (const kind of ['branches', 'stashes', 'changes'] as const) {
+    assert.equal((await told('sideGraph')).rows.length, commits);
+    // The view of the commits asks for its own, which are not the ones of the graph.
+    for (const kind of ['commits', 'branches', 'stashes', 'changes'] as const) {
       const seen = await told(kind);
       assert.deepEqual(seen.rows, [], `no commits for the ${kind} view`);
       assert.deepEqual(
@@ -372,8 +373,8 @@ export async function run(): Promise<void> {
     choose = byLabel(/Enter a hash/);
     inputs = [parent];
     forget();
-    await internals.onMessage(view('commits'), { type: 'compare', from: { name: tag.name, hash: tag.hash } });
-    assert.deepEqual(compared(), { from: tag.hash, to: parent, fromName: 'v1', toName: parent.slice(0, 7), view: 'commits' });
+    await internals.onMessage(view('sideGraph'), { type: 'compare', from: { name: tag.name, hash: tag.hash } });
+    assert.deepEqual(compared(), { from: tag.hash, to: parent, fromName: 'v1', toName: parent.slice(0, 7), view: 'sideGraph' });
 
     // The stashes have no room for it: it goes to the graph.
     choose = byLabel('$(git-branch) merged');
@@ -402,7 +403,7 @@ export async function run(): Promise<void> {
       { type: 'reveal', hash: hashOf('feature') },
       { type: 'reveal', hash: hashOf('feature') },
     ]);
-    assert.deepEqual(addressed.map((webview) => internals.views.get(webview)).sort(), ['commits', 'graph']);
+    assert.deepEqual(addressed.map((webview) => internals.views.get(webview)).sort(), ['graph', 'sideGraph']);
   });
 
   await step('narrows the graph to the history of a file, switching repository if needed', async () => {
@@ -511,10 +512,60 @@ export async function run(): Promise<void> {
     assert.deepEqual(state().favorites, []);
   });
 
+  /** The commits of what is checked out, as their view in the side bar is given them when it asks. */
+  const branchLog = async () => {
+    const commits = view('commits');
+    posted.length = 0;
+    addressed.length = 0;
+    await internals.onMessage(commits, { type: 'getLog', limit: 100 });
+    const index = posted.findIndex((outgoing) => outgoing.type === 'log');
+    const answer = posted[index];
+    assert.ok(answer?.type === 'log', 'the view is answered');
+    assert.equal(addressed[index], commits);
+    return answer.log;
+  };
+
+  await step('lists the commits of what is checked out apart from the graph, with their files and the ones that are not pushed', async () => {
+    const history = (await git(app, ['log', '--format=%H', 'HEAD'])).stdout.split('\n').filter(Boolean);
+    assert.ok(history.length >= 5);
+    const log = await branchLog();
+    assert.equal(log.root, state().root);
+    assert.deepEqual(
+      log.commits.map((commit) => commit.hash),
+      history,
+    );
+    assert.equal(log.hasMore, false);
+    assert.equal(log.upstream, 'origin/main');
+    assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 2);
+    assert.deepEqual(log.unpushed, history.slice(0, 2));
+
+    // What the graph is narrowed to is nothing to them.
+    await controller.setFilter({ kind: 'path', path: 'b.txt' });
+    try {
+      assert.ok(state().rows.length < history.length, 'the graph has fewer commits');
+      assert.deepEqual(
+        (await branchLog()).commits.map((commit) => commit.hash),
+        history,
+      );
+    } finally {
+      await controller.setFilter(null);
+    }
+
+    // A commit unfolds to the files it changed.
+    const first = log.commits.at(-1)!;
+    posted.length = 0;
+    await internals.onMessage(view('commits'), { type: 'getDetail', hash: first.hash });
+    const detail = posted.find((outgoing) => outgoing.type === 'detail');
+    assert.ok(detail?.type === 'detail' && detail.detail);
+    assert.deepEqual(detail.detail.files, [{ status: 'A', path: 'a.txt' }]);
+    assert.deepEqual(errors, []);
+  });
+
   await step('pushes, fetches and pulls with a rebase against the remote', async () => {
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 2);
     await controller.sync('push');
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 0);
+    assert.deepEqual((await branchLog()).unpushed, []);
     await controller.sync('fetch');
     await controller.sync('pullRebase');
     assert.deepEqual(errors, []);
@@ -715,9 +766,9 @@ export async function run(): Promise<void> {
       await vscode.commands.executeCommand('gitar.refresh');
       assert.ok(!loaded(oldest) && state().hasMore, 'only the last commits are loaded');
       forget();
-      await internals.onMessage(view('commits'), { type: 'goTo', revision: oldest });
+      await internals.onMessage(view('sideGraph'), { type: 'goTo', revision: oldest });
       assert.ok(loaded(oldest), 'the history is loaded up to the commit');
-      assert.deepEqual(revealed(), [`${oldest} in commits`]);
+      assert.deepEqual(revealed(), [`${oldest} in sideGraph`]);
       assert.equal(internals.limit, pages);
     } finally {
       unanswered.delete('loadMore');
@@ -758,7 +809,7 @@ export async function run(): Promise<void> {
   });
 
   await step('finds commits in the whole history for a view to highlight where they are, without replacing the graph', async () => {
-    const commits = view('commits');
+    const commits = view('sideGraph');
     const find = async (search: Extract<Filter, { query: string }>) => {
       posted.length = 0;
       addressed.length = 0;

@@ -25,7 +25,7 @@ import {
   type IdentityProfile,
 } from '../git/ops';
 import { Repo, isHash } from '../git/repo';
-import { WORKTREE, listsCommits, showsComparisons } from '../shared/protocol';
+import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
 import type {
   Action,
   ComparedRef,
@@ -69,6 +69,8 @@ const FILES_KEY = 'gitar.commitFiles';
 const FAVORITES_KEY = 'gitar.favorites';
 /** How many lines of what a commit changed are sent to its tab. The diff editor shows a commit longer than that. */
 const PATCH_LINES = 20_000;
+/** The most commits the view of the commits of a branch is given, however many it asks for. */
+const LOG_LIMIT = 10_000;
 /** What fits of the message of a commit in the title of its tab. */
 const TITLE_LENGTH = 32;
 /** Pull requests change on GitHub's side, so they are re-read at most this often unless something asks for it. */
@@ -452,13 +454,13 @@ export class Controller implements vscode.Disposable {
   /** Selects a commit in the views that list commits and are there, without opening any or taking the focus. */
   private show(hash: string): void {
     if (!isHash(hash)) return;
-    for (const [view, kind] of this.views) if (listsCommits(kind)) this.post({ type: 'reveal', hash }, view);
+    for (const [view, kind] of this.views) if (showsGraph(kind)) this.post({ type: 'reveal', hash }, view);
   }
 
   /** Hands over what was waiting for a graph view to be there. */
   private flushPending(): void {
     const views = (wanted: (kind: ViewKind) => boolean) => [...this.views].filter(([, kind]) => wanted(kind)).map(([view]) => view);
-    const lists = views(listsCommits);
+    const lists = views(showsGraph);
     if (this.pendingReveal && lists.length) {
       for (const view of lists) this.post({ type: 'reveal', hash: this.pendingReveal }, view);
       this.pendingReveal = undefined;
@@ -1098,7 +1100,7 @@ export class Controller implements vscode.Disposable {
     const key = rowsKey(state, this.filter);
     for (const view of targets) {
       // The views that never show the graph are spared the rows.
-      if (!listsCommits(this.views.get(view) ?? 'graph')) {
+      if (!showsGraph(this.views.get(view) ?? 'graph')) {
         void view.postMessage({ type: 'state', state: { ...state, rows: [] } } satisfies HostMessage);
         continue;
       }
@@ -1149,6 +1151,11 @@ export class Controller implements vscode.Disposable {
       case 'loadMore':
         this.limit += PAGE_SIZE;
         return this.refresh();
+      case 'getLog': {
+        const limit = Math.min(Math.max(Math.trunc(Number(message.limit)) || 1, 1), LOG_LIMIT);
+        const log = await this.repo?.branchLog(limit).catch(() => null);
+        return log ? this.post({ type: 'log', log }, webview) : undefined;
+      }
       case 'getDetail': {
         const detail = (await repo?.commitDetail(message.hash).catch(() => null)) ?? null;
         return this.post({ type: 'detail', hash: message.hash, detail }, webview);

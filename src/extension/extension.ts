@@ -9,6 +9,7 @@ import { FileBlame } from './fileBlame';
 const GRAPH_VIEW = 'gitar.graph';
 const CHANGES_VIEW = 'gitar.changes';
 const COMMITS_VIEW = 'gitar.commits';
+const SIDE_GRAPH_VIEW = 'gitar.sideGraph';
 const BRANCHES_VIEW = 'gitar.branches';
 const STASHES_VIEW = 'gitar.stashes';
 
@@ -150,8 +151,17 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     vscode.window.registerWebviewViewProvider(CHANGES_VIEW, sideView('changes'), webviewOptions),
     vscode.window.registerWebviewViewProvider(
       COMMITS_VIEW,
+      // What its commits are of: the branch, and the repository when there are several.
+      sideView('commits', (state) => {
+        const branch = state.branch ?? (state.head ? `detached at ${state.head.slice(0, 7)}` : undefined);
+        return state.repos.length > 1 ? [state.name, branch].filter(Boolean).join(' · ') : branch;
+      }),
+      webviewOptions,
+    ),
+    vscode.window.registerWebviewViewProvider(
+      SIDE_GRAPH_VIEW,
       // There is no room there for the box that names the repository, which matters when there are several.
-      sideView('commits', (state) => (state.repos.length > 1 ? state.name : undefined)),
+      sideView('sideGraph', (state) => (state.repos.length > 1 ? state.name : undefined)),
       webviewOptions,
     ),
     vscode.window.registerWebviewViewProvider(
@@ -167,6 +177,7 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.openGraph', () => vscode.commands.executeCommand(`${GRAPH_VIEW}.focus`)),
     command('gitar.openChanges', () => vscode.commands.executeCommand(`${CHANGES_VIEW}.focus`)),
     command('gitar.openCommits', () => vscode.commands.executeCommand(`${COMMITS_VIEW}.focus`)),
+    command('gitar.openSideGraph', () => vscode.commands.executeCommand(`${SIDE_GRAPH_VIEW}.focus`)),
     command('gitar.openBranches', () => vscode.commands.executeCommand(`${BRANCHES_VIEW}.focus`)),
     command('gitar.openStashes', () => vscode.commands.executeCommand(`${STASHES_VIEW}.focus`)),
     command('gitar.openInEditor', openInEditor),
