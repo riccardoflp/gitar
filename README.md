@@ -271,6 +271,7 @@ The **Gitar Changes** view, shown with **Gitar: Show Changes**:
 - The sparkle button drafts the commit message with a language model available in VS Code, such as GitHub Copilot. It sends the model the staged changes, or all changes when nothing is staged, cut to 20,000 characters, and the subjects of the last commits as an example of style. Nothing is sent until you press it, and the draft is yours to edit.
 - Selecting a file opens the matching diff: staged against `HEAD`, or the working tree against the index. The first button on the header of each list opens all of its diffs in one editor.
 - Stash all changes, untracked files included; a single file, with the stash button on its row; or only what is staged, with the one on the **Staged changes** header (`git stash push --staged`, Git 2.35 or later).
+- The list of changes of VS Code, in the Source Control view, gets the same three buttons: on each file, on **Staged Changes** and on **Changes**. They are in the context menus there too, where several selected files are stashed together, and they work in the repository of the file, which Gitar then shows. The setting `gitar.scm.stashButtons` takes them away.
 - Below the commit box is the name and email the commit will be made with. Click it to switch identity.
 - A list of more than 300 files shows the first 300 and a **Show all** link, here and in the details of a commit or of a comparison. The counts and the buttons on the header still speak for the whole list.
 

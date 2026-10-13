@@ -1012,6 +1012,64 @@ export async function run(): Promise<void> {
     assert.equal(state().changes, 0);
   });
 
+  await step('the buttons added to the list of changes of VS Code stash a file, what is staged or everything, in the repository of the file', async () => {
+    // What VS Code hands to the command of a button: the file it is on, or the group with its files.
+    const file = (root: string, name: string) => ({ resourceUri: vscode.Uri.file(path.join(root, name)) });
+    const stashed = () => logged.filter((line) => line.startsWith('> git stash push'));
+    const pop = () => controller.action({ kind: 'stashPop', ref: 'stash@{0}' });
+    write('a.txt', 'one\ntwo\nstash me\n');
+    write('keep.txt', 'stays\n');
+    await vscode.commands.executeCommand('gitar.refresh');
+    try {
+      logged.length = 0;
+      inputs = ['from the list'];
+      await vscode.commands.executeCommand('gitar.scmStashFile', file(app, 'a.txt'));
+      assert.deepEqual(stashed(), ['> git stash push --include-untracked -m "from the list" -- a.txt']);
+      assert.equal(state().stashes.length, 1);
+      assert.deepEqual(state().working.unstaged, [{ status: '?', path: 'keep.txt' }]);
+      await pop();
+      assert.equal(state().changes, 2);
+
+      // On the group of the changes: everything, untracked files too.
+      logged.length = 0;
+      inputs = [''];
+      await vscode.commands.executeCommand('gitar.scmStashAll', { resourceStates: [file(app, 'a.txt'), file(app, 'keep.txt')] });
+      assert.deepEqual(stashed(), ['> git stash push --include-untracked']);
+      assert.equal(state().changes, 0);
+      await pop();
+      assert.equal(state().changes, 2);
+
+      // On the group of what is staged: that, and nothing else.
+      await controller.action({ kind: 'stage', paths: ['a.txt'] });
+      logged.length = 0;
+      inputs = ['staged'];
+      await vscode.commands.executeCommand('gitar.scmStashStaged', { resourceStates: [file(app, 'a.txt')] });
+      assert.deepEqual(stashed(), ['> git stash push --staged -m staged']);
+      assert.deepEqual(state().working.staged, []);
+      assert.deepEqual(state().working.unstaged, [{ status: '?', path: 'keep.txt' }]);
+      await pop();
+      assert.equal(state().changes, 2);
+
+      // A file of the other repository is stashed there, which the views then show.
+      fs.writeFileSync(path.join(lib, 'lib.txt'), 'lib\nmore\n');
+      inputs = ['in lib'];
+      await vscode.commands.executeCommand('gitar.scmStashFile', file(lib, 'lib.txt'));
+      assert.equal(state().name, 'lib');
+      assert.equal(state().stashes.length, 1);
+      assert.equal(state().changes, 0);
+      await pop();
+      await git(lib, ['checkout', '--', 'lib.txt']);
+      assert.deepEqual(errors, []);
+    } finally {
+      await controller.selectRepo(state().repos[0].root);
+      answer = run;
+      await controller.action({ kind: 'discardAll' });
+    }
+    assert.equal(state().name, 'app');
+    assert.equal(state().changes, 0);
+    assert.equal(state().stashes.length, 0);
+  });
+
   await step('cherry-picks several commits oldest first, whatever order they were selected in', async () => {
     await git(app, ['checkout', '-b', 'picks']);
     const made: string[] = [];

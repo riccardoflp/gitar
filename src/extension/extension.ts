@@ -94,6 +94,13 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
   );
 
   const command = (id: string, handler: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(id, handler);
+  /** The files of what VS Code hands to a command of its own list of changes: the files clicked, or the group they are in. */
+  const scmFiles = (given: unknown[]): vscode.Uri[] =>
+    given.flatMap((each) => {
+      const item = each as { resourceUri?: unknown; resourceStates?: unknown } | undefined;
+      if (item?.resourceUri instanceof vscode.Uri) return [item.resourceUri];
+      return Array.isArray(item?.resourceStates) ? scmFiles(item.resourceStates) : [];
+    });
   const syncActions: SyncAction[] = [
     'fetch',
     'pull',
@@ -184,6 +191,10 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.refresh', () => controller.refresh()),
     command('gitar.showLog', () => log.show()),
     command('gitar.stash', () => controller.action({ kind: 'stashPush' })),
+    // The buttons Gitar adds to the list of changes of VS Code, in the repository of what they are on.
+    command('gitar.scmStashFile', (...files) => controller.stashFromScm(scmFiles(files), 'files')),
+    command('gitar.scmStashStaged', (...groups) => controller.stashFromScm(scmFiles(groups), 'staged')),
+    command('gitar.scmStashAll', (...groups) => controller.stashFromScm(scmFiles(groups), 'all')),
     command('gitar.undo', () => controller.action({ kind: 'undo' })),
     // Pull is the button, which pulls the way the settings choose: the pull with no option has a command of its own.
     ...syncActions.map((action) => command(`gitar.${action}`, () => (action === 'pull' ? controller.pull() : controller.sync(action)))),

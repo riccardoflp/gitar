@@ -158,6 +158,24 @@
         "icon": "$(git-stash)"
       },
       {
+        "command": "gitar.scmStashFile",
+        "title": "Stash This File…",
+        "category": "Gitar",
+        "icon": "$(git-stash)"
+      },
+      {
+        "command": "gitar.scmStashStaged",
+        "title": "Stash Only the Staged Changes…",
+        "category": "Gitar",
+        "icon": "$(git-stash)"
+      },
+      {
+        "command": "gitar.scmStashAll",
+        "title": "Stash All Changes…",
+        "category": "Gitar",
+        "icon": "$(git-stash)"
+      },
+      {
         "command": "gitar.undo",
         "title": "Undo Last Operation",
         "category": "Gitar"
@@ -360,6 +378,18 @@
         {
           "command": "gitar.blameCountWhitespace",
           "when": "false"
+        },
+        {
+          "command": "gitar.scmStashFile",
+          "when": "false"
+        },
+        {
+          "command": "gitar.scmStashStaged",
+          "when": "false"
+        },
+        {
+          "command": "gitar.scmStashAll",
+          "when": "false"
         }
       ],
       "explorer/context": [
@@ -536,6 +566,40 @@
           "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && config.gitar.fileBlame.everyFile",
           "group": "navigation@92"
         }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "gitar.scmStashStaged",
+          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == index",
+          "group": "inline"
+        },
+        {
+          "command": "gitar.scmStashStaged",
+          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == index",
+          "group": "9_gitar"
+        },
+        {
+          "command": "gitar.scmStashAll",
+          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == workingTree",
+          "group": "inline"
+        },
+        {
+          "command": "gitar.scmStashAll",
+          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == workingTree",
+          "group": "9_gitar"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "gitar.scmStashFile",
+          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
+          "group": "inline"
+        },
+        {
+          "command": "gitar.scmStashFile",
+          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
+          "group": "9_gitar"
+        }
       ]
     },
     "keybindings": [
@@ -647,6 +711,11 @@
           "default": 730,
           "minimum": 1,
           "description": "After how many days a line has the color of the lines changed long ago. Recent days count more than old ones: a day and a week are further apart than a year and a year and a week."
+        },
+        "gitar.scm.stashButtons": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Add the buttons that stash to the list of changes of VS Code, in the Source Control view: on each file, on **Staged Changes** for what is staged, and on **Changes** for everything. The Changes view of Gitar has them whatever is set here."
         },
         "gitar.pull.autostash": {
           "type": "boolean",

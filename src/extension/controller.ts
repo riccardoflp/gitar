@@ -313,15 +313,7 @@ export class Controller implements vscode.Disposable {
   /** Shows the commits that touched a file: the given one, or the one in the active editor. */
   async fileHistory(uri = vscode.window.activeTextEditor?.document.uri): Promise<void> {
     if (!(await this.requireState())) return;
-    if (uri?.scheme === 'file') {
-      // In a workspace with several repositories the file decides which one to show: the innermost one that contains it.
-      const contains = (root: string) => {
-        const relative = path.relative(root, uri.fsPath);
-        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
-      };
-      const owner = this.repos.filter((repo) => contains(repo.root)).sort((a, b) => b.root.length - a.root.length)[0];
-      if (owner) await this.selectRepo(owner.root);
-    }
+    if (uri?.scheme === 'file') await this.showRepoOf(uri);
     if (!this.repo) return;
     const file = uri?.scheme === 'file' ? path.relative(this.repo.root, uri.fsPath).replace(/\\/g, '/') : '';
     if (!file || file.startsWith('..') || path.isAbsolute(file)) {
@@ -330,6 +322,37 @@ export class Controller implements vscode.Disposable {
     }
     await vscode.commands.executeCommand('gitar.graph.focus');
     await this.setFilter({ kind: 'path', path: file });
+  }
+
+  /** In a workspace with several repositories a file decides which one to show: the innermost one that contains it. */
+  private async showRepoOf(uri: vscode.Uri): Promise<void> {
+    const contains = (root: string) => {
+      const relative = path.relative(root, uri.fsPath);
+      return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+    };
+    const owner = this.repos.filter((repo) => contains(repo.root)).sort((a, b) => b.root.length - a.root.length)[0];
+    if (owner) await this.selectRepo(owner.root);
+  }
+
+  /**
+   * Stashes from the list of changes VS Code keeps, in the repository these files are of: the files themselves, only
+   * what is staged, or everything.
+   */
+  async stashFromScm(uris: vscode.Uri[], what: 'files' | 'staged' | 'all'): Promise<void> {
+    if (!(await this.requireState())) return;
+    const local = uris.filter((uri) => uri.scheme === 'file');
+    if (local[0]) await this.showRepoOf(local[0]);
+    const { state, repo } = this;
+    if (!state || !repo) return;
+    if (what !== 'files') return this.action({ kind: 'stashPush', staged: what === 'staged' || undefined });
+    const files = local
+      .map((uri) => path.relative(repo.root, uri.fsPath).replace(/\\/g, '/'))
+      .filter((file) => file && !file.startsWith('..') && !path.isAbsolute(file));
+    if (!files.length) return;
+    // A renamed file is stashed with the name it had, or git would leave half of the rename behind.
+    const before = new Map([...state.working.staged, ...state.working.unstaged].map((change) => [change.path, change.oldPath]));
+    const paths = [...new Set(files.flatMap((file) => [file, before.get(file)]).filter((file) => file !== undefined))];
+    return this.action({ kind: 'stashPush', paths });
   }
 
   /** Selects a commit in the graph, opening the graph first if needed. `hash` is the full one. */
