@@ -317,6 +317,10 @@ try {
         .sort((one, other) => one.top - other.top)`);
     const plain = await beside();
     assert(plain.length >= 2 && plain.every((line) => line.label === null), `before: ${JSON.stringify(plain)}`);
+    // The buttons that are about a blame that is shown are not there while none is.
+    const about = () =>
+      page.evaluate(`[...document.querySelectorAll('.editor-actions .action-label')].map((label) => label.getAttribute('aria-label') ?? '').filter((name) => /Blame/.test(name)).map((name) => name.replace(/ \\(.*$/, ''))`);
+    assert((await about()).join() === 'Show File Blame', `buttons: ${await about()}`);
 
     await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Show File Blame"]').click()`);
     const lines = await until('the blame beside the lines', async () => {
@@ -324,6 +328,9 @@ try {
       return now.length && now.every((line) => line.label) ? now : null;
     });
     await shot('file-blame');
+    await until('the buttons of a blame that is shown', async () =>
+      (await about()).join() === 'Hide File Blame,Ignore Whitespace and Moved Lines in Blame,Keep File Blame On in Every File',
+    );
     // The day and the name beside the lines that are in a commit, and room beside the empty one that ends the file.
     assert(
       lines.every((line) => (line.text ? /^\d{4}-\d\d-\d\d Gitar Test$/.test(line.label) : line.label === ' ')),
@@ -397,7 +404,7 @@ try {
     await until('the button that hides it', () => page.evaluate(`!!document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]')`));
     await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]').click()`);
     await until('the lines alone', async () => (await beside()).every((line) => line.label === null));
-    await until('the button that shows it', () => page.evaluate(`!!document.querySelector('.editor-actions .action-label[aria-label^="Show File Blame"]')`));
+    await until('the button that shows it alone', async () => (await about()).join() === 'Show File Blame');
   });
 
   await step('the search counts what it finds and steps through it, in the loaded commits and in the whole history', async () => {

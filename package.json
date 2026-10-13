@@ -484,12 +484,12 @@
         },
         {
           "command": "gitar.blameEveryFile",
-          "when": "resourceScheme == file && gitar.hasRepository && !config.gitar.fileBlame.everyFile",
+          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && !config.gitar.fileBlame.everyFile",
           "group": "navigation@92"
         },
         {
           "command": "gitar.blameChosenFiles",
-          "when": "resourceScheme == file && gitar.hasRepository && config.gitar.fileBlame.everyFile",
+          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && config.gitar.fileBlame.everyFile",
           "group": "navigation@92"
         }
       ]
@@ -569,7 +569,7 @@
         "gitar.fileBlame.everyFile": {
           "type": "boolean",
           "default": false,
-          "description": "Show the blame of a file beside its lines in every file that is opened, rather than in the ones it is asked for. The pin at the top right of an editor switches it, and the button of the blame still hides it file by file."
+          "description": "Show the blame of a file beside its lines in every file that is opened, rather than in the ones it is asked for. The pin at the top right of an editor that shows its blame switches it, and the button of the blame still hides it file by file."
         },
         "gitar.fileBlame.format": {
           "type": "string",
