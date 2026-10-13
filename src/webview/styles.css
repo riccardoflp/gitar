@@ -920,11 +920,16 @@ input:focus-visible,
   margin: -2px -6px 0 4px;
 }
 
-/* The message has the room of five lines, its first and four more, and scrolls in it when it is longer. */
+/*
+ * Only the first line of the message shares its width with the buttons. The rest starts under them, as wide as the
+ * details: it has the room of four lines and a half, the half saying there is more, and scrolls in it when it is longer.
+ */
 .detail .said {
-  max-height: calc(5.1lh + 6px);
+  clear: right;
+  max-height: 4.5lh;
   margin-bottom: 8px;
   overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .detail .said .body {

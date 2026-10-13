@@ -69,11 +69,13 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
         <p className="muted">Loading…</p>
       ) : (
         <>
+          <h2>{detail.subject}</h2>
           {/* A long message scrolls in the few lines it has, and leaves the files in sight: the tab of the commit has it whole. */}
-          <div className="said">
-            <h2>{detail.subject}</h2>
-            {detail.body && <pre className="body">{detail.body}</pre>}
-          </div>
+          {detail.body && (
+            <div className="said">
+              <pre className="body">{detail.body}</pre>
+            </div>
+          )}
           {!worktree && (
             <dl>
               <dt>Author</dt>

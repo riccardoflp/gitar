@@ -1175,7 +1175,8 @@ try {
     await until('the details', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add the guide'`));
     await until('the files', () => graph.evaluate(`document.querySelectorAll('.detail .files .file').length === 3`));
 
-    // The message: five lines of it, the rest a scroll away, and the files in sight under it.
+    // The message: its first line, then four and a half of the rest, as wide as the details, with what is left a scroll
+    // away and the files in sight under it.
     const message = await graph.evaluate(`(() => {
       const box = document.querySelector('.detail .said');
       const body = box.querySelector('.body');
@@ -1185,11 +1186,12 @@ try {
         height: box.clientHeight,
         whole: box.scrollHeight,
         scrolls: getComputedStyle(box).overflowY,
+        wide: detail.right - box.getBoundingClientRect().right <= 14,
         files: document.querySelector('.detail .files').getBoundingClientRect().top < detail.bottom,
       };
     })()`);
     assert(message.height > message.line * 4 && message.height < message.line * 6, `the message takes ${JSON.stringify(message)}`);
-    assert(message.whole > message.height * 2 && message.scrolls === 'auto' && message.files, `the message: ${JSON.stringify(message)}`);
+    assert(message.whole > message.height * 2 && message.scrolls === 'auto' && message.wide && message.files, `the message: ${JSON.stringify(message)}`);
 
     // One after the other, each file says where it is.
     const rows = () =>
