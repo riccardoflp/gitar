@@ -237,6 +237,10 @@
         {
           "command": "gitar.revealCommit",
           "when": "false"
+        },
+        {
+          "command": "gitar.resolveConflicts",
+          "when": "config.gitar.conflicts.autoResolve"
         }
       ],
       "explorer/context": [
@@ -402,6 +406,14 @@
           "type": "boolean",
           "default": true,
           "description": "Show who last changed the current line, and when, at the end of that line in the editor."
+        },
+        "gitar.conflicts.autoResolve": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitar shows what it would write before writing it, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
         }
       }
     }

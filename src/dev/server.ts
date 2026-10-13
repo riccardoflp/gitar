@@ -145,7 +145,7 @@ async function main() {
   async function state(): Promise<HostMessage[]> {
     if (!repo) return [{ type: 'state', state: null }];
     const github = parseGitHubRemote(await repo.remoteUrl('origin'));
-    const read = await repo.state(limit, filter, scope);
+    const read = await repo.state(limit, filter, scope, true);
     scope = read.scope;
     return [{ type: 'state', state: { ...read, repos, github } }];
   }

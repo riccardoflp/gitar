@@ -153,6 +153,7 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidDeleteFiles(schedule),
       vscode.workspace.onDidRenameFiles(schedule),
       vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
+      vscode.workspace.onDidChangeConfiguration((event) => event.affectsConfiguration('gitar.conflicts') && schedule()),
     ];
   }
 
@@ -223,17 +224,23 @@ export class Controller implements vscode.Disposable {
     void this.refreshPulls(false);
   }
 
+  /** Resolving conflicts without choosing a side is experimental: nothing of it is offered, or run, until it is switched on. */
+  private autoResolve(): boolean {
+    return vscode.workspace.getConfiguration('gitar').get<boolean>('conflicts.autoResolve') === true;
+  }
+
   /** A search git cannot run, such as an invalid regular expression, is reported and dropped rather than taking the graph down. */
   private async readState(repo: Repo): Promise<RepoState> {
-    if (!this.filter) return repo.state(this.limit, null, this.scope);
+    const resolve = this.autoResolve();
+    if (!this.filter) return repo.state(this.limit, null, this.scope, resolve);
     try {
-      return await repo.state(this.limit, this.filter, this.scope);
+      return await repo.state(this.limit, this.filter, this.scope, resolve);
     } catch (error) {
       this.filter = null;
       const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
       this.log.error(text);
       void vscode.window.showErrorMessage(`Gitar: the search failed. ${text.split('\n')[0]}`);
-      return repo.state(this.limit, null, this.scope);
+      return repo.state(this.limit, null, this.scope, resolve);
     }
   }
 
@@ -677,6 +684,13 @@ export class Controller implements vscode.Disposable {
     const state = await this.requireState();
     const repo = this.repo;
     if (!state || !repo) return;
+    // A key binding, or a view drawn before the setting changed, can still ask for it.
+    if (action.kind === 'resolveConflicts' && !this.autoResolve()) {
+      void vscode.window
+        .showInformationMessage('Gitar: resolving conflicts automatically is experimental, and it is switched off in the settings.', 'Open Settings')
+        .then((choice) => choice && vscode.commands.executeCommand('workbench.action.openSettings', 'gitar.conflicts.autoResolve'));
+      return;
+    }
     try {
       const top = (await repo.reflog('HEAD', 1))[0];
       const reflogTop = top ? `${top.hash} ${top.subject}` : '';

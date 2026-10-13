@@ -266,6 +266,8 @@ Selecting a conflicting file opens it in VS Code's merge editor, with the common
 
 #### Conflicts that need no choice
 
+> **Experimental.** This is still being tested, and it is off until you turn on `gitar.conflicts.autoResolve` in the settings, where it carries the **Experimental** mark. While it is off Gitar does not look into the files in conflict, and nothing of what follows is offered. Look at what it wrote before you commit.
+
 Git stops wherever the two sides changed lines that touch. Many of those stops need no choice between the sides, and Gitar can resolve them: the banner says how many (**Resolve 2 of 3 automatically**), a file in conflict has the same button on its row in the Changes view, **Gitar: Resolve Conflicts Automatically** does it from the command palette, and the message that says an operation stopped offers it. A conflict is resolved when it is one of these:
 
 - **Changes to lines next to each other.** One side changed a line and the other the line after it, or one added or removed lines beside the ones the other changed. Each change is kept where it was made.
@@ -293,7 +295,7 @@ Set `gitar.commandPreview` to `all` to see the exact commands before they run an
 
 | Value | Behavior |
 | --- | --- |
-| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, dropping a stash, force-deleting a branch, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically and taking one side of a file in conflict. |
+| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, dropping a stash, force-deleting a branch, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically (when that is turned on) and taking one side of a file in conflict. |
 | `all` | Shows the commands and asks before running anything that changes the repository or a remote, staging included. |
 
 The commands shown are the commands that run: Gitar adds no hidden flags to them. Where a command would open an editor for a commit message, which cannot work from an extension, the flag that prevents it is part of the command you see (`--no-edit`, or `-c core.editor=true` when continuing an operation).
@@ -303,7 +305,7 @@ For the same reason, two things that look odd in a command are there on purpose:
 - A file whose name is also a pattern to git (it contains `[`, `]`, `*`, `?` or `\`, or starts with `:`) is passed as `:(literal)<name>`. Without it, staging or discarding `pages/[id].tsx` would also act on `pages/i.tsx` and `pages/d.tsx`.
 - A branch that shares its name with a tag or with a remote branch is named in full, as `refs/heads/<name>`, where the short name would mean the other one or be refused: merging it, starting a branch from it, pushing it.
 
-One operation does more than run commands: resolving conflicts automatically writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
+One operation does more than run commands: resolving conflicts automatically, which is experimental and off by default, writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
 
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
 
@@ -337,7 +339,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, and that the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, that nothing about resolving conflicts automatically is offered or run until its setting is on, and that with it on the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -366,7 +368,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the Stashes view unfolds a stash to its files, and its header counts the stashes;
 - the graph opens as an editor tab, with the details of a commit beside it;
 - a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost and their diffs numbered line by line; the button in the details opens another the same way, and **Show in the graph** leads back;
-- a merge that stops counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**.
+- a merge that stops offers nothing more than usual while `gitar.conflicts.autoResolve` is off, the Settings editor marks that setting as experimental, and once it is on the merge counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.
 

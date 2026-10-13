@@ -34,7 +34,7 @@ const run = async (op: GitOp) => {
 const text = (...lines: string[]) => lines.map((line) => `${line}\n`).join('');
 const write = (file: string, content: string) => fs.writeFileSync(path.join(root, file), content);
 const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
-const state = () => repo.state(100);
+const state = () => repo.state(100, null, null, true);
 const commitAll = async (message: string) => {
   await run(stageAllOp());
   await run(commitOp(message, false, false));
@@ -85,6 +85,8 @@ describe('conflicts of a real repository', { timeout: 120_000 }, () => {
     await expect(run(mergeOp('other', 'main'))).rejects.toThrow();
     expect(read('a.txt')).toContain('<<<<<<< HEAD');
     expect((await state()).conflictFiles).toEqual([{ path: 'a.txt', conflicts: 1, resolvable: ['separate'] }]);
+    // Unless asked, the files in conflict are not read at all.
+    expect(await repo.state(100)).toMatchObject({ working: { conflicts: [{ path: 'a.txt' }] }, conflictFiles: [] });
 
     const op = resolveConflictsOp(await plans());
     expect(op).toMatchObject({ title: 'Resolve the conflict automatically', commands: [['add', '--', 'a.txt']], confirm: true });

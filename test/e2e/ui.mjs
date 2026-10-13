@@ -819,7 +819,15 @@ try {
       // Only the rows in sight are drawn, which in the panel are fewer than twenty.
       await until('the new commits', async () => (await added()) >= 8);
       if (await graph.evaluate(`!!document.querySelector('.detail .close')`)) await graph.click('.detail .close');
-      await sleep(300);
+      // The branches were made one at a time, and the graph may have been read with only some of them: it has to stop changing.
+      let last = '';
+      await until('the graph as it stays', async () => {
+        const now = JSON.stringify(await seen());
+        const same = now === last;
+        last = now;
+        if (!same) await sleep(1500);
+        return same;
+      });
 
       // On its own: no wider than sixteen lanes at their ease, with all twenty in it.
       const auto = await seen();
@@ -980,9 +988,33 @@ try {
     }
     assert(stopped && /^UU c\.txt$/m.test(status()) && /^UU d\.txt$/m.test(status()), `the merge stopped on both files: ${status()}`);
 
-    // The banner counts what can be resolved without a choice.
+    // Resolving them is experimental, and off until it is switched on: the banner has nothing to offer.
     const graph = await webview('graph');
     const banner = () => graph.evaluate(`({ text: document.querySelector('.banner .grow')?.textContent, resolve: document.querySelector('.banner .resolve')?.textContent ?? null })`);
+    await until('the banner', async () => (await banner()).text === 'Merge in progress · 2 files have conflicts');
+    await sleep(1500);
+    assert((await banner()).resolve === null, `banner with the setting off: ${JSON.stringify(await banner())}`);
+    await shot('conflicts-banner-off');
+
+    // The settings say so beside its name.
+    await command('Preferences: Open Settings (UI)');
+    await until('the settings', () => page.evaluate(`Boolean(document.querySelector('.settings-editor .suggest-input-container'))`));
+    await sleep(500);
+    await type('gitar.conflicts.autoResolve');
+    const found = await until('the setting', async () => {
+      const items = await page.evaluate(`[...document.querySelectorAll('.settings-editor .setting-item-contents')].map((item) => ({
+        text: item.textContent,
+        badge: item.querySelector('.setting-item-preview')?.textContent ?? null,
+        checked: item.querySelector('.setting-value-checkbox')?.getAttribute('aria-checked') ?? null,
+      }))`);
+      return items.length === 1 && items[0].text.includes('Auto Resolve') ? items[0] : null;
+    });
+    assert(found.badge === 'Experimental' && found.checked === 'false', `the setting: ${JSON.stringify(found)}`);
+    await shot('conflicts-setting');
+    await command('View: Close All Editors');
+
+    // Switched on, the banner counts what can be resolved without a choice.
+    setting('gitar.conflicts.autoResolve', true);
     await until('the banner', async () => (await banner()).resolve === 'Resolve 2 of 3 automatically');
     assert((await banner()).text === 'Merge in progress · 2 files have conflicts', `banner: ${JSON.stringify(await banner())}`);
     await shot('conflicts-banner');
@@ -1051,6 +1083,7 @@ try {
 
     git(app, 'merge', '--abort');
     await until('the banner gone', () => graph.evaluate(`!document.querySelector('.banner:not(.bisect)')`));
+    setting('gitar.conflicts.autoResolve', undefined);
   });
 } catch (error) {
   await finish(error);

@@ -203,7 +203,8 @@ export class Repo {
     return { from, to, files: parseNameStatus(await this.read(['diff', '--name-status', '-z', '-M', from, to], true)) };
   }
 
-  async state(limit: number, filter: Filter | null = null, scope: Scope | null = null): Promise<RepoState> {
+  /** With `resolve`, the files with conflicts are read to say which of the conflicts need no choice between the two sides. */
+  async state(limit: number, filter: Filter | null = null, scope: Scope | null = null, resolve = false): Promise<RepoState> {
     const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, working, operation, bisect] = await Promise.all([
       this.read(['for-each-ref', `--format=${REF_FORMAT}`]),
       this.read(['rev-parse', '--verify', '--quiet', 'HEAD'], true),
@@ -219,7 +220,7 @@ export class Repo {
     ]);
     const head = headOut.trim() || null;
     const changes = allChanges(working);
-    const plans = working.conflicts.length ? await this.conflictPlans(working.conflicts.map((file) => file.path)) : [];
+    const plans = resolve && working.conflicts.length ? await this.conflictPlans(working.conflicts.map((file) => file.path)) : [];
     const refs = parseRefs(refsOut);
     const branch = branchOut.trim().replace(/^refs\/heads\//, '') || null;
     // A branch chosen for the graph may have been deleted since.
