@@ -130,7 +130,10 @@ try {
       graph.evaluate(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent); return items.length ? items : null; })()`),
     );
     await shot('pull-menu');
-    assert(items.join('|') === 'Pull|Pull (rebase)|Pull (autostash)|Pull (rebase, autostash)', `menu: ${items}`);
+    // The one the button runs is marked, and the button says the command.
+    assert(items.join('|') === 'Pull|Pull (rebase)|Pull (autostash)|Pull (rebase, autostash)default', `menu: ${items}`);
+    const title = await graph.evaluate(`document.querySelector('.toolbar button[aria-label="Pull"]').title`);
+    assert(title === 'Pull: git pull --rebase --autostash', `button: ${title}`);
     await key('Escape');
     await until('the menu closed', () => graph.evaluate(`document.querySelectorAll('[role="menuitem"]').length === 0`));
   });

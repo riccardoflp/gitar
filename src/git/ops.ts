@@ -1,4 +1,4 @@
-import type { Operation, RebaseStep, RepoState, Resolution, SyncAction, WorkingState } from '../shared/protocol';
+import type { Operation, RebaseStep, RepoState, PullAction, Resolution, SyncAction, WorkingState } from '../shared/protocol';
 import { refArg } from '../shared/refs';
 import type { FileWrite } from './exec';
 import type { ConflictPlan } from './repo';
@@ -64,6 +64,12 @@ export function defaultRemote(state: RepoState): string {
   const remote = state.remotes.includes('origin') ? 'origin' : state.remotes[0];
   if (!remote) throw new Error('This repository has no remote.');
   return remote;
+}
+
+/** The way to pull that the settings of the Pull button choose. */
+export function pullAction(rebase: boolean, autostash: boolean): PullAction {
+  if (rebase) return autostash ? 'pullRebaseAutostash' : 'pullRebase';
+  return autostash ? 'pullAutostash' : 'pull';
 }
 
 /** Builds the commands for a toolbar action. Throws with a message for the user when the action makes no sense right now. */

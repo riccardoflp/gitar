@@ -571,6 +571,42 @@ export async function run(): Promise<void> {
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 0);
   });
 
+  await step('the Pull button pulls the way the settings choose: with a rebase and the changes set aside, unless told otherwise', async () => {
+    const setting = (name: string, value: boolean | undefined) =>
+      vscode.workspace.getConfiguration('gitar').update(name, value, vscode.ConfigurationTarget.Global);
+    /** What the button is set to, once the views were told. */
+    const chosen = (action: string) => until(`the button set to ${action}`, () => state().defaultPull === action);
+    /** The pull that the command of the button runs. */
+    const pulled = async () => {
+      logged.length = 0;
+      await vscode.commands.executeCommand('gitar.pull');
+      return logged.filter((line) => line.startsWith('> git pull'));
+    };
+    try {
+      assert.equal(state().defaultPull, 'pullRebaseAutostash');
+      assert.deepEqual(await pulled(), ['> git pull --rebase --autostash']);
+      await setting('pull.rebase', false);
+      await chosen('pullAutostash');
+      assert.deepEqual(await pulled(), ['> git pull --autostash']);
+      await setting('pull.autostash', false);
+      await chosen('pull');
+      assert.deepEqual(await pulled(), ['> git pull']);
+      await setting('pull.rebase', undefined);
+      await chosen('pullRebase');
+      assert.deepEqual(await pulled(), ['> git pull --rebase']);
+      // The pull with no option stays a command of its own, whatever the button is set to.
+      await setting('pull.autostash', undefined);
+      await chosen('pullRebaseAutostash');
+      logged.length = 0;
+      await vscode.commands.executeCommand('gitar.pullPlain');
+      assert.deepEqual(logged.filter((line) => line.startsWith('> git pull')), ['> git pull']);
+      assert.deepEqual(errors, []);
+    } finally {
+      await setting('pull.rebase', undefined);
+      await setting('pull.autostash', undefined);
+    }
+  });
+
   await step('warns about what a force push overwrites', async () => {
     // Rewrite the last commit, so that the remote has one the local branch does not.
     await git(app, ['commit', '--amend', '--allow-empty', '-m', 'Add a file, reworded']);

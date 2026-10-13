@@ -24,6 +24,7 @@ import {
   hunkOp,
   identityOp,
   mergeOp,
+  pullAction,
   rebaseInteractiveOp,
   rebaseOp,
   rebaseTodo,
@@ -836,6 +837,12 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       };
       /** The commits, without the line that stands for what is not committed. */
       const committed = async () => (await subjects()).filter((subject) => !subject.startsWith('Uncommitted changes'));
+      // What the Pull button runs for each pair of its settings.
+      const chosen = async (rebase: boolean, autostash: boolean) => syncOp(pullAction(rebase, autostash), await state()).commands[0].join(' ');
+      expect(await chosen(false, true)).toBe('pull --autostash');
+      expect(await chosen(true, true)).toBe('pull --rebase --autostash');
+      expect(await chosen(true, false)).toBe('pull --rebase');
+      expect(await chosen(false, false)).toBe('pull');
       expect(syncOp('pullAutostash', await state()).commands).toEqual([['pull', '--autostash']]);
       expect(syncOp('pullRebaseAutostash', await state()).commands).toEqual([['pull', '--rebase', '--autostash']]);
 

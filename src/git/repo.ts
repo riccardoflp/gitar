@@ -311,6 +311,7 @@ export class Repo {
         branch,
       ),
       favorites: [],
+      defaultPull: 'pullRebaseAutostash',
       repos: [],
       github: null,
       pulls: {},

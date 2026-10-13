@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import type { RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
+import type { PullAction, RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { RepoSelect } from './RepoSelect';
@@ -30,11 +30,11 @@ interface Props {
   onStep(by: 1 | -1): void;
 }
 
-const PULL_VARIANTS: { action: SyncAction; label: string }[] = [
-  { action: 'pull', label: 'Pull' },
-  { action: 'pullRebase', label: 'Pull (rebase)' },
-  { action: 'pullAutostash', label: 'Pull (autostash)' },
-  { action: 'pullRebaseAutostash', label: 'Pull (rebase, autostash)' },
+const PULL_VARIANTS: { action: PullAction; label: string; command: string }[] = [
+  { action: 'pull', label: 'Pull', command: 'git pull' },
+  { action: 'pullRebase', label: 'Pull (rebase)', command: 'git pull --rebase' },
+  { action: 'pullAutostash', label: 'Pull (autostash)', command: 'git pull --autostash' },
+  { action: 'pullRebaseAutostash', label: 'Pull (rebase, autostash)', command: 'git pull --rebase --autostash' },
 ];
 
 const PUSH_VARIANTS: { action: SyncAction; label: string }[] = [
@@ -78,10 +78,13 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
   const openMenu = useMenu();
   const upstream = state.branches.find((branch) => branch.current)?.upstream;
   const sync = (action: SyncAction) => post({ type: 'sync', action });
-  const variants = (list: typeof PUSH_VARIANTS) => (event: MouseEvent) =>
+  // What the button runs, among the ways to pull: the settings choose it.
+  const pull = PULL_VARIANTS.find(({ action }) => action === state.defaultPull) ?? PULL_VARIANTS[0];
+  /** A menu of the ways to pull or push, which says which one the button beside it runs. */
+  const variants = (list: typeof PUSH_VARIANTS, button: SyncAction) => (event: MouseEvent) =>
     openMenu(
       event,
-      list.map(({ action, label }) => ({ label, run: () => sync(action) })),
+      list.map(({ action, label }) => ({ label, hint: action === button ? 'default' : undefined, run: () => sync(action) })),
     );
 
   const typed = text.trim();
@@ -290,12 +293,12 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
         <span className="label">Fetch</span>
       </button>
       <div className="split">
-        <button className="button" disabled={!!busy} onClick={() => sync('pull')} title="Pull: git pull" aria-label="Pull">
+        <button className="button" disabled={!!busy} onClick={() => sync(pull.action)} title={`Pull: ${pull.command}`} aria-label="Pull">
           <Icon name="repo-pull" />
           <span className="label">Pull</span>
           {!!upstream?.behind && <span className="count">{upstream.behind}</span>}
         </button>
-        <button className="button" disabled={!!busy} onClick={variants(PULL_VARIANTS)} aria-label="More pull options">
+        <button className="button" disabled={!!busy} onClick={variants(PULL_VARIANTS, pull.action)} aria-label="More pull options">
           <Icon name="chevron-down" />
         </button>
       </div>
@@ -305,7 +308,7 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
           <span className="label">Push</span>
           {!!upstream?.ahead && <span className="count">{upstream.ahead}</span>}
         </button>
-        <button className="button" disabled={!!busy} onClick={variants(PUSH_VARIANTS)} aria-label="More push options">
+        <button className="button" disabled={!!busy} onClick={variants(PUSH_VARIANTS, 'push')} aria-label="More push options">
           <Icon name="chevron-down" />
         </button>
       </div>

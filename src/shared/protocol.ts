@@ -175,6 +175,8 @@ export interface RepoState {
   recentBranches: string[];
   /** The branches and remote branches the user marked as favorites, by their full names, in the order they were marked. */
   favorites: string[];
+  /** What the Pull button runs, which the settings choose. The menu beside it has every way to pull. */
+  defaultPull: PullAction;
   /** Every repository found in the workspace, when there is more than this one to choose from. */
   repos: RepoInfo[];
   /** Set when the main remote is a GitHub repository. */
@@ -203,6 +205,9 @@ export type SyncAction =
   | 'push'
   | 'pushForceWithLease'
   | 'pushForce';
+
+/** The ways to pull. */
+export type PullAction = Extract<SyncAction, `pull${string}`>;
 
 /** The files that differ between two commits, going from `from` to `to`. */
 export interface Comparison {

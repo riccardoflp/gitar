@@ -97,6 +97,11 @@
         "icon": "$(repo-pull)"
       },
       {
+        "command": "gitar.pullPlain",
+        "title": "Pull (No Options)",
+        "category": "Gitar"
+      },
+      {
         "command": "gitar.pullRebase",
         "title": "Pull (Rebase)",
         "category": "Gitar"
@@ -416,29 +421,34 @@
           "group": "navigation@4"
         },
         {
-          "command": "gitar.pullRebase",
+          "command": "gitar.pullPlain",
           "when": "view == gitar.commits",
           "group": "1_sync@1"
         },
         {
-          "command": "gitar.pullAutostash",
+          "command": "gitar.pullRebase",
           "when": "view == gitar.commits",
           "group": "1_sync@2"
         },
         {
-          "command": "gitar.pullRebaseAutostash",
+          "command": "gitar.pullAutostash",
           "when": "view == gitar.commits",
           "group": "1_sync@3"
         },
         {
-          "command": "gitar.pushForceWithLease",
+          "command": "gitar.pullRebaseAutostash",
           "when": "view == gitar.commits",
           "group": "1_sync@4"
         },
         {
-          "command": "gitar.pushForce",
+          "command": "gitar.pushForceWithLease",
           "when": "view == gitar.commits",
           "group": "1_sync@5"
+        },
+        {
+          "command": "gitar.pushForce",
+          "when": "view == gitar.commits",
+          "group": "1_sync@6"
         },
         {
           "command": "gitar.undo",
@@ -623,6 +633,16 @@
           "default": 730,
           "minimum": 1,
           "description": "After how many days a line has the color of the lines changed long ago. Recent days count more than old ones: a day and a week are further apart than a year and a year and a week."
+        },
+        "gitar.pull.autostash": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Whether the **Pull** button sets the changes that are not committed aside before it pulls, and puts them back after: `git pull --autostash`. Switched off, a pull that would touch a file with changes is refused by Git. The menu beside the button has every way to pull, whatever is set here."
+        },
+        "gitar.pull.rebase": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Whether the **Pull** button puts your commits that are not pushed on top of what comes in, instead of merging the two: `git pull --rebase`. With `#gitar.pull.autostash#` it runs `git pull --rebase --autostash`. Switched off, the button leaves the choice to the configuration of Git, which merges unless told otherwise. The menu beside the button has every way to pull, whatever is set here."
         },
         "gitar.conflicts.autoResolve": {
           "type": "boolean",

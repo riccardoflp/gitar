@@ -10,6 +10,7 @@ import {
   clearIdentityOp,
   fetchRemoteOp,
   identityOp,
+  pullAction,
   refNameProblem,
   remoteAddOp,
   remoteRemoveOp,
@@ -34,6 +35,7 @@ import type {
   FilesLayout,
   Filter,
   HostMessage,
+  PullAction,
   PullRequest,
   RepoInfo,
   RepoState,
@@ -155,7 +157,9 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidDeleteFiles(schedule),
       vscode.workspace.onDidRenameFiles(schedule),
       vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
-      vscode.workspace.onDidChangeConfiguration((event) => event.affectsConfiguration('gitar.conflicts') && schedule()),
+      vscode.workspace.onDidChangeConfiguration(
+        (event) => (event.affectsConfiguration('gitar.conflicts') || event.affectsConfiguration('gitar.pull')) && schedule(),
+      ),
     ];
   }
 
@@ -213,7 +217,14 @@ export class Controller implements vscode.Disposable {
         if (repo !== this.repo) continue;
         // Unless another was chosen while this one was read.
         if (scope === this.scope) this.settleScope(state.root, state.scope);
-        this.setState({ ...state, favorites: this.favorites(state), repos: this.repos, github: this.github, pulls: this.pulls });
+        this.setState({
+          ...state,
+          favorites: this.favorites(state),
+          defaultPull: this.defaultPull(),
+          repos: this.repos,
+          github: this.github,
+          pulls: this.pulls,
+        });
       }
     } catch (error) {
       this.log.error(errorText(error));
@@ -664,6 +675,17 @@ export class Controller implements vscode.Disposable {
     if (!this.github) return;
     const url = this.pulls[branch]?.url ?? compareUrl(this.github, branch);
     await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  /** What the Pull button runs: the settings add `--rebase` and `--autostash`, unless switched off. */
+  private defaultPull(): PullAction {
+    const config = vscode.workspace.getConfiguration('gitar.pull');
+    return pullAction(config.get<boolean>('rebase') !== false, config.get<boolean>('autostash') !== false);
+  }
+
+  /** Pulls the way the settings choose. */
+  pull(): Promise<void> {
+    return this.sync(this.defaultPull());
   }
 
   async sync(action: SyncAction): Promise<void> {

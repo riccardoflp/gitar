@@ -14,6 +14,8 @@ export interface MenuItem {
   label: string;
   run(): void;
   danger?: boolean;
+  /** A word or two said after the label, less visible than it. */
+  hint?: string;
 }
 
 /** Falsy entries are dropped, so menus can be written with `condition && item`. */
@@ -114,6 +116,7 @@ function Menu({ menu, onClose }: { menu: OpenState; onClose(): void }) {
             }}
           >
             {item.label}
+            {item.hint && <span className="hint">{item.hint}</span>}
           </button>
         ),
       )}

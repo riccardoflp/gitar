@@ -174,7 +174,9 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.showLog', () => log.show()),
     command('gitar.stash', () => controller.action({ kind: 'stashPush' })),
     command('gitar.undo', () => controller.action({ kind: 'undo' })),
-    ...syncActions.map((action) => command(`gitar.${action}`, () => controller.sync(action))),
+    // Pull is the button, which pulls the way the settings choose: the pull with no option has a command of its own.
+    ...syncActions.map((action) => command(`gitar.${action}`, () => (action === 'pull' ? controller.pull() : controller.sync(action)))),
+    command('gitar.pullPlain', () => controller.sync('pull')),
   );
   return { controller, log, fileBlame };
 }
