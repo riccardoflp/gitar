@@ -458,7 +458,29 @@
           "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitar shows what it would write before writing it, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
         }
       }
-    }
+    },
+    "colors": [
+      {
+        "id": "gitar.blameHighlightBackground",
+        "description": "Background of the blame beside the line under the cursor, and beside the other lines of the same commit.",
+        "defaults": {
+          "dark": "#2f81f740",
+          "light": "#0969da26",
+          "highContrast": "#2f81f766",
+          "highContrastLight": "#0969da40"
+        }
+      },
+      {
+        "id": "gitar.blameHighlightForeground",
+        "description": "Color of the blame beside the line under the cursor and the other lines of the same commit, and of their marks in the scroll bar.",
+        "defaults": {
+          "dark": "#79b8ff",
+          "light": "#0550ae",
+          "highContrast": "#79b8ff",
+          "highContrastLight": "#0550ae"
+        }
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",

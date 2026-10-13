@@ -59,19 +59,28 @@ export class FileBlame implements vscode.Disposable {
       color: new vscode.ThemeColor('editorCodeLens.foreground'),
       fontStyle: 'normal',
       fontWeight: 'normal',
-      margin: '0 2ch 0 0',
+      margin: '0 1.5ch 0 0',
       // What a decoration has no name for is said after the one thing it lets through as it is written.
-      textDecoration: 'none; white-space: pre; overflow: hidden; text-overflow: ellipsis; vertical-align: top',
+      textDecoration: 'none; white-space: pre; overflow: hidden; text-overflow: ellipsis; vertical-align: top; padding: 0 1ch',
     },
+  });
+  /** Where the other lines of the commit of the line under the cursor are, in the scroll bar of a file longer than its editor. */
+  private readonly marks = vscode.window.createTextEditorDecorationType({
+    overviewRulerColor: new vscode.ThemeColor('gitar.blameHighlightForeground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Center,
   });
   private readonly subscriptions: vscode.Disposable[];
   /** The files that show their blame, by the URI of their document. */
   private readonly shown = new Map<string, Shown>();
+  /** The commit each editor has highlighted the lines of: the one of the line its cursor is on. */
+  private readonly highlighted = new WeakMap<vscode.TextEditor, string | undefined>();
 
   constructor(private readonly source: BlameSource) {
     this.subscriptions = [
       this.decoration,
+      this.marks,
       vscode.window.onDidChangeVisibleTextEditors(() => this.render()),
+      vscode.window.onDidChangeTextEditorSelection((event) => this.moved(event.textEditor)),
       vscode.window.onDidChangeActiveTextEditor(() => this.tell()),
       vscode.workspace.onDidChangeTextDocument((event) => this.edited(event)),
       vscode.workspace.onDidSaveTextDocument((document) => this.schedule(document)),
@@ -172,18 +181,39 @@ export class FileBlame implements vscode.Disposable {
     void vscode.commands.executeCommand('setContext', CONTEXT, active !== undefined && this.shown.has(active));
   }
 
-  private render(): void {
-    for (const editor of vscode.window.visibleTextEditors) {
+  /** The commit of the line the cursor of an editor is on, if its file shows its blame. */
+  private under(editor: vscode.TextEditor): string | undefined {
+    return this.shown.get(editor.document.uri.toString())?.lines[editor.selection.active.line]?.hash;
+  }
+
+  /** The cursor is on a line of another commit: the lines that stand out are others. */
+  private moved(editor: vscode.TextEditor): void {
+    if (this.under(editor) !== this.highlighted.get(editor)) this.render(editor);
+  }
+
+  private render(only?: vscode.TextEditor): void {
+    for (const editor of only ? [only] : vscode.window.visibleTextEditors) {
       const shown = this.shown.get(editor.document.uri.toString());
+      const commit = this.under(editor);
+      this.highlighted.set(editor, commit);
       if (!shown) {
         editor.setDecorations(this.decoration, []);
+        editor.setDecorations(this.marks, []);
         continue;
       }
       const hovers = new Map<BlameLine, vscode.MarkdownString>();
       const options: vscode.DecorationOptions[] = [];
+      const marks: vscode.Range[] = [];
       // Every line has something before it, if only room, for the text to stay in one column: as wide as the longest.
       const labels = Array.from({ length: editor.document.lineCount }, (_, index) => label(shown.lines[index]));
-      const width = `${Math.max(...labels.map((text) => text.length))}ch`;
+      const width = `${labels.reduce((longest, text) => Math.max(longest, text.length), 0)}ch`;
+      // What the line under the cursor has beside it stands out, as it does beside the other lines of its commit.
+      const plain = { width };
+      const lit = {
+        width,
+        color: new vscode.ThemeColor('gitar.blameHighlightForeground'),
+        backgroundColor: new vscode.ThemeColor('gitar.blameHighlightBackground'),
+      };
       for (const [index, contentText] of labels.entries()) {
         const line = shown.lines[index];
         let hoverMessage: vscode.MarkdownString | undefined;
@@ -191,9 +221,20 @@ export class FileBlame implements vscode.Disposable {
           hoverMessage = hovers.get(line);
           if (!hoverMessage) hovers.set(line, (hoverMessage = hover(line)));
         }
-        options.push({ range: new vscode.Range(index, 0, index, 0), hoverMessage, renderOptions: { before: { contentText, width } } });
+        const stands = line !== undefined && line.hash === commit;
+        options.push({
+          range: new vscode.Range(index, 0, index, 0),
+          hoverMessage,
+          renderOptions: { before: { contentText, ...(stands ? lit : plain) } },
+        });
+        if (!stands) continue;
+        // One mark for the lines that follow each other.
+        const last = marks.at(-1);
+        if (last?.end.line === index - 1) marks[marks.length - 1] = new vscode.Range(last.start.line, 0, index, 0);
+        else marks.push(new vscode.Range(index, 0, index, 0));
       }
       editor.setDecorations(this.decoration, options);
+      editor.setDecorations(this.marks, marks);
     }
   }
 }

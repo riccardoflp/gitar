@@ -213,6 +213,7 @@ The line under the cursor shows who last changed it, when, and the subject of th
 
 The button with a person at the top right of an editor shows it for the whole file: beside each line, before its text, the day it was last changed and by whom. The same button, now a closed eye, hides it again, and so do **Gitar: Toggle File Blame** and the entry in the context menu of the editor. It is switched on file by file, and a file keeps it until it is closed.
 
+- What is beside the line under the cursor stands out on a colored background, and so does what is beside every other line of the same commit: what else it changed in the file is seen at a glance. In a file longer than its editor the scroll bar has a mark where those lines are. The colors are `gitar.blameHighlightBackground` and `gitar.blameHighlightForeground`, to change with `workbench.colorCustomizations`.
 - Hover what is beside a line for the subject of the commit, and for links that show it in the graph or open it in an editor tab.
 - Lines that are in no commit yet say so. What you type says so at once, and git is asked again a moment after you stop, with the text as it is in the editor, saved or not.
 - A file that is in no commit has no one to name: Gitar says so and shows nothing.
@@ -369,7 +370,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the context menu of a commit stays inside the view with every entry in sight, and creates a branch through the real prompts;
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
-- the button of the editor puts beside each line who changed it and when, in one column, and takes it away again;
+- the button of the editor puts beside each line who changed it and when, in one column, with the lines of the commit under the cursor standing out, and takes it away again;
 - the search counts the commits it finds and steps through them with the keys and the arrows, goes to a commit by its hash even when no branch reaches it, highlights in the graph what git finds in the whole history or lists it alone, and counts a commit made meanwhile;
 - the branches shown in the graph are chosen from the list under the button, with one click or one by one, with the box that narrows the list, and from the context menu of a branch; the Commits view of the side bar has the same button;
 - a branch dragged onto the checked out commit offers to merge or rebase;

@@ -297,7 +297,7 @@ try {
     assert(/Gitar Test, .+ • Change a/.test(blame), `annotation: ${blame}`);
   });
 
-  await step('the button of the editor shows who changed each line beside it, and hides it again', async () => {
+  await step('the button of the editor shows who changed each line beside it, the lines of the commit under the cursor standing out, and hides it again', async () => {
     /** What stands before each line of the editor, and where the text of the line starts. */
     const beside = () =>
       page.evaluate(`[...document.querySelectorAll('.editor-instance .view-line')]
@@ -308,6 +308,7 @@ try {
             top: line.getBoundingClientRect().top,
             label: before ? before.content.replace(/^"|"$/g, '').replace(/\u00a0/g, ' ') : null,
             width: before ? Math.round(parseFloat(before.width)) : 0,
+            lit: before ? !['rgba(0, 0, 0, 0)', 'transparent'].includes(before.backgroundColor) : false,
             height: Math.round(line.getBoundingClientRect().height),
             text: line.textContent,
           };
@@ -331,6 +332,26 @@ try {
     const letter = lines[0].width / '2026-10-13 Gitar Test'.length;
     assert(lines.every((line) => line.width === lines[0].width) && letter > 5 && letter < 12, `widths: ${JSON.stringify(lines)}`);
     assert(lines.every((line, index) => line.height === plain[index].height), `heights: ${JSON.stringify(lines)} were ${JSON.stringify(plain)}`);
+
+    // What is beside the line under the cursor stands out, and not what is beside a line of another commit.
+    const lit = async () => (await beside()).map((line) => (line.lit ? line.text : '')).filter(Boolean).join();
+    assert((await lit()) === 'two', `standing out: ${await lit()}`);
+    await clickText('.editor-instance .view-line', 'one');
+    await until('the other commit standing out', async () => (await lit()) === 'one');
+    // The lines of one commit stand out together: here the ones that are in none yet, written by something else.
+    const file = path.join(app, 'a.txt');
+    const original = fs.readFileSync(file, 'utf8');
+    try {
+      fs.writeFileSync(file, `${original}three\nfour\n`);
+      await until('the lines written', async () => (await beside()).filter((line) => line.label === 'Not committed yet').map((line) => line.text).join() === 'three,four');
+      assert((await lit()) === 'one', `standing out: ${await lit()}`);
+      await clickText('.editor-instance .view-line', 'three');
+      await until('the lines of no commit standing out', async () => (await lit()) === 'three,four');
+      await shot('file-blame-commit');
+    } finally {
+      fs.writeFileSync(file, original);
+    }
+    await until('the file as it was', async () => (await beside()).length === lines.length);
 
     // The button is now the one that hides it.
     await until('the button that hides it', () => page.evaluate(`!!document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]')`));
