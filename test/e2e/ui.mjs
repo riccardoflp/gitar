@@ -116,17 +116,61 @@ try {
     }
   });
 
-  await step('the changes view lists what changed, and the icon in the activity bar counts it', async () => {
+  /** The headers of the views in the side bar, top to bottom, and whether each view is unfolded. */
+  const panes = () =>
+    page.evaluate(`[...document.querySelectorAll('.sidebar .pane-header')].map((header) => ({
+      title: header.querySelector('.title')?.textContent ?? '',
+      open: header.getAttribute('aria-expanded') === 'true',
+    }))`);
+  /** Folds a view of the side bar with a click on its header, as one does to make room for the others. */
+  const fold = async (title) => {
+    const at = await page.evaluate(`(() => {
+      const header = [...document.querySelectorAll('.sidebar .pane-header')].find(
+        (candidate) => candidate.querySelector('.title')?.textContent === ${JSON.stringify(title)} && candidate.getAttribute('aria-expanded') === 'true',
+      );
+      const rect = header?.querySelector('.title').getBoundingClientRect();
+      return rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : null;
+    })()`);
+    if (!at) return;
+    await mouse(at.x, at.y);
+    await sleep(500);
+  };
+
+  await step('the views are in the Source Control side bar of VS Code, folded under its own, and the one of the changes is hidden until asked for', async () => {
+    // With a click on its icon in the activity bar.
+    const icon = await page.evaluate(`(() => {
+      const icon = [...document.querySelectorAll('.activitybar .action-item a')].find((candidate) => candidate.getAttribute('aria-label')?.startsWith('Source Control'));
+      const rect = icon?.getBoundingClientRect();
+      return rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : null;
+    })()`);
+    assert(icon, 'the activity bar has the icon of Source Control');
+    await mouse(icon.x, icon.y);
+    const first = await until('the views of Gitar', async () => {
+      const now = await panes();
+      return now.some((pane) => pane.title === 'Commits') ? now : null;
+    });
+    await shot('source-control');
+    const titles = first.map((pane) => pane.title);
+    // Under the views of VS Code, in this order, and none of them open before it is wanted.
+    assert(titles.slice(-3).join() === 'Commits,Branches,Stashes', `views: ${titles}`);
+    assert(first.slice(-3).every((pane) => !pane.open), `folded: ${JSON.stringify(first)}`);
+    assert(!titles.includes('Gitar Changes'), `the changes of Gitar are not shown: ${titles}`);
+    // Gitar has no icon of its own in the activity bar: the graph is in the panel, and the rest is here.
+    const icons = await page.evaluate(`[...document.querySelectorAll('.activitybar .action-item a')].map((icon) => icon.getAttribute('aria-label') ?? '')`);
+    assert(!icons.some((label) => label.startsWith('Gitar')), `activity bar: ${icons}`);
+  });
+
+  await step('the changes view of Gitar shows when it is asked for, and lists what changed', async () => {
     fs.writeFileSync(path.join(app, 'b.txt'), 'bee\nbuzz\n');
     fs.writeFileSync(path.join(app, 'new.txt'), 'new\n');
     await command('Gitar: Show Changes');
+    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Gitar Changes' && pane.open));
+    // The views of VS Code above it take most of the side bar: they are folded, to give the room to the ones under test.
+    await fold('Changes');
+    await fold('Graph');
     const changes = await webview('changes');
     await until('the two changed files', () => changes.evaluate(`document.querySelectorAll('.group .file').length === 2`));
     await shot('changes');
-    const badge = await until('the badge', () =>
-      page.evaluate(`[...document.querySelectorAll('.activitybar .badge-content')].map((badge) => badge.textContent).find((text) => text === '2')`),
-    );
-    assert(badge === '2', 'the badge says 2');
     const graph = await webview('graph');
     assert((await subjects(graph))[0] === 'Uncommitted changes (2)', 'the graph shows the uncommitted changes first');
     // One more change: the commits are the same, so they are not sent again, and only the count of the first row moves.
@@ -589,7 +633,11 @@ try {
     })`);
 
   await step('the side bar lists the commits too, with the details under them and the buttons in the header of the view', async () => {
+    // The changes had their turn: their room goes to the views under them.
+    await fold('Gitar Changes');
     await command('Gitar: Show Commits in the Side Bar');
+    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Commits' && pane.open));
+    await sleep(500);
     const commits = await webview('commits');
     await until('the commits', async () => (await subjects(commits)).includes('Add a'));
     await commits.click('.row', 'Add b');
@@ -637,7 +685,11 @@ try {
   });
 
   await step('the branches in the side bar compare two of them, or one with a revision typed in the real prompts', async () => {
+    // A view as short as the others leave it has little room for its menu: the commits make way.
+    await fold('Commits');
     await command('Gitar: Show Branches');
+    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Branches' && pane.open));
+    await sleep(500);
     const branches = await webview('branches');
     await until('the branches', () => branches.evaluate(`document.querySelectorAll('.refs .ref').length >= 4`));
     const sections = await branches.evaluate(`[...document.querySelectorAll('.refs .section')].map((section) => section.textContent)`);

@@ -23,13 +23,6 @@
           "title": "Gitar",
           "icon": "media/gitar.svg"
         }
-      ],
-      "activitybar": [
-        {
-          "id": "gitar-sidebar",
-          "title": "Gitar",
-          "icon": "media/gitar.svg"
-        }
       ]
     },
     "views": {
@@ -40,29 +33,34 @@
           "name": "Graph"
         }
       ],
-      "gitar-sidebar": [
+      "scm": [
         {
           "type": "webview",
           "id": "gitar.changes",
-          "name": "Changes",
+          "name": "Gitar Changes",
+          "contextualTitle": "Gitar",
+          "visibility": "hidden",
           "initialSize": 5
         },
         {
           "type": "webview",
           "id": "gitar.commits",
           "name": "Commits",
+          "contextualTitle": "Gitar",
           "initialSize": 4
         },
         {
           "type": "webview",
           "id": "gitar.branches",
           "name": "Branches",
+          "contextualTitle": "Gitar",
           "initialSize": 3
         },
         {
           "type": "webview",
           "id": "gitar.stashes",
           "name": "Stashes",
+          "contextualTitle": "Gitar",
           "visibility": "collapsed",
           "initialSize": 1
         }

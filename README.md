@@ -2,13 +2,13 @@
 
 Commit graph, history and everyday Git operations in a single VS Code panel.
 
-Gitar has a view in the bottom panel and four in the side bar:
+Gitar has a view in the bottom panel and four in the Source Control side bar of VS Code:
 
 - **Graph**, in the panel next to the terminal: the commit graph, the references and the commit details, side by side.
-- **Changes**, in the side bar behind the Gitar icon: staging and committing.
-- **Commits**, **Branches** and **Stashes**, under it: the same history, references and stashes, for when the panel is closed. See [Side bar](#side-bar).
+- **Commits**, **Branches** and **Stashes**, in the side bar under the views of VS Code: the same history, references and stashes, for when the panel is closed.
+- **Gitar Changes**, hidden until you ask for it: staging and committing, where VS Code has its own.
 
-Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitar: Open Graph in Editor** opens the graph as an editor tab.
+See [Side bar](#side-bar). Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitar: Open Graph in Editor** opens the graph as an editor tab.
 
 ## Installation
 
@@ -84,13 +84,17 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 
 ### Side bar
 
-Under **Changes**, three views show what the graph shows, each on its own:
+Gitar has no icon of its own in the activity bar: its views are in the **Source Control** side bar, the one VS Code keeps for Git, under **Changes** and **Graph**. Three of them show what the graph of Gitar shows, each on its own:
 
 - **Commits** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. In a list this narrow the first label of a commit keeps its name and the others are left with their icon; hover one to read it.
 - **Branches** is the references tree: local branches, remote branches, tags and worktrees, with the same context menus. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
 - **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
 
-Stashes starts folded. The context menus open inside the view they belong to, so in a short one they scroll: drag the border between two views to give one more room.
+The fourth, **Gitar Changes**, stages and commits: see [Changes](#changes). VS Code already has a view for that right above, so this one is hidden until you ask for it, with **Gitar: Show Changes** or by ticking it in the **…** menu of the side bar, and stays until you hide it again. The number on the icon of the side bar is the one VS Code counts.
+
+VS Code shows the views an extension adds to this side bar folded: click the header of one to unfold it, or run **Gitar: Show Commits in the Side Bar**, **Gitar: Show Branches** or **Gitar: Show Stashes**. It remembers what you fold and unfold from then on. The context menus open inside the view they belong to, so in a short one they scroll: drag the border between two views to give one more room, or fold the ones you are not using.
+
+If you had Gitar before its views moved here and they are still where they were, **View: Reset View Locations** brings them over.
 
 ### Compare
 
@@ -144,7 +148,7 @@ The box in the toolbar searches in one of five ways, chosen from the list next t
 
 | Mode | Finds | Runs |
 | --- | --- | --- |
-| Loaded | Message, author or hash among the commits already loaded, highlighted as you type | Nothing |
+| Loaded | Message or author among the commits already loaded, highlighted as you type; or the start of a hash, from its fourth character on | Nothing |
 | Message | Commits whose message contains the text, ignoring case | `git log --grep` |
 | Author | Commits whose author name or email contains the text, ignoring case | `git log --author` |
 | Changes | Commits that add or remove the text | `git log -S` |
@@ -206,6 +210,8 @@ When the main remote is on github.com, Gitar shows the open pull request of each
 Pull requests are read with the GitHub account you signed in to in VS Code. Gitar asks for it the first time you choose **Load pull requests from GitHub** (**Gitar: Sign In to GitHub**), and never before. The token is only sent to `api.github.com`. Pull requests opened from forks are not shown.
 
 ### Changes
+
+The **Gitar Changes** view, shown with **Gitar: Show Changes**:
 
 - Stage, unstage and discard single files or everything at once.
 - Unfold a file to see its hunks, and stage, unstage or discard them one by one.
@@ -303,7 +309,8 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the graph shows in the panel with its icons, the colors of the theme and each label in the color of its line;
 - it follows the theme, and the buttons of the toolbar have a shape against the panel in each of five: the two dark and the two light ones VS Code comes with, and the high contrast one. Dark themes tend to outline their buttons and light ones to fill them, and a button drawn for one kind is words on the background in the other;
 - the toolbar still names the branch and fits when the panel is 1050 and 800 pixels wide;
-- the Changes view lists what changed and its icon in the activity bar counts it;
+- the views of Gitar are in the Source Control side bar under those of VS Code, folded, with no icon of their own in the activity bar;
+- the Changes view of Gitar is hidden until it is asked for, and lists what changed;
 - a file is staged with a click and committed with a typed message;
 - the context menu of a commit stays inside the view with every entry in sight, and creates a branch through the real prompts;
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;

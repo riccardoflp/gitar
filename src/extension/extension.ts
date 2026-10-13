@@ -27,19 +27,10 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     },
   };
 
-  const changesProvider: vscode.WebviewViewProvider = {
-    resolveWebviewView(view) {
-      const attachment = controller.attach(view.webview, 'changes');
-      // The number on the activity bar icon: how many files have uncommitted changes.
-      const badge = controller.onDidChangeState((state) => {
-        const count = state?.changes ?? 0;
-        view.badge = count ? { value: count, tooltip: `${count} changed ${count === 1 ? 'file' : 'files'}` } : undefined;
-      });
-      view.onDidDispose(() => vscode.Disposable.from(attachment, badge).dispose());
-    },
-  };
-
-  /** One of the views of the side bar. `describe` is what its header says after its name, such as how many stashes there are. */
+  /**
+   * One of the views in the Source Control side bar of VS Code. `describe` is what its header says after its name,
+   * such as how many stashes there are. None of them counts the changes on the icon of the side bar: VS Code does.
+   */
   const sideView = (kind: ViewKind, describe?: (state: RepoState) => string | undefined): vscode.WebviewViewProvider => ({
     resolveWebviewView(view) {
       const attachment = controller.attach(view.webview, kind);
@@ -89,7 +80,8 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),
-    vscode.window.registerWebviewViewProvider(CHANGES_VIEW, changesProvider, webviewOptions),
+    // Hidden until it is asked for: VS Code has its own list of changes just above.
+    vscode.window.registerWebviewViewProvider(CHANGES_VIEW, sideView('changes'), webviewOptions),
     vscode.window.registerWebviewViewProvider(
       COMMITS_VIEW,
       // There is no room there for the box that names the repository, which matters when there are several.

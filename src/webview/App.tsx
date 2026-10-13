@@ -173,11 +173,14 @@ export function App({ compact = false }: { compact?: boolean }) {
     const needle = query.trim().toLowerCase();
     if (!state || !needle) return null;
     const found: string[] = [];
+    // A hash is matched from its start, and by four characters at least: "add" and "bed" are words before they are
+    // hexadecimal digits, and somewhere in forty of those they are bound to turn up.
+    const hash = /^[0-9a-f]{4,}$/.test(needle);
     for (const row of state.rows) {
       // The uncommitted changes are a row of the list, not a commit to find.
       if (row.hash === WORKTREE) continue;
-      const haystack = `${row.subject}\n${row.author}\n${row.hash}`.toLowerCase();
-      if (haystack.includes(needle)) found.push(row.hash);
+      const haystack = `${row.subject}\n${row.author}`.toLowerCase();
+      if (haystack.includes(needle) || (hash && row.hash.startsWith(needle))) found.push(row.hash);
     }
     return found;
   }, [state, query]);
