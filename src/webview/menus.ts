@@ -82,6 +82,12 @@ function scopeEntries(ref: string, state: RepoState): MenuEntry[] {
   ];
 }
 
+/** Marks a branch as a favorite, or no longer: the favorites are listed first among the references. */
+function favoriteEntry(ref: string, state: RepoState): MenuEntry {
+  const favorite = state.favorites.includes(ref);
+  return { label: favorite ? 'Remove from favorites' : 'Add to favorites', run: () => post({ type: 'setFavorite', ref, favorite: !favorite }) };
+}
+
 interface CommitMenuTools {
   /** The commit that was selected before this one was clicked, if any. */
   selected: string | null;
@@ -204,6 +210,7 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
     compareWith(name, branch.hash),
     ...scopeEntries(`refs/heads/${name}`, state),
     pullEntry(pushedName(branch, state), state, true),
+    favoriteEntry(`refs/heads/${name}`, state),
     'separator',
     { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: refArg('branch', name, state) }) },
     !checkedOut && { label: 'Create worktree…', run: () => act({ kind: 'worktreeAdd', ref: name, isBranch: true }) },
@@ -224,6 +231,7 @@ export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (co
     compareWith(name, ref.hash),
     ...scopeEntries(`refs/remotes/${name}`, state),
     pullEntry(state.github ? nameOnRemote(name, state) : null, state, false),
+    favoriteEntry(`refs/remotes/${name}`, state),
     'separator',
     { label: 'Delete from remote', danger: true, run: () => act({ kind: 'deleteRemoteBranch', name }) },
     'separator',

@@ -1,12 +1,13 @@
-import { memo, useState, type ReactNode } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState } from '../shared/protocol';
+import { scopeLabel, scopeRefs } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { endDrag, startDrag, type DragSource } from './drag';
 import { act, branchMenu, pullOf, pushedName, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
-import { loadUiState, saveUiState } from './vscode';
+import { loadUiState, post, saveUiState } from './vscode';
 
-export type SectionId = 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
+export type SectionId = 'favorites' | 'recent' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
 
 interface Props {
   state: RepoState;
@@ -24,6 +25,8 @@ interface Item {
   hint?: string;
   title?: string;
   current?: boolean;
+  /** Marked as a favorite, which is said beside its name where it is listed with the others. */
+  favorite?: boolean;
   /** Built when the menu is asked for: a repository can have thousands of tags, and each menu looks through the commits. */
   menu?(): MenuEntry[];
   /** What a double click does, when there is an obvious default. */
@@ -52,6 +55,9 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
   const [filter, setFilter] = useState('');
   const openMenu = useMenu();
   const needle = filter.trim().toLowerCase();
+  // What the graph is narrowed to is what is listed here: the branches, remote branches and tags whose history it shows.
+  const scoped = useMemo(() => (state.scope ? new Set(scopeRefs(state.scope, state)) : null), [state]);
+  const within = (ref: string) => !scoped || scoped.has(ref);
 
   const toggle = (id: string) => {
     const next = { ...collapsed, [id]: !collapsed[id] };
@@ -59,8 +65,10 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     saveUiState({ collapsed: next });
   };
 
-  const section = (id: SectionId, title: string, icon: string, all: Item[]): ReactNode => {
+  /** `optional` is a section that is not there at all while it has nothing to list. */
+  const section = (id: SectionId, title: string, icon: string, all: Item[], optional = false): ReactNode => {
     if (sections && !sections.includes(id)) return null;
+    if (optional && !all.length) return null;
     const items = needle ? all.filter((item) => item.label.toLowerCase().includes(needle)) : all;
     // A filter is there to find something: what it finds shows, whether the section was closed or not.
     const open = needle ? items.length > 0 : !collapsed[id];
@@ -69,7 +77,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     const current = items.find((item) => item.current);
     if (current && !listed.includes(current)) listed.push(current);
     return (
-      <section key={id}>
+      <section key={id} data-section={id}>
         <button className="section" onClick={() => toggle(id)} aria-expanded={open}>
           <Icon name={open ? 'chevron-down' : 'chevron-right'} />
           <Icon name={icon} />
@@ -93,6 +101,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
               }}
             >
               <span className="grow">{item.label}</span>
+              {item.favorite && id !== 'favorites' && <Icon name="star-full" />}
               {item.hint && <span className="hint">{item.hint}</span>}
               {item.pull && (
                 <span className={`pull ${item.pull.checks ?? ''}`}>
@@ -111,28 +120,63 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     );
   };
 
-  const branches = state.branches.map((branch): Item => {
-    const upstream = branch.upstream;
-    const hint = upstream
-      ? upstream.gone
-        ? 'gone'
-        : [upstream.ahead && `↑${upstream.ahead}`, upstream.behind && `↓${upstream.behind}`].filter(Boolean).join(' ')
-      : undefined;
-    const pull = pullOf(pushedName(branch, state), state);
-    const tracking = upstream ? `${branch.name} → ${upstream.name}` : `${branch.name} (no upstream)`;
-    return {
-      key: branch.name,
-      hash: branch.hash,
-      label: branch.name,
-      hint,
-      pull,
-      title: pull ? `${tracking}\n${pullTitle(pull)}` : tracking,
-      current: branch.current,
-      menu: () => branchMenu(branch, state, onCompare),
-      open: branch.current ? undefined : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
-      drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
-    };
-  });
+  const favorites = new Set(state.favorites);
+  const branches = state.branches
+    .filter((branch) => within(`refs/heads/${branch.name}`))
+    .map((branch): Item => {
+      const upstream = branch.upstream;
+      const hint = upstream
+        ? upstream.gone
+          ? 'gone'
+          : [upstream.ahead && `↑${upstream.ahead}`, upstream.behind && `↓${upstream.behind}`].filter(Boolean).join(' ')
+        : undefined;
+      const pull = pullOf(pushedName(branch, state), state);
+      const tracking = upstream ? `${branch.name} → ${upstream.name}` : `${branch.name} (no upstream)`;
+      return {
+        key: branch.name,
+        hash: branch.hash,
+        label: branch.name,
+        hint,
+        pull,
+        title: pull ? `${tracking}\n${pullTitle(pull)}` : tracking,
+        current: branch.current,
+        favorite: favorites.has(`refs/heads/${branch.name}`),
+        menu: () => branchMenu(branch, state, onCompare),
+        open: branch.current ? undefined : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
+        drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
+      };
+    });
+  const remotes = state.remoteBranches
+    .filter((ref) => within(`refs/remotes/${ref.name}`))
+    .map(
+      (ref): Item => ({
+        key: ref.name,
+        hash: ref.hash,
+        label: ref.name,
+        favorite: favorites.has(`refs/remotes/${ref.name}`),
+        menu: () => remoteBranchMenu(ref, state, onCompare),
+        drag: { kind: 'branch', name: ref.name, hash: ref.hash, local: false, current: false },
+      }),
+    );
+  // The same lines the branches have where they are listed with the others, under a key of their own.
+  const again = (prefix: string, item: Item | undefined): Item[] => (item ? [{ ...item, key: `${prefix}:${item.key}` }] : []);
+  const favoriteItems = state.favorites.flatMap((ref) =>
+    ref.startsWith('refs/heads/')
+      ? again(
+          'favorite',
+          branches.find((item) => `refs/heads/${item.key}` === ref),
+        )
+      : again(
+          'favorite:remote',
+          remotes.find((item) => `refs/remotes/${item.key}` === ref),
+        ),
+  );
+  const recentItems = state.recentBranches.flatMap((name) =>
+    again(
+      'recent',
+      branches.find((item) => item.key === name),
+    ),
+  );
   // Only the names that are listed here count towards having a filter.
   const shown = (id: SectionId, count: number) => (!sections || sections.includes(id) ? count : 0);
   const names =
@@ -161,24 +205,26 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           )}
         </div>
       )}
-      {section('branches', 'Local', 'git-branch', branches)}
-      {section(
-        'remotes',
-        'Remotes',
-        'cloud',
-        state.remoteBranches.map((ref) => ({
-          key: ref.name,
-          hash: ref.hash,
-          label: ref.name,
-          menu: () => remoteBranchMenu(ref, state, onCompare),
-          drag: { kind: 'branch', name: ref.name, hash: ref.hash, local: false, current: false },
-        })),
+      {scoped && (
+        <div className="refs-scope" role="status" title="Only the branches the graph is narrowed to are listed">
+          <Icon name="filter-filled" />
+          <span className="grow">{scopeLabel(state.scope)}</span>
+          <button className="link" onClick={() => post({ type: 'setScope', scope: null })}>
+            Show all
+          </button>
+        </div>
       )}
+      {section('favorites', 'Favorites', 'star-full', favoriteItems, true)}
+      {section('recent', 'Recent', 'history', recentItems, true)}
+      {section('branches', 'Local', 'git-branch', branches)}
+      {section('remotes', 'Remotes', 'cloud', remotes)}
       {section(
         'tags',
         'Tags',
         'tag',
-        state.tags.map((ref) => ({ key: ref.name, hash: ref.hash, label: ref.name, menu: () => tagMenu(ref, state, onCompare) })),
+        state.tags
+          .filter((ref) => within(`refs/tags/${ref.name}`))
+          .map((ref) => ({ key: ref.name, hash: ref.hash, label: ref.name, menu: () => tagMenu(ref, state, onCompare) })),
       )}
       {section(
         'stashes',

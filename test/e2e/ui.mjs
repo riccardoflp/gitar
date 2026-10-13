@@ -99,8 +99,15 @@ try {
     assert(bar.branch === 'main' && !bar.clipped && bar.fits, `toolbar: ${JSON.stringify(bar)}`);
   });
 
+  /**
+   * Takes the pointer off the status bar, where opening a command leaves it: in a narrow window what is under it there
+   * is an item that opens over the panel when it is pointed at.
+   */
+  const aside = () => page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 600, y: 300 });
+
   await step('the toolbar still names the branch and fits when the panel is narrow', async () => {
     try {
+      await aside();
       for (const width of [1050, 800]) {
         await page.send('Emulation.setDeviceMetricsOverride', { width, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
         await sleep(700);
@@ -429,9 +436,12 @@ try {
       const now = await seen();
       return check(now) ? now : null;
     });
-    /** The entries of the menu of a branch in the list of references, which is left open. */
+    /**
+     * The entries of the menu of a branch, which is left open: asked on its label in the graph, since the list of
+     * references has only the branches that are shown.
+     */
     const menuOf = async (branch) => {
-      const at = await graph.locate('.refs .ref', branch);
+      const at = await graph.locate('.row .label', branch);
       await mouse(at.x, at.y, 'right');
       return until('the menu', () =>
         graph.evaluate(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent); return items.length ? items : null; })()`),
@@ -711,7 +721,10 @@ try {
     await until('the branches', () => branches.evaluate(`document.querySelectorAll('.refs .ref').length >= 4`));
     const sections = await branches.evaluate(`[...document.querySelectorAll('.refs .section')].map((section) => section.textContent)`);
     // The stashes have a view of their own.
-    assert(sections[0] === 'Local4' && sections[1] === 'Remotes1' && !sections.some((section) => section.startsWith('Stashes')), `sections: ${sections}`);
+    assert(
+      sections.join().startsWith('Recent1,Local4,Remotes1') && !sections.some((section) => section.startsWith('Stashes')),
+      `sections: ${sections}`,
+    );
     assert((await header('Branches')).description === 'main', `the header names the branch: ${JSON.stringify(await header('Branches'))}`);
 
     let at = await branches.locate('.refs .ref', 'feature');
@@ -959,6 +972,166 @@ try {
     // And from the tab back to the graph, where its commit is selected.
     await other.click('.commit-actions .button', 'Show in the graph');
     await until('the commit selected in the graph', () => graph.evaluate(`document.querySelector('.row.selected .subject')?.textContent === 'Add notes'`));
+  });
+
+  await step('the details keep a long message to a few lines, list the files with their directories or as a tree, and are sized from above when they are under the commits', async () => {
+    await command('View: Close All Editors');
+    const file = (name, content) => {
+      fs.mkdirSync(path.dirname(path.join(app, name)), { recursive: true });
+      fs.writeFileSync(path.join(app, name), content);
+    };
+    file('docs/guide/intro.txt', 'intro\n');
+    file('docs/guide/setup.txt', 'setup\n');
+    file('lib/util.txt', 'util\n');
+    git(app, 'add', 'docs', 'lib');
+    const lines = Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the message.`);
+    git(app, 'commit', '-m', `Add the guide\n\n${lines.join('\n')}`);
+    const graph = await webview('graph');
+    await until('the commit', async () => (await subjects(graph)).includes('Add the guide'));
+    await graph.click('.row', 'Add the guide');
+    await until('the details', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add the guide'`));
+    await until('the files', () => graph.evaluate(`document.querySelectorAll('.detail .files .file').length === 3`));
+
+    // The message: five lines of it, the rest a scroll away, and the files in sight under it.
+    const message = await graph.evaluate(`(() => {
+      const box = document.querySelector('.detail .said');
+      const body = box.querySelector('.body');
+      const detail = document.querySelector('.detail').getBoundingClientRect();
+      return {
+        line: body.scrollHeight / ${lines.length},
+        height: box.clientHeight,
+        whole: box.scrollHeight,
+        scrolls: getComputedStyle(box).overflowY,
+        files: document.querySelector('.detail .files').getBoundingClientRect().top < detail.bottom,
+      };
+    })()`);
+    assert(message.height > message.line * 4 && message.height < message.line * 6, `the message takes ${JSON.stringify(message)}`);
+    assert(message.whole > message.height * 2 && message.scrolls === 'auto' && message.files, `the message: ${JSON.stringify(message)}`);
+
+    // One after the other, each file says where it is.
+    const rows = () =>
+      graph.evaluate(`[...document.querySelectorAll('.detail .files .file')].map((row) => {
+        const dir = row.querySelector('.dir');
+        return (row.classList.contains('directory') ? '> ' : '') + row.querySelector('.name').textContent + (dir ? ' in ' + dir.textContent + (dir.getBoundingClientRect().width > 8 ? '' : ' (hidden)') : '');
+      })`);
+    assert((await rows()).join() === 'intro.txt in docs/guide,setup.txt in docs/guide,util.txt in lib', `list: ${await rows()}`);
+    await shot('details-list');
+
+    // Or under their directories, which fold: and it stays so for the next commit.
+    await graph.click('.detail h3 button[aria-label="Files as a tree"]');
+    await until('the tree', async () => (await rows()).join() === '> docs/guide,intro.txt,setup.txt,> lib,util.txt');
+    await shot('details-tree');
+    await graph.click('.detail .files .directory', 'docs/guide');
+    await until('a directory folded', async () => (await rows()).join() === '> docs/guide,> lib,util.txt');
+    await graph.click('.row', 'Add parts');
+    await until('the tree of another commit', async () => (await rows()).join() === '> src,> parts,list.txt,main.txt,notes.txt');
+    await graph.click('.detail h3 button[aria-label="Files as a list"]');
+    await until('the list again', async () => (await rows()).join() === 'notes.txt,main.txt in src,list.txt in src/parts');
+
+    // In a narrow panel the details are under the commits, and the line between the two is dragged up and down.
+    try {
+      await aside();
+      await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
+      await sleep(700);
+      await graph.click('.row', 'Add the guide');
+      const sizes = () =>
+        graph.evaluate(`(() => {
+          const [commits, detail] = ['.commits', '.detail'].map((pane) => document.querySelector(pane).getBoundingClientRect());
+          return { under: detail.top >= commits.bottom - 1, commits: Math.round(commits.height), detail: Math.round(detail.height) };
+        })()`);
+      const before = await until('the details under the commits', async () => {
+        const now = await sizes();
+        return now.under ? now : null;
+      });
+      assert(Math.abs(before.commits - before.detail) <= 2, `half each to start with: ${JSON.stringify(before)}`);
+      const at = await graph.locate('.stack-sash');
+      await window.drag(at, { x: at.x, y: at.y - 40 });
+      const after = await sizes();
+      await until('the details of the commit', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add the guide'`));
+      await shot('details-under');
+      assert(after.detail === before.detail + 40 && after.commits === before.commits - 40, `from ${JSON.stringify(before)} to ${JSON.stringify(after)}`);
+      const line = await graph.locate('.stack-sash');
+      await mouse(line.x, line.y);
+      await mouse(line.x, line.y, 'left', 2);
+      await until('the height they had', async () => (await sizes()).detail === before.detail);
+    } finally {
+      await page.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
+      await sleep(700);
+    }
+    await graph.click('.detail .close');
+  });
+
+  await step('the branches list the favorites and the ones checked out last first, only the ones the graph is narrowed to, and can be put away; the status bar opens the graph', async () => {
+    const graph = await webview('graph');
+    const sections = (view) =>
+      view.evaluate(`Object.fromEntries([...document.querySelectorAll('.refs section')].map((section) => [
+        section.dataset.section,
+        [...section.querySelectorAll('.ref')].map((ref) => ref.querySelector('.grow').textContent + (ref.querySelector('.codicon-star-full') ? '*' : '')),
+      ]))`);
+    const menuOf = async (branch) => {
+      const at = await graph.locate('.refs section[data-section="branches"] .ref', branch);
+      await mouse(at.x, at.y, 'right');
+      return until('the menu', () =>
+        graph.evaluate(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent); return items.length ? items : null; })()`),
+      );
+    };
+
+    // What was checked out before what is now comes first among the recent ones, and what is checked out is not one of them.
+    git(app, 'checkout', '-q', 'feature');
+    git(app, 'checkout', '-q', 'main');
+    const recent = await until('the branch left last', async () => {
+      const now = await sections(graph);
+      return now.recent?.[0] === 'feature' ? now : null;
+    });
+    assert(!recent.recent.includes('main') && !('favorites' in recent), `sections: ${JSON.stringify(recent)}`);
+
+    // A favorite, from the menu of a branch: it has a group of its own, and a mark where it is listed with the others.
+    assert((await menuOf('merged')).includes('Add to favorites'), 'the menu of a branch has the favorites');
+    await graph.click('[role="menuitem"]', 'Add to favorites');
+    const liked = await until('the favorites', async () => {
+      const now = await sections(graph);
+      return now.favorites?.join() === 'merged' ? now : null;
+    });
+    assert(liked.branches.includes('merged*') && liked.branches.includes('feature'), `branches: ${liked.branches}`);
+    assert(Object.keys(liked).slice(0, 3).join() === 'favorites,recent,branches', `order: ${Object.keys(liked)}`);
+    await shot('branches-groups');
+    // The Branches view of the side bar lists them the same way.
+    const side = await webview('branches');
+    await until('the favorites in the side bar', async () => (await sections(side)).favorites?.join() === 'merged');
+
+    // Narrowed to a branch, the graph leaves only that one here too, and says so with the way back.
+    await menuOf('feature');
+    await graph.click('[role="menuitem"]', 'Show only this history');
+    const narrowed = await until('only the branch shown', async () => {
+      const now = await sections(graph);
+      return now.branches.join() === 'feature' ? now : null;
+    });
+    assert(narrowed.recent.join() === 'feature' && !('favorites' in narrowed) && !narrowed.remotes.length, `narrowed: ${JSON.stringify(narrowed)}`);
+    assert((await graph.evaluate(`document.querySelector('.refs-scope .grow').textContent`)) === 'feature', 'the references say what they are narrowed to');
+    await shot('branches-narrowed');
+    await graph.click('.refs-scope button');
+    await until('all the branches again', async () => (await sections(graph)).branches.includes('main'));
+    assert((await menuOf('merged')).includes('Remove from favorites'), 'a favorite can be taken out');
+    await graph.click('[role="menuitem"]', 'Remove from favorites');
+    await until('no favorites', async () => !('favorites' in (await sections(graph))));
+
+    // Put away, the references leave their room to the commits; the button brings them back.
+    const commits = () => graph.evaluate(`Math.round(document.querySelector('.commits').getBoundingClientRect().width)`);
+    const narrow = await commits();
+    await graph.click('.refs-toggle');
+    await until('the references gone', () => graph.evaluate(`!document.querySelector('.refs') && document.querySelector('.refs-toggle').getAttribute('aria-pressed') === 'false'`));
+    assert((await commits()) > narrow + 100, `the commits went from ${narrow} to ${await commits()}`);
+    await shot('branches-hidden');
+    await graph.click('.refs-toggle');
+    await until('the references back', async () => (await commits()) === narrow);
+
+    // The button of the status bar opens the graph in a tab of the editor.
+    const tabs = () => page.evaluate(`[...document.querySelectorAll('.tabs-container .tab')].map((tab) => tab.textContent)`);
+    assert(!(await tabs()).some((tab) => tab.includes('Gitar')), `tabs: ${await tabs()}`);
+    await clickText('.statusbar-item', 'Gitar');
+    await until('the graph in a tab', async () => (await tabs()).some((tab) => tab.includes('Gitar')));
+    await shot('status-bar');
+    await command('View: Close All Editors');
   });
 
   await step('a merge that stops offers to resolve the conflicts that need no choice, shows what it would write first, and can take it back', async () => {

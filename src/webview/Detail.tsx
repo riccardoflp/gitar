@@ -1,9 +1,12 @@
-import { WORKTREE, type CommitDetail, type DiffSource } from '../shared/protocol';
+import { useEffect, useMemo, useState } from 'react';
+import { WORKTREE, type CommitDetail, type DiffSource, type FileChange, type FilesLayout } from '../shared/protocol';
+import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
 import { FileRow } from './FileRow';
+import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
 import { fullDate, shortHash } from './util';
-import { post } from './vscode';
+import { loadUiState, post, saveUiState } from './vscode';
 
 interface Props {
   hash: string;
@@ -12,12 +15,41 @@ interface Props {
   onClose(): void;
 }
 
+const NONE: ReadonlySet<string> = new Set();
+
 export function Detail({ hash, detail, onJump, onClose }: Props) {
   const worktree = hash === WORKTREE;
   const source: DiffSource = worktree
     ? { kind: 'worktree' }
     : { kind: 'commit', hash, parent: detail?.parents[0] ?? null };
   const [files, moreFiles] = useCapped(detail?.files ?? [], FILES_LIMIT, 'files', hash);
+  // One after the other, each with its directory beside its name, or under their directories: as the view was left.
+  const [layout, setLayout] = useState(() => loadUiState({ detailFiles: 'list' as FilesLayout }).detailFiles);
+  const [folded, setFolded] = useState(NONE);
+  const tree = useMemo(() => (layout === 'tree' ? fileTree(files, (file) => file.path) : []), [layout, files]);
+  // The directories of another commit are other directories.
+  useEffect(() => setFolded(NONE), [hash]);
+
+  const choose = (wanted: FilesLayout) => {
+    setLayout(wanted);
+    saveUiState({ detailFiles: wanted });
+  };
+  const row = (file: FileChange, depth?: number) => (
+    <FileRow
+      key={file.path}
+      file={file}
+      depth={depth}
+      onOpen={() => post({ type: 'openDiff', source, file })}
+      actions={[
+        {
+          icon: 'history',
+          title: 'Show the history of this file',
+          run: () => post({ type: 'setFilter', filter: { kind: 'path', path: file.path } }),
+        },
+      ]}
+    />
+  );
+
   return (
     <aside className="detail" aria-label="Commit details">
       <button className="button icon close" onClick={onClose} aria-label="Close details" title="Close">
@@ -37,8 +69,11 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
         <p className="muted">Loading…</p>
       ) : (
         <>
-          <h2>{detail.subject}</h2>
-          {detail.body && <pre className="body">{detail.body}</pre>}
+          {/* A long message scrolls in the few lines it has, and leaves the files in sight: the tab of the commit has it whole. */}
+          <div className="said">
+            <h2>{detail.subject}</h2>
+            {detail.body && <pre className="body">{detail.body}</pre>}
+          </div>
           {!worktree && (
             <dl>
               <dt>Author</dt>
@@ -82,6 +117,28 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
               {detail.files.length} changed {detail.files.length === 1 ? 'file' : 'files'}
               {detail.parents.length > 1 && <span className="muted"> against the first parent</span>}
             </span>
+            {detail.files.length > 0 && (
+              <>
+                <button
+                  className={`button icon${layout === 'tree' ? ' on' : ''}`}
+                  aria-pressed={layout === 'tree'}
+                  title="Under their directories"
+                  aria-label="Files as a tree"
+                  onClick={() => choose('tree')}
+                >
+                  <Icon name="list-tree" />
+                </button>
+                <button
+                  className={`button icon${layout === 'list' ? ' on' : ''}`}
+                  aria-pressed={layout === 'list'}
+                  title="One after the other, each with its directory"
+                  aria-label="Files as a list"
+                  onClick={() => choose('list')}
+                >
+                  <Icon name="list-flat" />
+                </button>
+              </>
+            )}
             {detail.files.length > 1 && (
               <button
                 className="button icon"
@@ -100,21 +157,12 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
               </button>
             )}
           </h3>
-          <div className="files">
-            {files.map((file) => (
-              <FileRow
-                key={file.path}
-                file={file}
-                onOpen={() => post({ type: 'openDiff', source, file })}
-                actions={[
-                  {
-                    icon: 'history',
-                    title: 'Show the history of this file',
-                    run: () => post({ type: 'setFilter', filter: { kind: 'path', path: file.path } }),
-                  },
-                ]}
-              />
-            ))}
+          <div className={`files ${layout}`}>
+            {layout === 'tree' ? (
+              <FileTree nodes={tree} folded={folded} onFold={(path) => setFolded((current) => toggled(current, path))} row={row} />
+            ) : (
+              files.map((file) => row(file))
+            )}
             {moreFiles}
           </div>
           {detail.untracked && (

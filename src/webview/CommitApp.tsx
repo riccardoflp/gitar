@@ -1,10 +1,11 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { CommitDetail, DiffSource, FileChange, FilePatch, FilesLayout, Hunk, RepoState } from '../shared/protocol';
-import { fileTree, type TreeNode } from '../shared/tree';
+import { fileTree } from '../shared/tree';
 import { buildLabels } from './App';
 import { FILES_LIMIT, useCapped } from './Capped';
 import { LABEL_ICONS } from './CommitList';
-import { FileRow, INDENT, Status, fileTitle } from './FileRow';
+import { FileRow, Status, fileTitle } from './FileRow';
+import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
 import { fullDate, shortHash } from './util';
 import { onMessage, post } from './vscode';
@@ -136,49 +137,6 @@ function FileDiff({ entry, open, onToggle, onOpen }: DiffProps) {
     </section>
   );
 }
-
-interface TreeProps {
-  nodes: TreeNode<Entry>[];
-  depth: number;
-  folded: ReadonlySet<string>;
-  onFold(path: string): void;
-  onShow(entry: Entry): void;
-  onOpen(entry: Entry): void;
-}
-
-function Tree({ nodes, depth, folded, onFold, onShow, onOpen }: TreeProps) {
-  return nodes.map((node) => {
-    if (node.item) {
-      const entry = node.item;
-      return (
-        <FileRow
-          key={`file:${node.path}`}
-          file={entry.file}
-          depth={depth}
-          onOpen={() => onShow(entry)}
-          extra={<Stat patch={entry.patch} />}
-          actions={[{ icon: 'diff', title: 'Open in the diff editor', run: () => onOpen(entry) }]}
-        />
-      );
-    }
-    const open = !folded.has(node.path);
-    return (
-      <div key={`directory:${node.path}`}>
-        <button className="file directory" style={{ paddingLeft: 12 + depth * INDENT }} aria-expanded={open} onClick={() => onFold(node.path)}>
-          <Icon name={open ? 'chevron-down' : 'chevron-right'} />
-          <span className="name">{node.name}</span>
-        </button>
-        {open && <Tree nodes={node.children} depth={depth + 1} folded={folded} onFold={onFold} onShow={onShow} onOpen={onOpen} />}
-      </div>
-    );
-  });
-}
-
-const toggled = (set: ReadonlySet<string>, value: string) => {
-  const next = new Set(set);
-  if (!next.delete(value)) next.add(value);
-  return next;
-};
 
 /** One commit in an editor tab: its whole message, the files it changed and what it changed in each. */
 export function CommitApp({ hash, root, layout: remembered }: Props) {
@@ -330,7 +288,20 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
         </h2>
         <div className="files">
           {layout === 'tree' ? (
-            <Tree nodes={tree} depth={0} folded={folded} onFold={(path) => setFolded((current) => toggled(current, path))} onShow={show} onOpen={openDiff} />
+            <FileTree
+              nodes={tree}
+              folded={folded}
+              onFold={(path) => setFolded((current) => toggled(current, path))}
+              row={(entry, depth) => (
+                <FileRow
+                  file={entry.file}
+                  depth={depth}
+                  onOpen={() => show(entry)}
+                  extra={<Stat patch={entry.patch} />}
+                  actions={[{ icon: 'diff', title: 'Open in the diff editor', run: () => openDiff(entry) }]}
+                />
+              )}
+            />
           ) : (
             listed.map((entry) => (
               <FileRow

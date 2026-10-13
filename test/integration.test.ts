@@ -649,6 +649,21 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     for (const nothing of ['', 'no-such-thing', '--all', 'other..HEAD', `${next}:new.txt`]) expect(await repo.resolve(nothing)).toBeNull();
   });
 
+  it('lists the branches that were checked out last, without the one that is checked out', async () => {
+    write('a.txt', 'one\n');
+    await commitAll('first');
+    expect((await state()).recentBranches).toEqual([]);
+    await run(createBranchOp('feature', 'HEAD', true));
+    await run(createBranchOp('fix', 'HEAD', true));
+    expect((await state()).recentBranches).toEqual(['feature', 'main']);
+    await run(checkoutOp('branch', 'main'));
+    expect((await state()).recentBranches).toEqual(['fix', 'feature']);
+    // A branch that is deleted is not one to go back to.
+    await run(deleteBranchOp('fix', true));
+    expect((await state()).recentBranches).toEqual(['feature']);
+    expect((await state()).favorites).toEqual([]);
+  });
+
   it('narrows the graph to the branches chosen, and what is searched and found with it', async () => {
     const other = await divergent();
     const main = (await state()).head!;

@@ -27,6 +27,7 @@ import {
   STASH_FORMAT,
   REFLOG_FORMAT,
   allChanges,
+  recentBranches,
   parseBisectRefs,
   parseBlameLine,
   parseHunks,
@@ -57,6 +58,8 @@ export interface ConflictPlan {
 }
 
 /** Larger files in conflict are left to the user. */
+/** How far back in the moves of HEAD the branches checked out last are looked for. */
+const RECENT_MOVES = 300;
 const CONFLICT_BYTES = 2 * 1024 * 1024;
 /** No more files in conflict than this are read to see what can be resolved. */
 const CONFLICT_FILES = 200;
@@ -205,7 +208,7 @@ export class Repo {
 
   /** With `resolve`, the files with conflicts are read to say which of the conflicts need no choice between the two sides. */
   async state(limit: number, filter: Filter | null = null, scope: Scope | null = null, resolve = false): Promise<RepoState> {
-    const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, working, operation, bisect] = await Promise.all([
+    const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, movesOut, working, operation, bisect] = await Promise.all([
       this.read(['for-each-ref', `--format=${REF_FORMAT}`]),
       this.read(['rev-parse', '--verify', '--quiet', 'HEAD'], true),
       // Asked in full: the short form of a branch that shares its name with a tag is `heads/<name>`.
@@ -214,6 +217,8 @@ export class Repo {
       this.read(['worktree', 'list', '--porcelain']),
       this.read(['remote']),
       this.read(['config', '--get-regexp', '^user\\.(name|email)$'], true),
+      // Where HEAD has been, for the branches that were checked out last. There is none before the first commit.
+      this.read(['reflog', `--max-count=${RECENT_MOVES}`, '--format=%gs', 'HEAD'], true),
       this.working(),
       this.operation(),
       this.bisect(),
@@ -278,6 +283,12 @@ export class Repo {
       identity: parseIdentity(identityOut),
       filter: filter?.kind === 'path' && names.length > 1 ? { ...filter, renamedFrom: names.slice(1) } : filter,
       scope: shown,
+      recentBranches: recentBranches(
+        movesOut,
+        refs.branches.map((each) => each.name),
+        branch,
+      ),
+      favorites: [],
       repos: [],
       github: null,
       pulls: {},

@@ -63,6 +63,8 @@ const REPO_KEY = 'gitar.repository';
 const SCOPE_KEY = 'gitar.scope';
 /** How the files of a commit are laid out in its tab: as a tree until a list is asked for. */
 const FILES_KEY = 'gitar.commitFiles';
+/** The favorite branches of each repository of the workspace. */
+const FAVORITES_KEY = 'gitar.favorites';
 /** How many lines of what a commit changed are sent to its tab. The diff editor shows a commit longer than that. */
 const PATCH_LINES = 20_000;
 /** What fits of the message of a commit in the title of its tab. */
@@ -211,7 +213,7 @@ export class Controller implements vscode.Disposable {
         if (repo !== this.repo) continue;
         // Unless another was chosen while this one was read.
         if (scope === this.scope) this.settleScope(state.root, state.scope);
-        this.setState({ ...state, repos: this.repos, github: this.github, pulls: this.pulls });
+        this.setState({ ...state, favorites: this.favorites(state), repos: this.repos, github: this.github, pulls: this.pulls });
       }
     } catch (error) {
       this.log.error(errorText(error));
@@ -260,6 +262,24 @@ export class Controller implements vscode.Disposable {
     if (JSON.stringify(all[root] ?? null) === JSON.stringify(scope)) return;
     const others = Object.fromEntries(Object.entries(all).filter(([other]) => other !== root));
     void this.memento.update(SCOPE_KEY, scope ? { ...others, [root]: scope } : others);
+  }
+
+  /** The favorites of a repository that are still branches of it, by their full names. */
+  private favorites(state: Pick<RepoState, 'root' | 'branches' | 'remoteBranches'>): string[] {
+    const known = new Set([...state.branches.map((branch) => `refs/heads/${branch.name}`), ...state.remoteBranches.map((ref) => `refs/remotes/${ref.name}`)]);
+    const stored: unknown = this.memento.get<Record<string, unknown>>(FAVORITES_KEY, {})[state.root];
+    return Array.isArray(stored) ? stored.filter((ref): ref is string => typeof ref === 'string' && known.has(ref)) : [];
+  }
+
+  /** Marks a branch as a favorite, or no longer. Nothing of the repository changes: the views are told at once. */
+  async setFavorite(ref: string, favorite: boolean): Promise<void> {
+    const state = await this.requireState();
+    if (!state || typeof ref !== 'string') return;
+    // The ones whose branch is gone are forgotten as soon as there is something to save.
+    const others = this.favorites(state).filter((other) => other !== ref);
+    const next = favorite ? [...others, ref] : others;
+    await this.memento.update(FAVORITES_KEY, { ...this.memento.get<Record<string, unknown>>(FAVORITES_KEY, {}), [state.root]: next });
+    if (this.state?.root === state.root) this.setState({ ...this.state, favorites: this.favorites(this.state) });
   }
 
   /** Narrows the graph to the history of a file or to a search, or shows everything again. */
@@ -1081,6 +1101,8 @@ export class Controller implements vscode.Disposable {
         return this.setFilter(message.filter);
       case 'setScope':
         return this.setScope(message.scope);
+      case 'setFavorite':
+        return this.setFavorite(message.ref, message.favorite === true);
       case 'goTo':
         return this.goTo(message.revision, webview);
       case 'find':

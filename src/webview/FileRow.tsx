@@ -66,7 +66,12 @@ export function FileRow({ file, onOpen, actions, expanded, onToggle, extra, dept
       <button className="file-open" title={fileTitle(file)} onClick={onOpen}>
         <Status file={file} />
         <span className="name">{file.path.slice(slash + 1)}</span>
-        {depth === undefined && <span className="dir">{file.path.slice(0, Math.max(0, slash))}</span>}
+        {depth === undefined && slash > 0 && (
+          <span className="dir">
+            {/* Read from the left as it is written, whichever end the line is cut at. */}
+            <bdi>{file.path.slice(0, slash)}</bdi>
+          </span>
+        )}
       </button>
       {extra}
       <ActionButtons actions={actions} />

@@ -8,7 +8,7 @@ Gitar has a view in the bottom panel and four in the Source Control side bar of 
 - **Commits**, **Branches** and **Stashes**, in the side bar under the views of VS Code: the same history, references and stashes, for when the panel is closed.
 - **Gitar Changes**, hidden until you ask for it: staging and committing, where VS Code has its own.
 
-See [Side bar](#side-bar). Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitar: Open Graph in Editor** opens the graph as an editor tab.
+See [Side bar](#side-bar). Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitar: Open Graph in Editor** opens the graph as an editor tab. So does the **Gitar** button in the status bar, which is there whenever the workspace has a repository; like any item of the status bar it can be hidden from the menu a right click on the bar opens.
 
 ## Installation
 
@@ -28,11 +28,15 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 
 - Commit graph of all branches, remote branches and tags, loaded progressively.
 - The labels of a commit are outlined in the color of its line in the graph; the branch that is checked out is the one filled in.
-- Drag the line between the references and the commits, or between the commits and the details, to change their widths; double-click it to go back to the default. The widths are remembered per workspace.
+- Drag the line between the references and the commits, or between the commits and the details, to change their widths; double-click it to go back to the default. In a panel too narrow to have them side by side the details go under the commits, and the line between the two is dragged up and down the same way, as it is in the Commits view of the side bar. The sizes are remembered per workspace.
+- The first button of the toolbar puts the references away, to leave their room to the commits, and brings them back. It is remembered too.
 - The graph is as wide as its lines need, up to sixteen side by side and a third of the list. With more branches than that open at once it draws the lines closer, and past a point it fades out at its edge rather than push the messages away. Drag that edge to give it less room or more, up to the width at which every line has its place; double-click it to let the graph choose again. This works in the Commits view of the side bar too, and each view remembers its own.
 - Uncommitted changes shown as the first row of the graph, also before the first commit of a new repository.
 - References tree: local branches with ahead and behind counts, remote branches, tags, stashes and worktrees. From 15 branches and tags on, a filter box appears above it, and a section with more than 100 entries lists the first 100 and a **Show all** entry.
-- Commit details with the list of changed files; selecting a file opens it in the VS Code diff editor, and the button next to the count opens the diffs of all of them in one editor.
+- Above them, when there are some, two shorter lists. **Recent** has the local branches that were checked out last, the latest first and up to five, without the one that is checked out now: where you were before is one double click away. **Favorites** has the branches you marked with **Add to favorites** in their context menu, local or remote; they also carry a star where they are listed with the others, and are remembered for each repository of the workspace.
+- While the graph is narrowed to some branches (see [Filter by branch](#filter-by-branch)) the references list only those, in every section, under a line that says what they are narrowed to and has **Show all** to undo it.
+- Commit details with the list of changed files; selecting a file opens it in the VS Code diff editor, and the button next to the count opens the diffs of all of them in one editor. The two buttons before it choose how the files are listed: one after the other, each with its directory beside its name, or as a tree of directories that fold. The choice is remembered.
+- A message of more than five lines scrolls in the room of five, so that the files stay in sight under it. The tab of the commit has it whole.
 - Double-click a commit to read it whole in an editor tab, with what it changed under its message: see [A commit in an editor tab](#a-commit-in-an-editor-tab).
 - Selecting a stash shows what it holds, including the untracked files it took, which git keeps apart from the rest.
 - Fetch, pull (merge or `--rebase`), push, push with `--force-with-lease` and push with `--force`.
@@ -88,7 +92,7 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 Gitar has no icon of its own in the activity bar: its views are in the **Source Control** side bar, the one VS Code keeps for Git, under **Changes** and **Graph**. Three of them show what the graph of Gitar shows, each on its own:
 
 - **Commits** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. A list this narrow gives each commit two lines: its message, and under it its labels with their names, who made it and when. A commit with more than three labels names two of them, what is checked out first, and counts the others: hover the count to read them.
-- **Branches** is the references tree: local branches, remote branches, tags and worktrees, with the same context menus. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
+- **Branches** is the references tree: the recent branches and the favorites, local branches, remote branches, tags and worktrees, with the same context menus, and only the branches the graph is narrowed to while it is. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
 - **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
 
 The fourth, **Gitar Changes**, stages and commits: see [Changes](#changes). VS Code already has a view for that right above, so this one is hidden until you ask for it, with **Gitar: Show Changes** or by ticking it in the **…** menu of the side bar, and stays until you hide it again. The number on the icon of the side bar is the one VS Code counts.
@@ -134,7 +138,7 @@ The graph shows every branch, remote branch and tag until you tell it which ones
 - Under them, every local branch, remote branch and tag has a tick. Tick the ones to show: the graph changes as you do. From **Current** or **Local**, a tick added or taken away starts from the branches those stand for.
 - The box above the list leaves in it the names that contain what you type. `Escape` empties it, and closes the list when it is empty.
 
-The same can be done from the context menu of a branch or tag, in the graph, in the references and in the Branches view:
+The same can be done from the context menu of a branch or tag, on its label in the graph, in the references and in the Branches view. The references list only the branches that are shown, so one that is not is added from its label in the graph, or from the list of the button:
 
 | Entry | Does |
 | --- | --- |
@@ -339,7 +343,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, that nothing about resolving conflicts automatically is offered or run until its setting is on, and that with it on the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the branches checked out last are listed and the favorites of each repository remembered, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, that nothing about resolving conflicts automatically is offered or run until its setting is on, and that with it on the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -367,6 +371,8 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know;
 - the Stashes view unfolds a stash to its files, and its header counts the stashes;
 - the graph opens as an editor tab, with the details of a commit beside it;
+- the details keep a message of many lines to five that scroll, list the files with their directories or as a tree that folds, and in a narrow panel are sized by dragging the line over them;
+- the references list the favorites and the branches checked out last first, only the branches the graph is narrowed to, and are put away and brought back by the button of the toolbar; the button of the status bar opens the graph in a tab;
 - a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost and their diffs numbered line by line; the button in the details opens another the same way, and **Show in the graph** leads back;
 - a merge that stops offers nothing more than usual while `gitar.conflicts.autoResolve` is off, the Settings editor marks that setting as experimental, and once it is on the merge counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**.
 

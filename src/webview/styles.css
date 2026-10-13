@@ -457,6 +457,8 @@ input:focus-visible,
   /* The widths the panes were dragged to, short of what would leave no room for the commits. */
   --refs: min(var(--refs-width, 210px), 35%);
   --detail: min(var(--detail-width, 320px), 55%);
+  /* The height of the details when they are under the commits: half of the view until they are dragged to another. */
+  --detail-rows: min(var(--detail-height, 50%), 80%);
   flex: 1;
   min-height: 0;
   display: grid;
@@ -465,6 +467,15 @@ input:focus-visible,
 
 .main.has-detail {
   grid-template-columns: var(--refs) minmax(0, 1fr) var(--detail);
+}
+
+/* With the references put away. */
+.main.no-refs {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.main.no-refs.has-detail {
+  grid-template-columns: minmax(0, 1fr) var(--detail);
 }
 
 /* The line between two panes, with some room on both sides of it to take hold of. */
@@ -484,6 +495,22 @@ input:focus-visible,
 
 .sash.detail-sash {
   right: calc(var(--detail) - 4px);
+}
+
+/* The line over the details when they are under the commits: there only then. */
+.sash.stack-sash {
+  display: none;
+  top: auto;
+  right: 0;
+  bottom: calc(var(--detail-rows) - 4px);
+  left: 0;
+  width: auto;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.sash.stack-sash::after {
+  inset: 2px 0;
 }
 
 /* The one at the edge of the graph is inside the list, and stays in sight while the commits scroll under it. */
@@ -594,6 +621,38 @@ input:focus-visible,
 .section {
   padding: 0 8px 0 4px;
   font-weight: 600;
+}
+
+/* Said above the names while the graph is narrowed to some branches, which are then the ones listed. */
+.refs-scope {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px 0 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.refs-scope .grow {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.refs .refs-scope button {
+  flex: none;
+  width: auto;
+}
+
+.refs .refs-scope button:hover {
+  background: none;
+}
+
+/* The mark of a favorite, beside its name where it is listed with the others. */
+.ref .codicon-star-full {
+  flex: none;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
 }
 
 .ref.more {
@@ -855,6 +914,17 @@ input:focus-visible,
   margin: -2px -6px 0 4px;
 }
 
+/* The message has the room of five lines, its first and four more, and scrolls in it when it is longer. */
+.detail .said {
+  max-height: calc(5.1lh + 6px);
+  margin-bottom: 8px;
+  overflow-y: auto;
+}
+
+.detail .said .body {
+  margin: 0;
+}
+
 .detail h2 {
   margin: 0 0 6px;
   font-size: 1.1em;
@@ -972,10 +1042,13 @@ input:focus-visible,
   text-overflow: ellipsis;
 }
 
+/* Short of room, a directory loses its start, which is what the others share, and keeps its end. */
 .file .dir {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
   font-size: 0.9em;
   color: var(--vscode-descriptionForeground);
 }
@@ -1394,6 +1467,7 @@ input:focus-visible,
 @container (max-width: 720px) {
   /* Not the one at the edge of the graph, which is inside the list. */
   .refs,
+  .refs-toggle,
   .main > .sash {
     display: none;
   }
@@ -1404,7 +1478,11 @@ input:focus-visible,
   }
 
   .main.has-detail {
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) var(--detail-rows);
+  }
+
+  .main.has-detail > .sash.stack-sash {
+    display: block;
   }
 
   .detail {
@@ -1433,7 +1511,11 @@ input:focus-visible,
 }
 
 .main.compact.has-detail {
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) var(--detail-rows);
+}
+
+.main.compact.has-detail > .sash.stack-sash {
+  display: block;
 }
 
 .main.compact .detail,

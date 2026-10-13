@@ -141,13 +141,15 @@ async function main() {
   let limit = PAGE_SIZE;
   let filter: Filter | null = null;
   let scope: Scope | null = null;
+  /** Kept while the server runs, for each repository. */
+  const favorites = new Map<string, string[]>();
 
   async function state(): Promise<HostMessage[]> {
     if (!repo) return [{ type: 'state', state: null }];
     const github = parseGitHubRemote(await repo.remoteUrl('origin'));
     const read = await repo.state(limit, filter, scope, true);
     scope = read.scope;
-    return [{ type: 'state', state: { ...read, repos, github } }];
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], repos, github } }];
   }
 
   async function handle(message: WebviewMessage): Promise<HostMessage[]> {
@@ -167,6 +169,12 @@ async function main() {
         scope = message.scope;
         limit = PAGE_SIZE;
         return state();
+      case 'setFavorite': {
+        if (!repo) return [];
+        const others = (favorites.get(repo.root) ?? []).filter((ref) => ref !== message.ref);
+        favorites.set(repo.root, message.favorite ? [...others, message.ref] : others);
+        return state();
+      }
       case 'loadMore':
         limit += PAGE_SIZE;
       // falls through

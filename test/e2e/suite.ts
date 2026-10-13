@@ -474,6 +474,43 @@ export async function run(): Promise<void> {
     assert.deepEqual(subjects(), everything);
   });
 
+  await step('lists the branches checked out last, and remembers the favorites of each repository', async () => {
+    const graph = view('graph');
+    // What was checked out before is where one is likely to go back to: not what is checked out now.
+    await git(app, ['checkout', '-q', 'feature']);
+    await git(app, ['checkout', '-q', 'main']);
+    await vscode.commands.executeCommand('gitar.refresh');
+    assert.equal(state().recentBranches[0], 'feature');
+    assert.ok(!state().recentBranches.includes('main'), `recent: ${state().recentBranches}`);
+
+    // A favorite is told to the views at once, with the rows they already have, and only a branch that is there is one.
+    assert.deepEqual(state().favorites, []);
+    posted.length = 0;
+    await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/heads/feature', favorite: true });
+    await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/remotes/origin/main', favorite: true });
+    await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/heads/nowhere', favorite: true });
+    assert.deepEqual(state().favorites, ['refs/heads/feature', 'refs/remotes/origin/main']);
+    assert.ok(posted.some((outgoing) => outgoing.type === 'state'));
+
+    // Each repository has its own, and finds them again.
+    await controller.selectRepo(state().repos[1].root);
+    assert.deepEqual(state().favorites, []);
+    await controller.selectRepo(state().repos[0].root);
+    assert.deepEqual(state().favorites, ['refs/heads/feature', 'refs/remotes/origin/main']);
+
+    // A branch that is deleted is no longer one, and the others stay when one is taken out.
+    await git(app, ['branch', 'liked']);
+    await vscode.commands.executeCommand('gitar.refresh');
+    await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/heads/liked', favorite: true });
+    assert.equal(state().favorites.length, 3);
+    await git(app, ['branch', '-D', 'liked']);
+    await vscode.commands.executeCommand('gitar.refresh');
+    assert.deepEqual(state().favorites, ['refs/heads/feature', 'refs/remotes/origin/main']);
+    await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/heads/feature', favorite: false });
+    await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/remotes/origin/main', favorite: false });
+    assert.deepEqual(state().favorites, []);
+  });
+
   await step('pushes, fetches and pulls with a rebase against the remote', async () => {
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 2);
     await controller.sync('push');

@@ -50,6 +50,7 @@ import {
   parseRefs,
   parseStatus,
   parseWorktrees,
+  recentBranches,
 } from '../src/git/parse';
 import type { Branch, RepoState, WorkingState } from '../src/shared/protocol';
 
@@ -253,6 +254,29 @@ describe('parsers', () => {
       ['link', 1, 1, 2],
       ['z.txt', 1, 1, 1],
     ]);
+  });
+});
+
+describe('recent branches', () => {
+  const moves = [
+    'checkout: moving from feature to main',
+    'commit: Change a',
+    'checkout: moving from main to feature',
+    'rebase (finish): returning to refs/heads/main',
+    'checkout: moving from fix to main',
+    'checkout: moving from 1a2b3c4d5e6f7a8b9c0d1a2b3c4d5e6f7a8b9c0d to fix',
+    'checkout: moving from gone to main',
+    'checkout: moving from old to gone',
+  ].join('\n');
+
+  it('are the ones checked out last, the latest first, without the current one and the ones that are gone', () => {
+    expect(recentBranches(moves, ['feature', 'fix', 'main', 'old', 'never'], 'main')).toEqual(['feature', 'fix', 'old']);
+  });
+
+  it('count the one just left when no branch is checked out, and stop at the limit', () => {
+    expect(recentBranches(moves, ['feature', 'fix', 'main', 'old'], null)).toEqual(['main', 'feature', 'fix', 'old']);
+    expect(recentBranches(moves, ['feature', 'fix', 'main', 'old'], null, 2)).toEqual(['main', 'feature']);
+    expect(recentBranches('', ['main'], 'main')).toEqual([]);
   });
 });
 

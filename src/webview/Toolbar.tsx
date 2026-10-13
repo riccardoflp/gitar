@@ -19,6 +19,9 @@ interface Props {
   matches: { count: number; index: number | null; more: boolean } | null;
   /** Git is looking for them. */
   searching: boolean;
+  /** Whether the references beside the commits are put away, and what the button that says so does. */
+  refsHidden?: boolean;
+  onToggleRefs?(): void;
   /** Highlights the loaded commits that contain the text. */
   onQuery(query: string): void;
   /** A search of the whole history is asked for, or again to go on from its results; null when it no longer holds. */
@@ -64,7 +67,7 @@ const SEARCH_MODES: Record<SearchMode, { label: string; placeholder: string; tit
   },
 };
 
-export function Toolbar({ state, busy, compact, matches, searching, onQuery, onSearch, onStep }: Props) {
+export function Toolbar({ state, busy, compact, matches, searching, refsHidden, onToggleRefs, onQuery, onSearch, onStep }: Props) {
   const [mode, setMode] = useState<SearchMode>('loaded');
   const [text, setText] = useState('');
   // Whether a search of the whole history replaces the graph with what it finds, rather than highlight it there.
@@ -262,6 +265,17 @@ export function Toolbar({ state, busy, compact, matches, searching, onQuery, onS
 
   return (
     <div className="toolbar">
+      {onToggleRefs && (
+        <button
+          className={`button icon refs-toggle${refsHidden ? '' : ' on'}`}
+          aria-pressed={!refsHidden}
+          aria-label={refsHidden ? 'Show the branches' : 'Hide the branches'}
+          title={refsHidden ? 'Show the branches, tags and stashes beside the commits' : 'Hide the branches, tags and stashes beside the commits'}
+          onClick={onToggleRefs}
+        >
+          <Icon name={refsHidden ? 'layout-sidebar-left-off' : 'layout-sidebar-left'} />
+        </button>
+      )}
       <RepoSelect state={state} disabled={!!busy} />
       <span className="current" title={state.root}>
         <Icon name="git-branch" />

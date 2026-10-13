@@ -27,8 +27,16 @@ import {
 import { loadUiState, onMessage, post, saveUiState } from './vscode';
 
 const NONE: ReadonlySet<string> = new Set();
-/** The widths of the panes beside the commits, in pixels, until they are dragged to others. The graph chooses its own. */
-const WIDTHS: { refsWidth: number; detailWidth: number; graphWidth: number | null } = { refsWidth: 210, detailWidth: 320, graphWidth: null };
+/**
+ * The widths of the panes beside the commits, in pixels, until they are dragged to others. The graph chooses its own,
+ * and the details have a height instead when they are under the commits, where they start with half of the view.
+ */
+const WIDTHS: { refsWidth: number; detailWidth: number; graphWidth: number | null; detailHeight: number | null } = {
+  refsWidth: 210,
+  detailWidth: 320,
+  graphWidth: null,
+  detailHeight: null,
+};
 
 /** The branches, tags and bisect marks of each commit that has some. */
 export function buildLabels(state: RepoState): Map<string, Label[]> {
@@ -86,8 +94,10 @@ export function App({ compact = false }: { compact?: boolean }) {
   const [rebase, setRebase] = useState<Row[] | null>(null);
   const [comparing, setComparing] = useState<Comparing | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
-  const [{ refsWidth, detailWidth, graphWidth }, setWidths] = useState(() => loadUiState(WIDTHS));
+  const [{ refsWidth, detailWidth, graphWidth, detailHeight }, setWidths] = useState(() => loadUiState(WIDTHS));
   const resize = (changed: Partial<typeof WIDTHS>) => setWidths((widths) => ({ ...widths, ...changed }));
+  // The references can be put away, to leave their room to the commits.
+  const [refsHidden, setRefsHidden] = useState(() => loadUiState({ refsHidden: false }).refsHidden);
   const openMenu = useMenu();
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -165,8 +175,8 @@ export function App({ compact = false }: { compact?: boolean }) {
   }, [select, compare]);
 
   useEffect(() => {
-    saveUiState({ refsWidth, detailWidth, graphWidth });
-  }, [refsWidth, detailWidth, graphWidth]);
+    saveUiState({ refsWidth, detailWidth, graphWidth, detailHeight, refsHidden });
+  }, [refsWidth, detailWidth, graphWidth, detailHeight, refsHidden]);
 
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
 
@@ -309,6 +319,8 @@ export function App({ compact = false }: { compact?: boolean }) {
         compact={compact}
         matches={matches && { count: matches.length, index: at < 0 ? null : at, more: !!find?.more }}
         searching={!!find && !find.hashes}
+        refsHidden={refsHidden}
+        onToggleRefs={() => setRefsHidden((hidden) => !hidden)}
         onQuery={setQuery}
         onSearch={search}
         onStep={step}
@@ -345,11 +357,17 @@ export function App({ compact = false }: { compact?: boolean }) {
         </div>
       )}
       <div
-        className={`main${hasDetail ? ' has-detail' : ''}${compact ? ' compact' : ''}`}
-        style={{ '--refs-width': `${refsWidth}px`, '--detail-width': `${detailWidth}px` } as CSSProperties}
+        className={`main${hasDetail ? ' has-detail' : ''}${compact ? ' compact' : ''}${refsHidden ? ' no-refs' : ''}`}
+        style={
+          {
+            '--refs-width': `${refsWidth}px`,
+            '--detail-width': `${detailWidth}px`,
+            ...(detailHeight === null ? {} : { '--detail-height': `${detailHeight}px` }),
+          } as CSSProperties
+        }
       >
-        {!compact && <RefsTree state={state} selected={selected} onSelect={jump} onCompare={compare} />}
-        {!compact && (
+        {!compact && !refsHidden && <RefsTree state={state} selected={selected} onSelect={jump} onCompare={compare} />}
+        {!compact && !refsHidden && (
           <Sash pane="refs" width={refsWidth} onResize={(width) => resize({ refsWidth: width })} onReset={() => resize({ refsWidth: WIDTHS.refsWidth })} />
         )}
         <CommitList
@@ -383,6 +401,10 @@ export function App({ compact = false }: { compact?: boolean }) {
             onResize={(width) => resize({ detailWidth: width })}
             onReset={() => resize({ detailWidth: WIDTHS.detailWidth })}
           />
+        )}
+        {/* The same pane when it is under the commits, in a narrow view and in the side bar: the style sheet shows the one that fits. */}
+        {hasDetail && (
+          <Sash pane="stack" width={detailHeight} onResize={(height) => resize({ detailHeight: height })} onReset={() => resize({ detailHeight: null })} />
         )}
         {comparing ? (
           <Compare

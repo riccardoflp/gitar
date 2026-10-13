@@ -6,7 +6,7 @@ import { RefsTree, type SectionId } from './RefsTree';
 import { onMessage, post } from './vscode';
 
 /** The stashes have a view of their own beside this one. */
-const SECTIONS: SectionId[] = ['branches', 'remotes', 'tags', 'worktrees'];
+const SECTIONS: SectionId[] = ['favorites', 'recent', 'branches', 'remotes', 'tags', 'worktrees'];
 
 /** The branches, tags and worktrees in the side bar, with a comparison under them when one is asked for. */
 export function BranchesApp() {

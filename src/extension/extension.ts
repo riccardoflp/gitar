@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { discoverRepos } from '../git/discover';
 import type { RepoState, SyncAction, ViewKind } from '../shared/protocol';
 import { BlameAnnotator } from './blame';
 import { GitContentProvider, SCHEME } from './content';
@@ -54,6 +55,26 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     return config.update('blame.enabled', !config.get<boolean>('blame.enabled'), vscode.ConfigurationTarget.Global);
   };
 
+  // A way to the graph that is always in sight, as a tab of the editor: the one the panel opens from its own header.
+  const status = vscode.window.createStatusBarItem('gitar.graph', vscode.StatusBarAlignment.Left, 0);
+  status.name = 'Gitar Graph';
+  status.text = '$(git-commit) Gitar';
+  status.tooltip = 'Open the Gitar graph in an editor tab';
+  status.command = 'gitar.openInEditor';
+  // Only where there is a repository to show: looked for now, since no view may be open to read one, and again when
+  // the folders of the workspace change. A repository made later shows it as soon as a view reads it.
+  const lookForRepos = async () => {
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+    const found = await discoverRepos(folders).catch(() => []);
+    if (found.length) status.show();
+    else status.hide();
+  };
+  void lookForRepos();
+  const shown = vscode.Disposable.from(
+    vscode.workspace.onDidChangeWorkspaceFolders(lookForRepos),
+    controller.onDidChangeState((state) => state && status.show()),
+  );
+
   const command = (id: string, handler: (argument?: unknown) => unknown) => vscode.commands.registerCommand(id, handler);
   const syncActions: SyncAction[] = ['fetch', 'pull', 'pullRebase', 'push', 'pushForceWithLease', 'pushForce'];
   const webviewOptions = { webviewOptions: { retainContextWhenHidden: true } };
@@ -61,6 +82,8 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
   context.subscriptions.push(
     log,
     controller,
+    status,
+    shown,
     new BlameAnnotator(log),
     command('gitar.fileHistory', (uri) => controller.fileHistory(uri instanceof vscode.Uri ? uri : undefined)),
     command('gitar.revealCommit', (hash) => typeof hash === 'string' && controller.reveal(hash)),

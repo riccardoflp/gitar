@@ -171,6 +171,10 @@ export interface RepoState {
   filter: Filter | null;
   /** The branches the graph is narrowed to, without the ones that are no longer there. Null when it shows them all. */
   scope: Scope | null;
+  /** The local branches that were checked out last, the latest first, without the one that is checked out now. */
+  recentBranches: string[];
+  /** The branches and remote branches the user marked as favorites, by their full names, in the order they were marked. */
+  favorites: string[];
   /** Every repository found in the workspace, when there is more than this one to choose from. */
   repos: RepoInfo[];
   /** Set when the main remote is a GitHub repository. */
@@ -378,6 +382,7 @@ export type WebviewMessage =
   | { type: 'action'; action: Action }
   | { type: 'setFilter'; filter: Filter | null }
   | { type: 'setScope'; scope: Scope | null }
+  | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }
   /** Asks for the commits a search finds, to highlight them in the graph rather than replace it with them. */
