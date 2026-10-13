@@ -287,6 +287,8 @@ try {
     await graph.click('.search .step[aria-label="Next match"]');
     await says('the second match', '2/3', 'Add b');
     assert(await graph.evaluate(`document.activeElement === document.querySelector('.search input')`), 'the focus stays in the box');
+    // A key sent on the heels of a click can get to the window before the view has the keyboard back.
+    await sleep(300);
     await key('F3');
     await says('the third match', '3/3', 'Add a');
     await key('Enter');
@@ -353,6 +355,9 @@ try {
     assert(!(await inBox()), 'the focus is in the list');
     await key('F', CTRL);
     await until('the cursor in the box', inBox);
+    await sleep(300);
+    // The key is the view's: the editor behind it does not open its own search.
+    assert(!(await page.evaluate(`!!document.querySelector('.editor-instance .find-widget.visible')`)), 'the editor does not search too');
     await type('Add');
     await says('the matches of what was typed over', '2/3', 'Add b');
 
@@ -361,6 +366,94 @@ try {
     const emptied = await until('nothing searched', async () => ((await seen()).count === null ? seen() : null));
     assert(emptied.dimmed === 0, `nothing is dimmed: ${JSON.stringify(emptied)}`);
     await graph.click('.detail .close');
+  });
+
+  await step('the branches shown in the graph are chosen from a list, with one click or one by one, and from the menus of the branches', async () => {
+    const graph = await webview('graph');
+    const seen = () =>
+      graph.evaluate(`({
+        shown: document.querySelector('.button.scope').getAttribute('aria-label'),
+        on: document.querySelector('.button.scope').classList.contains('on'),
+        bar: document.querySelector('.filterbar')?.textContent ?? null,
+        subjects: [...document.querySelectorAll('.row .subject')].map((row) => row.textContent),
+        listed: [...document.querySelectorAll('.scope-picker label')].map((label) => label.textContent),
+        ticked: [...document.querySelectorAll('.scope-picker label')].filter((label) => label.querySelector('input').checked).map((label) => label.textContent),
+        quick: document.querySelector('.scope-picker .quick [aria-checked="true"]')?.textContent ?? null,
+        open: !!document.querySelector('.scope-picker'),
+      })`);
+    const shows = (what, check) => until(what, async () => {
+      const now = await seen();
+      return check(now) ? now : null;
+    });
+    /** The entries of the menu of a branch in the list of references, which is left open. */
+    const menuOf = async (branch) => {
+      const at = await graph.locate('.refs .ref', branch);
+      await mouse(at.x, at.y, 'right');
+      return until('the menu', () =>
+        graph.evaluate(`(() => { const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent); return items.length ? items : null; })()`),
+      );
+    };
+
+    await graph.click('.button.scope');
+    const all = await shows('the list of branches', (now) => now.open);
+    assert(all.shown === 'Branches shown: All branches' && !all.on && all.quick === 'All' && !all.ticked.length && all.bar === null, `all: ${JSON.stringify(all)}`);
+    assert(['feature', 'from-ui', 'main', 'merged', 'origin/main'].every((name) => all.listed.includes(name)), `listed: ${all.listed}`);
+    const list = await graph.evaluate(`(() => {
+      const box = document.querySelector('.scope-picker').getBoundingClientRect();
+      return {
+        inside: box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight,
+        focused: document.activeElement === document.querySelector('.scope-picker .refs-filter input'),
+      };
+    })()`);
+    assert(list.inside && list.focused, `the list is inside the view, with the cursor in its box: ${JSON.stringify(list)}`);
+    await shot('branches-list');
+
+    // One click: what is checked out, whichever branch that is.
+    await graph.click('.scope-picker .quick button', 'Current');
+    const current = await shows('only the current branch', (now) => now.on && !now.subjects.includes('Add feature'));
+    assert(current.shown === 'Branches shown: Current branch' && current.quick === 'Current' && current.ticked.join() === 'main', `current: ${JSON.stringify(current)}`);
+    assert(current.bar.startsWith('Only the history of the current branch · 4 commits'), `bar: ${current.bar}`);
+    assert(current.subjects[0].startsWith('Uncommitted changes'), `rows: ${current.subjects}`);
+
+    // The box leaves the names that have what is typed, and a tick adds a branch to the ones shown.
+    await graph.click('.scope-picker .refs-filter input');
+    await type('feat');
+    await shows('the branches of that name', (now) => now.listed.join() === 'feature');
+    await graph.click('.scope-picker label', 'feature');
+    const two = await shows('main and feature', (now) => now.subjects.includes('Add feature'));
+    assert(two.shown === 'Branches shown: main +1' && two.quick === null, `two: ${JSON.stringify(two)}`);
+    assert(two.bar.startsWith('Only the history of main, feature · 5 commits'), `bar: ${two.bar}`);
+    await shot('branches-two');
+
+    // Escape empties the box before it closes the list; a tick taken away takes the branch away.
+    await key('Escape');
+    await shows('all the names again', (now) => now.open && now.listed.length > 1);
+    await graph.click('.scope-picker label', 'main');
+    const one = await shows('feature alone', (now) => !now.subjects.includes('Commit from the UI'));
+    assert(one.shown === 'Branches shown: feature' && one.ticked.join() === 'feature', `one: ${JSON.stringify(one)}`);
+    // The changes are not shown above a graph that leaves out the commit they are made on.
+    assert(one.subjects[0] === 'Add feature', `rows: ${one.subjects}`);
+    await key('Escape');
+    await shows('the list closed', (now) => !now.open);
+
+    // From the menu of a branch: that one too, not that one any more, and all of them when it is the only one.
+    let items = await menuOf('merged');
+    assert(['Show only this history', 'Show this history too', 'Show all branches'].every((item) => items.includes(item)), `menu: ${items}`);
+    await graph.click('[role="menuitem"]', 'Show this history too');
+    await shows('feature and merged', (now) => now.shown === 'Branches shown: feature +1');
+    items = await menuOf('feature');
+    assert(items.includes('Hide this history') && !items.includes('Show this history too'), `menu: ${items}`);
+    await graph.click('[role="menuitem"]', 'Hide this history');
+    const merged = await shows('merged alone', (now) => now.shown === 'Branches shown: merged');
+    assert(merged.bar.startsWith('Only the history of merged · 3 commits'), `bar: ${merged.bar}`);
+    items = await menuOf('merged');
+    assert(items.includes('Show all branches') && !items.includes('Show only this history') && !items.includes('Hide this history'), `menu: ${items}`);
+    await key('Escape');
+
+    // And the bar that says what is shown has the way back.
+    await graph.click('.filterbar .button', 'Show all branches');
+    const back = await shows('all the branches', (now) => now.bar === null);
+    assert(back.shown === 'Branches shown: All branches' && !back.on && back.subjects.includes('Add feature'), `back: ${JSON.stringify(back)}`);
   });
 
   await step('a branch dragged onto the checked out commit offers to merge or rebase', async () => {
@@ -517,6 +610,25 @@ try {
     assert(!layout.references && layout.buttons === 0, `only the search and the commits: ${JSON.stringify(layout)}`);
     assert(layout.under && layout.detail === layout.width && !layout.wider, `the details are under the commits: ${JSON.stringify(layout)}`);
     assert(layout.search >= 150, `the search box is ${layout.search}px wide`);
+
+    // And the way to choose the branches, which narrows this list as it does the graph.
+    await commits.click('.toolbar .button.scope');
+    await until('the list of branches', () => commits.evaluate(`!!document.querySelector('.scope-picker')`));
+    const inside = await commits.evaluate(`(() => {
+      const box = document.querySelector('.scope-picker').getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth && box.bottom <= innerHeight;
+    })()`);
+    assert(inside, 'the list of branches is inside the view');
+    await commits.click('.scope-picker .quick button', 'Local');
+    await until('only the local branches', () =>
+      commits.evaluate(`!!document.querySelector('.filterbar')?.textContent.startsWith('Only the history of the local branches')`),
+    );
+    await shot('side-branches-shown');
+    await commits.click('.scope-picker .quick button', 'All');
+    await until('all the branches again', () => commits.evaluate(`!document.querySelector('.filterbar')`));
+    await key('Escape');
+    await until('the list closed', () => commits.evaluate(`!document.querySelector('.scope-picker')`));
+
     const { actions } = await header('Commits');
     for (const wanted of ['Fetch', 'Pull', 'Push', 'Compare Branches, Tags or Commits…', 'Refresh']) {
       assert(actions.some((action) => action.startsWith(wanted)), `the header has ${wanted}: ${actions}`);
@@ -548,12 +660,15 @@ try {
     assert(seen.sides[0].startsWith('feature') && seen.sides[1].startsWith('main'), `sides: ${seen.sides}`);
     assert(seen.files.includes('feature.txt'), `files: ${seen.files}`);
 
-    // The comparison took some of the room of the branches.
-    await branches.evaluate(`[...document.querySelectorAll('.refs .ref')].find((ref) => ref.textContent.includes('feature')).scrollIntoView({ block: 'center' })`);
-    await sleep(200);
-    at = await branches.locate('.refs .ref', 'feature');
-    await mouse(at.x, at.y, 'right');
-    await menuItems(branches);
+    // The comparison took some of the room of the branches, and a list that is still settling closes the menu opened on it.
+    await until('the menu to stay open', async () => {
+      await branches.evaluate(`[...document.querySelectorAll('.refs .ref')].find((ref) => ref.textContent.includes('feature')).scrollIntoView({ block: 'center' })`);
+      await sleep(300);
+      at = await branches.locate('.refs .ref', 'feature');
+      await mouse(at.x, at.y, 'right');
+      await sleep(500);
+      return branches.evaluate(`!!document.querySelector('[role="menuitem"]')`);
+    });
     await branches.click('[role="menuitem"]', 'Compare with…');
     const pick = await until('the choice of the other side', async () => {
       const open = await prompt();

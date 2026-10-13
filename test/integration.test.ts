@@ -51,7 +51,7 @@ import {
 } from '../src/git/ops';
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
-import { WORKTREE } from '../src/shared/protocol';
+import { WORKTREE, type Filter, type Scope } from '../src/shared/protocol';
 
 // Runs the real commands against a throwaway repository, the way the extension does.
 
@@ -647,6 +647,62 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     await git(root, ['tag', '-a', 'v1', '-m', 'First', main]);
     expect(await repo.resolve('v1')).toBe(main);
     for (const nothing of ['', 'no-such-thing', '--all', 'other..HEAD', `${next}:new.txt`]) expect(await repo.resolve(nothing)).toBeNull();
+  });
+
+  it('narrows the graph to the branches chosen, and what is searched and found with it', async () => {
+    const other = await divergent();
+    const main = (await state()).head!;
+    await git(root, ['tag', 'v1', other]);
+    // A commit only a tag reaches.
+    const tagged = (await git(root, ['commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Tagged only'])).stdout.trim();
+    await git(root, ['tag', 'loose', tagged]);
+    const shown = async (scope: Scope | null, filter: Filter | null = null) =>
+      (await repo.state(100, filter, scope)).rows.map((row) => row.subject).sort();
+    const only = (...refs: string[]): Scope => ({ kind: 'refs', refs });
+
+    expect(await shown(null)).toEqual(['Tagged only', 'base', 'main change', 'other change']);
+    expect(await shown({ kind: 'current' })).toEqual(['base', 'main change']);
+    expect(await shown({ kind: 'local' })).toEqual(['base', 'main change', 'other change']);
+    expect(await shown(only('refs/heads/other'))).toEqual(['base', 'other change']);
+    expect(await shown(only('refs/tags/v1'))).toEqual(['base', 'other change']);
+    expect(await shown(only('refs/tags/loose', 'refs/heads/other'))).toEqual(['Tagged only', 'base', 'main change', 'other change']);
+    // The history of a file, among those branches.
+    expect(await shown(only('refs/heads/other'), { kind: 'path', path: 'a.txt' })).toEqual(['base', 'other change']);
+    // The lines join the commits that are there.
+    expect((await repo.state(100, null, only('refs/heads/other'))).rows[0].graph.bottom).toHaveLength(1);
+
+    // The state says what the graph was narrowed to: without what is not a branch of the repository, or no longer.
+    const pruned = await repo.state(100, null, only('refs/heads/gone', '--all', 'refs/heads/other'));
+    expect(pruned.scope).toEqual(only('refs/heads/other'));
+    expect(pruned.rows.map((row) => row.subject)).toEqual(['other change', 'base']);
+    const none = await repo.state(100, null, only('refs/heads/gone'));
+    expect(none.scope).toBeNull();
+    expect(none.rows).toHaveLength(4);
+    expect((await repo.state(100, null, { kind: 'local' })).scope).toEqual({ kind: 'local' });
+
+    // What is searched for is found among them, and a commit is as far back as it is among them.
+    expect(await repo.position(main, null, only('refs/heads/other'))).toBe(-1);
+    expect(await repo.position(other, null, only('refs/heads/other'))).toBe(0);
+    expect(await repo.position(tagged, null, { kind: 'local' })).toBe(-1);
+    expect(await repo.matches({ kind: 'message', query: 'change' }, null, 10, { kind: 'current' })).toEqual({ hashes: [main], more: false });
+    expect(await repo.matches({ kind: 'message', query: 'change' }, null, 10, only('refs/tags/v1'))).toEqual({ hashes: [other], more: false });
+    // A branch deleted between the reading of the state and the search is passed over, not an error.
+    expect(await repo.position(other, null, only('refs/heads/gone', 'refs/heads/other'))).toBe(0);
+    expect(await repo.matches({ kind: 'message', query: 'other' }, null, 10, only('refs/heads/gone', 'refs/heads/other'))).toEqual({
+      hashes: [other],
+      more: false,
+    });
+
+    // The uncommitted changes are shown above the commit they are made on, when it is there.
+    write('dirty.txt', 'x\n');
+    expect((await repo.state(100, null, { kind: 'current' })).rows[0].hash).toBe(WORKTREE);
+    expect((await repo.state(100, null, only('refs/heads/other'))).rows[0].subject).toBe('other change');
+    expect((await repo.state(100, null, only('refs/tags/loose'))).rows[0].hash).toBe(WORKTREE);
+
+    // Checked out with no branch, the current one is what is checked out.
+    fs.rmSync(path.join(root, 'dirty.txt'));
+    await run(checkoutOp('detached', other));
+    expect(await shown({ kind: 'current' })).toEqual(['base', 'other change']);
   });
 
   it('says how far back a commit is, and which commits a search finds', async () => {

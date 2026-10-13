@@ -11,6 +11,7 @@ import {
   type Worktree,
 } from '../shared/protocol';
 import { refArg } from '../shared/refs';
+import { scopeRefs, toggleScopeRef } from '../shared/scope';
 import type { MenuEntry } from './ContextMenu';
 import type { DragSource } from './drag';
 import { shortHash } from './util';
@@ -61,10 +62,25 @@ const compareWith = (name: string, hash: string): MenuEntry => ({
   run: () => post({ type: 'compare', from: { name, hash } }),
 });
 
-const showOnly = (ref: string): MenuEntry => ({
-  label: 'Show only this history',
-  run: () => post({ type: 'setFilter', filter: { kind: 'ref', ref } }),
-});
+/**
+ * Narrows the graph to the history of a branch or tag, by its full name; or, when the graph is narrowed already, adds
+ * it to the ones shown or takes it out.
+ */
+function scopeEntries(ref: string, state: RepoState): MenuEntry[] {
+  const { scope } = state;
+  const chosen = scope ? scopeRefs(scope, state) : [];
+  const all = { label: 'Show all branches', run: () => post({ type: 'setScope', scope: null }) };
+  // Taking out the only one shown would leave nothing: what is left to do is to show everything.
+  if (chosen.length === 1 && chosen[0] === ref) return [all];
+  return [
+    { label: 'Show only this history', run: () => post({ type: 'setScope', scope: { kind: 'refs', refs: [ref] } }) },
+    scope && {
+      label: chosen.includes(ref) ? 'Hide this history' : 'Show this history too',
+      run: () => post({ type: 'setScope', scope: toggleScopeRef(scope, ref, state) }),
+    },
+    scope && all,
+  ];
+}
 
 interface CommitMenuTools {
   /** The commit that was selected before this one was clicked, if any. */
@@ -184,7 +200,7 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
     'separator',
     compareWithHead(name, branch.hash, state, onCompare),
     compareWith(name, branch.hash),
-    showOnly(`refs/heads/${name}`),
+    ...scopeEntries(`refs/heads/${name}`, state),
     pullEntry(pushedName(branch, state), state, true),
     'separator',
     { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: refArg('branch', name, state) }) },
@@ -204,7 +220,7 @@ export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (co
     'separator',
     compareWithHead(name, ref.hash, state, onCompare),
     compareWith(name, ref.hash),
-    showOnly(`refs/remotes/${name}`),
+    ...scopeEntries(`refs/remotes/${name}`, state),
     pullEntry(state.github ? nameOnRemote(name, state) : null, state, false),
     'separator',
     { label: 'Delete from remote', danger: true, run: () => act({ kind: 'deleteRemoteBranch', name }) },
@@ -224,7 +240,7 @@ export function tagMenu(tag: NamedRef, state: RepoState, onCompare: (comparing: 
     'separator',
     compareWithHead(name, tag.hash, state, onCompare),
     compareWith(name, tag.hash),
-    showOnly(`refs/tags/${name}`),
+    ...scopeEntries(`refs/tags/${name}`, state),
     'separator',
     state.remotes.length > 0 && { label: 'Push tag', run: () => act({ kind: 'pushTag', name }) },
     { label: 'Delete', danger: true, run: () => act({ kind: 'deleteTag', name }) },

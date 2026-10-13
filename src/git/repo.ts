@@ -11,9 +11,11 @@ import {
   type Operation,
   type RepoState,
   type Row,
+  type Scope,
   type Search,
   type WorkingState,
 } from '../shared/protocol';
+import { SCOPE_PREFIXES, pruneScope } from '../shared/scope';
 import { GitError, formatCommand, git, type GitResult } from './exec';
 import type { UndoInfo } from './ops';
 import {
@@ -159,7 +161,7 @@ export class Repo {
     return { from, to, files: parseNameStatus(await this.read(['diff', '--name-status', '-z', '-M', from, to], true)) };
   }
 
-  async state(limit: number, filter: Filter | null = null): Promise<RepoState> {
+  async state(limit: number, filter: Filter | null = null, scope: Scope | null = null): Promise<RepoState> {
     const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, working, operation, bisect] = await Promise.all([
       this.read(['for-each-ref', `--format=${REF_FORMAT}`]),
       this.read(['rev-parse', '--verify', '--quiet', 'HEAD'], true),
@@ -175,8 +177,12 @@ export class Repo {
     ]);
     const head = headOut.trim() || null;
     const changes = allChanges(working);
+    const refs = parseRefs(refsOut);
+    const branch = branchOut.trim().replace(/^refs\/heads\//, '') || null;
+    // A branch chosen for the graph may have been deleted since.
+    const shown = pruneScope(scope, { ...refs, branch });
 
-    const { args, names } = await this.selection(filter, head);
+    const { args, names } = await this.selection(filter, head, shown);
     // A search can be one git refuses, such as an invalid regular expression: that must be reported, not shown as no results.
     const commits = parseLog(await this.read(['log', '-z', `--format=${LOG_FORMAT}`, `--max-count=${limit + 1}`, ...args], !filter));
     const hasMore = commits.length > limit;
@@ -186,7 +192,9 @@ export class Repo {
     const rows: Row[] = [];
     // Search results are unrelated commits: drawing lines between them would suggest a history that is not there.
     const connected = !filter || filter.kind === 'path' || filter.kind === 'ref';
-    if (changes.length && !filter) {
+    // Nor are the changes shown above a graph that leaves out the commit they are made on.
+    const headListed = !shown || !head || commits.some((commit) => commit.hash === head);
+    if (changes.length && !filter && headListed) {
       // Before the first commit there is no HEAD to hang the changes on, and they are all there is to show.
       const parents = head ? [head] : [];
       rows.push({
@@ -207,8 +215,8 @@ export class Repo {
       root: this.root,
       name: path.basename(this.root),
       head,
-      branch: branchOut.trim().replace(/^refs\/heads\//, '') || null,
-      ...parseRefs(refsOut),
+      branch,
+      ...refs,
       stashes: parseStashes(stashOut),
       worktrees: parseWorktrees(worktreeOut, this.root),
       remotes: remoteOut.split('\n').filter(Boolean),
@@ -220,6 +228,7 @@ export class Repo {
       bisect,
       identity: parseIdentity(identityOut),
       filter: filter?.kind === 'path' && names.length > 1 ? { ...filter, renamedFrom: names.slice(1) } : filter,
+      scope: shown,
       repos: [],
       github: null,
       pulls: {},
@@ -228,9 +237,14 @@ export class Repo {
 
   /**
    * The arguments of `git log` that say which commits are listed and in which order: all of them but the format and
-   * the count. `search` narrows further a history that `filter` may have narrowed already.
+   * the count. `scope` says whose history, `filter` narrows it and `search` narrows it further.
    */
-  private async selection(filter: Filter | null, head: string | null, search?: Search): Promise<{ args: string[]; names: string[] }> {
+  private async selection(
+    filter: Filter | null,
+    head: string | null,
+    scope: Scope | null,
+    search?: Search,
+  ): Promise<{ args: string[]; names: string[] }> {
     const args = ['--date-order'];
     for (const text of [filter, search]) {
       if (text?.kind === 'message') args.push('--fixed-strings', '--regexp-ignore-case', `--grep=${text.query}`);
@@ -243,9 +257,15 @@ export class Repo {
     if (filter?.kind === 'ref') {
       if (filter.ref.startsWith('-')) throw new Error(`"${filter.ref}" is not a valid name.`);
       args.push(filter.ref);
+    } else if (scope?.kind === 'current' && head) {
+      args.push('HEAD');
+    } else if (scope?.kind === 'refs') {
+      // Full names, which cannot be taken for options. One deleted since it was chosen is passed over.
+      args.push('--ignore-missing', ...scope.refs.filter((ref) => SCOPE_PREFIXES.some((prefix) => ref.startsWith(prefix))));
     } else {
       // refs/stash is left out on purpose: stashes have their own list and their internal commits clutter the graph.
-      args.push('--branches', '--remotes', '--tags');
+      args.push('--branches');
+      if (scope?.kind !== 'local') args.push('--remotes', '--tags');
       if (head) args.push('HEAD');
     }
     // A file is followed under the names it had before, or its history would end at the commit that renamed it.
@@ -262,9 +282,9 @@ export class Repo {
    * How many commits come before this one in the history that is listed, or -1 when it is not part of it: which is
    * how far the list has to be loaded for the commit to be in it. `hash` is the full one.
    */
-  async position(hash: string, filter: Filter | null = null): Promise<number> {
+  async position(hash: string, filter: Filter | null = null, scope: Scope | null = null): Promise<number> {
     if (!isHash(hash)) return -1;
-    const { args } = await this.selection(filter, await this.head());
+    const { args } = await this.selection(filter, await this.head(), scope);
     const out = await this.read(['log', '--format=%H', ...args], true);
     // Every line is a hash, and they are all as long.
     const at = out.indexOf(hash);
@@ -275,8 +295,8 @@ export class Repo {
    * The commits of the listed history that a search finds, newest first, and whether there are more than `limit`.
    * Throws when git refuses the search, as it does an invalid regular expression.
    */
-  async matches(search: Search, filter: Filter | null, limit: number): Promise<{ hashes: string[]; more: boolean }> {
-    const { args } = await this.selection(filter, await this.head(), search);
+  async matches(search: Search, filter: Filter | null, limit: number, scope: Scope | null = null): Promise<{ hashes: string[]; more: boolean }> {
+    const { args } = await this.selection(filter, await this.head(), scope, search);
     const hashes = (await this.read(['log', '--format=%H', `--max-count=${limit + 1}`, ...args])).split('\n').filter(Boolean);
     const more = hashes.length > limit;
     if (more) hashes.length = limit;

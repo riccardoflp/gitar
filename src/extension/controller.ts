@@ -35,6 +35,7 @@ import type {
   PullRequest,
   RepoInfo,
   RepoState,
+  Scope,
   Search,
   SyncAction,
   UiCommand,
@@ -64,6 +65,8 @@ const WORKTREE_REFRESH_DELAY = 1000;
 const LOST_COMMITS_SHOWN = 10;
 const REFLOG_ENTRIES = 200;
 const REPO_KEY = 'gitar.repository';
+/** The branches chosen for the graph of each repository, by its folder. */
+const SCOPE_KEY = 'gitar.scope';
 /** Pull requests change on GitHub's side, so they are re-read at most this often unless something asks for it. */
 const PULLS_MAX_AGE = 120_000;
 
@@ -110,6 +113,8 @@ export class Controller implements vscode.Disposable {
   /** Where the branch was before the cherry-pick of several commits that is under way, or just ended. */
   private series?: { before: string; branch: string | null; title: string };
   private filter: Filter | null = null;
+  /** Which branches the graph shows: all of them when null. */
+  private scope: Scope | null = null;
   private github: GitHubRepo | null = null;
   private pulls: Record<string, PullRequest> = {};
   private pullsAt = 0;
@@ -120,6 +125,8 @@ export class Controller implements vscode.Disposable {
   /** Every repository of the workspace; `repo` is the one being shown. */
   private repos: RepoInfo[] = [];
   private readonly views = new Map<vscode.Webview, ViewKind>();
+  /** The views with a search box that have the keyboard: one at most, but each says so on its own. */
+  private readonly focused = new Set<vscode.Webview>();
   /** What identifies the commits each view that lists them was last sent. */
   private readonly sentRows = new WeakMap<vscode.Webview, string>();
   private readonly stateEmitter = new vscode.EventEmitter<RepoState | null>();
@@ -131,7 +138,7 @@ export class Controller implements vscode.Disposable {
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly log: vscode.LogOutputChannel,
-    /** Remembers which repository of this workspace was chosen. */
+    /** Remembers which repository of this workspace was chosen, and which branches of each are shown. */
     private readonly memento: vscode.Memento,
   ) {
     const schedule = () => this.scheduleRefresh();
@@ -162,7 +169,19 @@ export class Controller implements vscode.Disposable {
     return new vscode.Disposable(() => {
       listener.dispose();
       this.views.delete(webview);
+      this.setFocused(webview, false);
     });
+  }
+
+  /**
+   * VS Code is told when a view that searches has the keyboard, for the keybinding of package.json to take Ctrl+F
+   * away from the search of the editor behind: nothing else says that the focus is inside a webview.
+   */
+  private setFocused(webview: vscode.Webview, focused: boolean): void {
+    const before = this.focused.size;
+    if (focused) this.focused.add(webview);
+    else this.focused.delete(webview);
+    if (!before !== !this.focused.size) void vscode.commands.executeCommand('setContext', 'gitar.searchFocus', this.focused.size > 0);
   }
 
   async refresh(): Promise<void> {
@@ -179,12 +198,16 @@ export class Controller implements vscode.Disposable {
       for (let repo: Repo | undefined = first; repo && this.dirty; repo = this.repo) {
         this.dirty = false;
         const operations = this.operations;
+        const scope = this.scope;
         const state = await this.readState(repo);
         // Read while an operation ran, it can be half from before it and half from after, such as a new commit that
         // no branch points at yet. It is dropped: the operation is followed by a read of its own.
         if (this.running || operations !== this.operations) continue;
         // Unless the views were pointed at another repository in the meantime.
-        if (repo === this.repo) this.setState({ ...state, repos: this.repos, github: this.github, pulls: this.pulls });
+        if (repo !== this.repo) continue;
+        // Unless another was chosen while this one was read.
+        if (scope === this.scope) this.settleScope(state.root, state.scope);
+        this.setState({ ...state, repos: this.repos, github: this.github, pulls: this.pulls });
       }
     } catch (error) {
       this.log.error(errorText(error));
@@ -199,16 +222,34 @@ export class Controller implements vscode.Disposable {
 
   /** A search git cannot run, such as an invalid regular expression, is reported and dropped rather than taking the graph down. */
   private async readState(repo: Repo): Promise<RepoState> {
-    if (!this.filter) return repo.state(this.limit);
+    if (!this.filter) return repo.state(this.limit, null, this.scope);
     try {
-      return await repo.state(this.limit, this.filter);
+      return await repo.state(this.limit, this.filter, this.scope);
     } catch (error) {
       this.filter = null;
       const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
       this.log.error(text);
       void vscode.window.showErrorMessage(`Gitar: the search failed. ${text.split('\n')[0]}`);
-      return repo.state(this.limit);
+      return repo.state(this.limit, null, this.scope);
     }
+  }
+
+  /** Narrows the graph to the history of some branches, or shows them all again. What the filter does is left to it. */
+  async setScope(scope: Scope | null): Promise<void> {
+    if (!this.located) await this.locate();
+    // As it is given: reading the repository leaves out what is not a branch of it.
+    this.scope = scope && typeof scope === 'object' ? scope : null;
+    this.limit = PAGE_SIZE;
+    await this.refresh();
+  }
+
+  /** The scope as git took it, without the branches deleted since they were chosen, is the one in use and the one remembered. */
+  private settleScope(root: string, scope: Scope | null): void {
+    this.scope = scope;
+    const all = this.memento.get<Record<string, Scope>>(SCOPE_KEY, {});
+    if (JSON.stringify(all[root] ?? null) === JSON.stringify(scope)) return;
+    const others = Object.fromEntries(Object.entries(all).filter(([other]) => other !== root));
+    void this.memento.update(SCOPE_KEY, scope ? { ...others, [root]: scope } : others);
   }
 
   /** Narrows the graph to the history of a file or to a search, or shows everything again. */
@@ -268,9 +309,15 @@ export class Controller implements vscode.Disposable {
     const repo = this.repo;
     if (!repo || this.state?.rows.some((row) => row.hash === hash)) return;
     const shown = this.filter;
-    let index = await repo.position(hash, shown);
+    const scope = this.scope;
+    let index = await repo.position(hash, shown, scope);
     if (index < 0 && shown) {
       this.filter = null;
+      index = await repo.position(hash, null, scope);
+    }
+    // On a branch that is not among the ones shown: they are all shown again.
+    if (index < 0 && scope) {
+      this.scope = null;
       index = await repo.position(hash);
     }
     if (index < 0) {
@@ -278,7 +325,8 @@ export class Controller implements vscode.Disposable {
       index = 0;
     }
     const pages = Math.floor(index / PAGE_SIZE) + 1;
-    this.limit = Math.max(this.filter === shown ? this.limit : PAGE_SIZE, pages * PAGE_SIZE);
+    const same = this.filter === shown && this.scope === scope;
+    this.limit = Math.max(same ? this.limit : PAGE_SIZE, pages * PAGE_SIZE);
     await this.refresh();
   }
 
@@ -312,7 +360,7 @@ export class Controller implements vscode.Disposable {
     try {
       // A list of results gives way to the graph, in which the new ones are to be shown.
       if (this.filter && 'query' in this.filter) await this.setFilter(null);
-      const found = await repo.matches({ kind: search.kind, query: search.query }, this.filter, FOUND_LIMIT);
+      const found = await repo.matches({ kind: search.kind, query: search.query }, this.filter, FOUND_LIMIT, this.scope);
       this.post({ type: 'found', search, ...found }, asker);
     } catch (error) {
       const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
@@ -680,11 +728,13 @@ export class Controller implements vscode.Disposable {
     this.repo = undefined;
     this.limit = PAGE_SIZE;
     this.filter = null;
+    this.scope = null;
     this.github = null;
     this.pulls = {};
     this.pullsAt = 0;
     this.undoable = undefined;
     if (!root) return this.setState(null);
+    this.scope = this.memento.get<Record<string, Scope>>(SCOPE_KEY, {})[root] ?? null;
     this.repo = new Repo(root, (command) => this.log.debug(command));
     this.watch(root, await this.repo.commonDir());
 
@@ -919,6 +969,8 @@ export class Controller implements vscode.Disposable {
 
   private async onMessage(webview: vscode.Webview, message: WebviewMessage): Promise<void> {
     switch (message.type) {
+      case 'focus':
+        return this.setFocused(webview, message.focused === true);
       case 'ready':
         // A view that has just loaded has nothing yet.
         this.sentRows.delete(webview);
@@ -927,6 +979,8 @@ export class Controller implements vscode.Disposable {
         return this.flushPending();
       case 'setFilter':
         return this.setFilter(message.filter);
+      case 'setScope':
+        return this.setScope(message.scope);
       case 'goTo':
         return this.goTo(message.revision, webview);
       case 'find':

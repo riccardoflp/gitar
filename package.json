@@ -339,6 +339,14 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "gitar.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "gitar.searchFocus"
+      }
+    ],
     "configuration": {
       "title": "Gitar",
       "properties": {

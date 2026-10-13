@@ -83,6 +83,9 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.bisectReset', () => controller.action({ kind: 'bisectReset' })),
     command('gitar.compare', () => controller.compare()),
     command('gitar.goToCommit', () => controller.goToCommit()),
+    // The views that list commits put the cursor in their search box at Ctrl+F by themselves. While one of them has the
+    // keyboard the key is bound to this, for VS Code to run something other than the search of the editor behind them.
+    command('gitar.find', () => {}),
     command('gitar.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),

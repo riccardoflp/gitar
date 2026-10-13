@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { discoverRepos, repoName } from '../git/discover';
 import { parseGitHubRemote } from '../git/github';
 import { Repo } from '../git/repo';
-import type { Filter, HostMessage, ViewKind, WebviewMessage } from '../shared/protocol';
+import type { Filter, HostMessage, Scope, ViewKind, WebviewMessage } from '../shared/protocol';
 
 // Usage: node dist/dev-server.js [--port=5174] [folder...]   (every repository found in the folders can be chosen in the page)
 // Read-only: actions that would change the repository or open an editor are only logged.
@@ -136,11 +136,14 @@ async function main() {
   let repo = roots.length ? new Repo(roots[0]) : null;
   let limit = PAGE_SIZE;
   let filter: Filter | null = null;
+  let scope: Scope | null = null;
 
   async function state(): Promise<HostMessage[]> {
     if (!repo) return [{ type: 'state', state: null }];
     const github = parseGitHubRemote(await repo.remoteUrl('origin'));
-    return [{ type: 'state', state: { ...(await repo.state(limit, filter)), repos, github } }];
+    const read = await repo.state(limit, filter, scope);
+    scope = read.scope;
+    return [{ type: 'state', state: { ...read, repos, github } }];
   }
 
   async function handle(message: WebviewMessage): Promise<HostMessage[]> {
@@ -149,15 +152,22 @@ async function main() {
         if (!roots.includes(message.root)) return [];
         repo = new Repo(message.root);
         filter = null;
+        scope = null;
         limit = PAGE_SIZE;
         return state();
       case 'setFilter':
         filter = message.filter;
         limit = PAGE_SIZE;
         return state();
+      case 'setScope':
+        scope = message.scope;
+        limit = PAGE_SIZE;
+        return state();
       case 'loadMore':
         limit += PAGE_SIZE;
       // falls through
+      case 'focus':
+        return [];
       case 'ready':
       case 'refresh':
         return state();
@@ -171,21 +181,26 @@ async function main() {
         const hash = await repo?.resolve(message.revision);
         if (!repo || !hash) return [];
         const shown = filter;
-        let index = await repo.position(hash, shown);
+        const among = scope;
+        let index = await repo.position(hash, shown, among);
         if (index < 0 && shown) {
           filter = null;
+          index = await repo.position(hash, null, among);
+        }
+        if (index < 0 && among) {
+          scope = null;
           index = await repo.position(hash);
         }
         if (index < 0) {
           filter = { kind: 'ref', ref: hash, lost: true };
           index = 0;
         }
-        limit = Math.max(filter === shown ? limit : PAGE_SIZE, (Math.floor(index / PAGE_SIZE) + 1) * PAGE_SIZE);
+        limit = Math.max(filter === shown && scope === among ? limit : PAGE_SIZE, (Math.floor(index / PAGE_SIZE) + 1) * PAGE_SIZE);
         return [...(await state()), { type: 'reveal', hash }];
       }
       case 'find': {
         const { search } = message;
-        const found = await repo?.matches(search, filter && 'query' in filter ? null : filter, 5000).catch(() => null);
+        const found = await repo?.matches(search, filter && 'query' in filter ? null : filter, 5000, scope).catch(() => null);
         return [{ type: 'found', search, ...(found ?? { hashes: [], more: false, failed: true }) }];
       }
       case 'getDetail':

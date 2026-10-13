@@ -1,7 +1,11 @@
-import type { ReactNode } from 'react';
-import type { Filter, RepoState } from '../shared/protocol';
+import { Fragment, type ReactNode } from 'react';
+import { WORKTREE, type Filter, type RepoState, type Scope } from '../shared/protocol';
+import { scopeRefName } from '../shared/scope';
 import { Icon } from './Icon';
 import { post } from './vscode';
+
+/** No more names than this are spelled out: the rest are counted. */
+const NAMED = 3;
 
 function describe(filter: Filter): ReactNode {
   if (filter.kind === 'path') {
@@ -23,7 +27,7 @@ function describe(filter: Filter): ReactNode {
     }
     return (
       <>
-        Only the history of <b>{filter.ref.replace(/^refs\/(heads|remotes|tags)\//, '')}</b>
+        Only the history of <b>{scopeRefName(filter.ref)}</b>
       </>
     );
   }
@@ -40,26 +44,55 @@ function describe(filter: Filter): ReactNode {
   );
 }
 
-/** Shown while the graph is narrowed to the history of a file or to the results of a search. */
+/** The branches a scope is made of: "the current branch", "main, feature and 2 more". */
+function branches(scope: Scope): ReactNode {
+  if (scope.kind === 'current') return <b>the current branch</b>;
+  if (scope.kind === 'local') return <b>the local branches</b>;
+  const names = scope.refs.map(scopeRefName);
+  return (
+    <>
+      {names.slice(0, NAMED).map((name, index) => (
+        <Fragment key={name}>
+          {index > 0 && ', '}
+          <b>{name}</b>
+        </Fragment>
+      ))}
+      {names.length > NAMED && ` and ${names.length - NAMED} more`}
+    </>
+  );
+}
+
+/** Shown while the graph is narrowed: to the history of some branches, to that of a file, or to the results of a search. */
 export function FilterBar({ state }: { state: RepoState }) {
   const { filter } = state;
-  if (!filter) return null;
-  const count = state.rows.length;
+  // The history of a commit that no branch reaches is not narrowed to branches.
+  const scope = filter?.kind === 'ref' ? null : state.scope;
+  if (!filter && !scope) return null;
+  const count = state.rows.filter((row) => row.hash !== WORKTREE).length;
   return (
     <div className="filterbar" role="status">
-      <Icon name="filter" />
+      <Icon name={filter ? 'filter' : 'list-filter'} />
       <span className="grow">
-        {describe(filter)}
+        {filter ? describe(filter) : <>Only the history of {branches(scope!)}</>}
+        {filter && scope && <span className="muted"> · in {branches(scope)}</span>}
         <span className="muted">
           {' · '}
           {count}
           {state.hasMore ? '+' : ''} {count === 1 ? 'commit' : 'commits'}
         </span>
       </span>
-      <button className="button" onClick={() => post({ type: 'setFilter', filter: null })}>
-        <Icon name="close" />
-        Show all commits
-      </button>
+      {/* One thing at a time: what was narrowed last is what is undone first. */}
+      {filter ? (
+        <button className="button" onClick={() => post({ type: 'setFilter', filter: null })}>
+          <Icon name="close" />
+          Show all commits
+        </button>
+      ) : (
+        <button className="button" onClick={() => post({ type: 'setScope', scope: null })}>
+          <Icon name="close" />
+          Show all branches
+        </button>
+      )}
     </div>
   );
 }

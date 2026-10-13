@@ -90,6 +90,13 @@ export type Filter =
   /** `message` and `author` match text; `pickaxe` finds commits that add or remove the text; `regex` matches changed lines. */
   | { kind: 'message' | 'author' | 'pickaxe' | 'regex'; query: string };
 
+/**
+ * Which histories the graph shows, when not those of every branch, remote branch and tag: of what is checked out, of
+ * the local branches, or of the references chosen one by one, by their full names (`refs/heads/main`). It is apart
+ * from the filter, which narrows what is left of it.
+ */
+export type Scope = { kind: 'current' } | { kind: 'local' } | { kind: 'refs'; refs: string[] };
+
 /** A search that git runs, in the whole history rather than in the commits that are loaded. */
 export type Search = Extract<Filter, { query: string }>;
 
@@ -146,6 +153,8 @@ export interface RepoState {
   bisect: Bisect | null;
   identity: Identity;
   filter: Filter | null;
+  /** The branches the graph is narrowed to, without the ones that are no longer there. Null when it shows them all. */
+  scope: Scope | null;
   /** Every repository found in the workspace, when there is more than this one to choose from. */
   repos: RepoInfo[];
   /** Set when the main remote is a GitHub repository. */
@@ -306,6 +315,8 @@ export type UiCommand =
 
 export type WebviewMessage =
   | { type: 'ready' }
+  /** A view with a search box has the keyboard, or no longer: while it does, the key that searches is its own. */
+  | { type: 'focus'; focused: boolean }
   | { type: 'refresh' }
   | { type: 'loadMore' }
   | { type: 'getDetail'; hash: string }
@@ -322,6 +333,7 @@ export type WebviewMessage =
   | { type: 'sync'; action: SyncAction }
   | { type: 'action'; action: Action }
   | { type: 'setFilter'; filter: Filter | null }
+  | { type: 'setScope'; scope: Scope | null }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }
   /** Asks for the commits a search finds, to highlight them in the graph rather than replace it with them. */

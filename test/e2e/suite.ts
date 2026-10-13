@@ -76,10 +76,12 @@ export async function run(): Promise<void> {
   const posted: HostMessage[] = [];
   /** The view each of them was for, or nothing when it was for all. */
   const addressed: unknown[] = [];
+  /** What the views ask that a step wants left unanswered for a while. */
+  const unanswered = new Set<WebviewMessage['type']>();
   const onMessage = internals.onMessage.bind(controller);
   internals.onMessage = (webview, message) => {
     received.push(message);
-    return onMessage(webview, message);
+    return unanswered.has(message.type) ? Promise.resolve() : onMessage(webview, message);
   };
   const post = internals.post.bind(controller);
   internals.post = (message, to) => {
@@ -419,6 +421,59 @@ export async function run(): Promise<void> {
     assert.equal(state().filter, null);
   });
 
+  await step('narrows the graph to the branches chosen, remembers them for each repository, and shows them all for a commit elsewhere', async () => {
+    const graph = view('graph');
+    const everything = subjects();
+    assert.equal(state().scope, null);
+    assert.ok(everything.includes('Add feature'));
+
+    // As a view asks: only what is checked out.
+    await internals.onMessage(graph, { type: 'setScope', scope: { kind: 'current' } });
+    assert.deepEqual(state().scope, { kind: 'current' });
+    assert.ok(!subjects().includes('Add feature') && subjects().includes('Add b'), `current: ${subjects()}`);
+
+    // Or the branches chosen one by one, of which only the ones that are there are taken.
+    await internals.onMessage(graph, { type: 'setScope', scope: { kind: 'refs', refs: ['refs/heads/feature', 'refs/heads/gone', '--all'] } });
+    assert.deepEqual(state().scope, { kind: 'refs', refs: ['refs/heads/feature'] });
+    assert.equal(subjects()[0], 'Add feature');
+
+    // The history of a file is the one it has among them, and leaves them as they were when it is closed.
+    await controller.setFilter({ kind: 'path', path: 'b.txt' });
+    assert.deepEqual(subjects(), ['Add feature', 'Add b']);
+    await internals.onMessage(graph, { type: 'setScope', scope: { kind: 'current' } });
+    assert.deepEqual(subjects(), ['Add b']);
+    assert.deepEqual(state().filter, { kind: 'path', path: 'b.txt' });
+    await controller.setFilter(null);
+    assert.deepEqual(state().scope, { kind: 'current' });
+
+    // Each repository has its own, and finds it again.
+    await controller.selectRepo(state().repos[1].root);
+    assert.equal(state().name, 'lib');
+    assert.equal(state().scope, null);
+    await controller.selectRepo(state().repos[0].root);
+    assert.equal(state().name, 'app');
+    assert.deepEqual(state().scope, { kind: 'current' });
+
+    // A commit on a branch that is not shown is not hidden from who asks for it: the branches are all shown again.
+    const feature = (await git(app, ['rev-parse', 'feature'])).stdout.trim();
+    await internals.onMessage(graph, { type: 'goTo', revision: feature });
+    assert.equal(state().scope, null);
+    assert.ok(state().rows.some((row) => row.hash === feature));
+
+    // A branch deleted while it is one of those shown is no longer one of them.
+    await git(app, ['branch', 'scoped', 'HEAD~1']);
+    await vscode.commands.executeCommand('gitar.refresh');
+    await internals.onMessage(graph, { type: 'setScope', scope: { kind: 'refs', refs: ['refs/heads/scoped', 'refs/heads/main'] } });
+    assert.deepEqual(state().scope, { kind: 'refs', refs: ['refs/heads/scoped', 'refs/heads/main'] });
+    await git(app, ['branch', '-D', 'scoped']);
+    await vscode.commands.executeCommand('gitar.refresh');
+    assert.deepEqual(state().scope, { kind: 'refs', refs: ['refs/heads/main'] });
+
+    await internals.onMessage(graph, { type: 'setScope', scope: null });
+    assert.equal(state().scope, null);
+    assert.deepEqual(subjects(), everything);
+  });
+
   await step('pushes, fetches and pulls with a rebase against the remote', async () => {
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 2);
     await controller.sync('push');
@@ -528,17 +583,22 @@ export async function run(): Promise<void> {
     await internals.onMessage(graph, { type: 'goTo', revision: oldest.slice(0, 8) });
     assert.deepEqual(revealed(), [`${oldest} in graph`]);
 
-    // Further back than the history is loaded: it is loaded up to there, in whole pages. (The views ask for more too,
-    // as their short lists end in sight: how many pages there are in the end is theirs to say.)
-    internals.limit = 2;
-    await vscode.commands.executeCommand('gitar.refresh');
-    assert.ok(!loaded(oldest) && state().hasMore, 'only the last commits are loaded');
-    forget();
-    await internals.onMessage(view('commits'), { type: 'goTo', revision: oldest });
-    assert.ok(loaded(oldest), 'the history is loaded up to the commit');
-    assert.deepEqual(revealed(), [`${oldest} in commits`]);
-    assert.ok(internals.limit >= pages && !state().hasMore, `limit: ${internals.limit}`);
-    internals.limit = pages;
+    // Further back than the history is loaded: it is loaded up to there, in whole pages. The views, whose short
+    // lists end in sight, would ask for the rest themselves: they are not answered, to see who loads it.
+    unanswered.add('loadMore');
+    try {
+      internals.limit = 2;
+      await vscode.commands.executeCommand('gitar.refresh');
+      assert.ok(!loaded(oldest) && state().hasMore, 'only the last commits are loaded');
+      forget();
+      await internals.onMessage(view('commits'), { type: 'goTo', revision: oldest });
+      assert.ok(loaded(oldest), 'the history is loaded up to the commit');
+      assert.deepEqual(revealed(), [`${oldest} in commits`]);
+      assert.equal(internals.limit, pages);
+    } finally {
+      unanswered.delete('loadMore');
+      internals.limit = pages;
+    }
 
     // In a list that leaves it out, the list gives way; in one that has it, the list stays.
     await controller.setFilter({ kind: 'path', path: 'b.txt' });

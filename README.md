@@ -36,9 +36,10 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 - Selecting a stash shows what it holds, including the untracked files it took, which git keeps apart from the rest.
 - Fetch, pull (merge or `--rebase`), push, push with `--force-with-lease` and push with `--force`.
 - Search across the loaded commits or the whole history: see [Search](#search).
+- The graph can be narrowed to the branches you choose: see [Filter by branch](#filter-by-branch).
 - Refreshes on its own when the repository or its files change, including changes made from the terminal or by another program.
 - Select several commits with `Ctrl`+click (`Cmd` on macOS) or `Shift`+click to act on them together: see [Several commits at once](#several-commits-at-once).
-- The **…** button in the toolbar opens the comparison of two branches, tags or commits, the history of the active file, the reflog, the branch cleanup, the remotes, the identity switch and the pull requests.
+- The **…** button in the toolbar opens the comparison of two branches, tags or commits, the history of the active file, the reflog, the branch cleanup, the remotes, the identity switch and the pull requests. When the panel is narrow the buttons of the toolbar keep their icons and give up their words, and **Refresh** is left to this menu.
 - In a workspace with several repositories, a list in the toolbar chooses the one to show: see [Multiple repositories](#multiple-repositories).
 
 Right-click a commit, a branch, a tag or a stash for the operations that apply to it:
@@ -46,9 +47,9 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | On | Operations |
 | --- | --- |
 | Commit | Check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
-| Local branch | Check out (also by double-click), merge, rebase onto, compare with the current branch or with anything else, show only its history, open or create its pull request, create worktree, rename, delete |
-| Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history, open its pull request, delete from the remote |
-| Tag | Check out (detached), create branch, compare, show only its history, push, delete |
+| Local branch | Check out (also by double-click), merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
+| Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
+| Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
 | Stash | Apply, pop, create branch, drop |
 | Worktree | Open in a new window (also by double-click), remove, prune missing ones |
 
@@ -103,7 +104,26 @@ From the context menu of a commit, branch or tag:
 - **Compare with…** asks only for the other side.
 - To compare two commits of the graph, select one, then right-click the other and choose **Compare with … selected before**.
 
-**Show only this history** on a branch or tag narrows the graph to what that reference can reach.
+### Filter by branch
+
+The graph shows every branch, remote branch and tag until you tell it which ones. The button before the search box, three lines that get shorter, says what is shown and opens the list to choose from:
+
+- **All**, **Current** and **Local** at the top choose with one click: everything, only what is checked out, or only the local branches. **Current** follows you as you switch branch.
+- Under them, every local branch, remote branch and tag has a tick. Tick the ones to show: the graph changes as you do. From **Current** or **Local**, a tick added or taken away starts from the branches those stand for.
+- The box above the list leaves in it the names that contain what you type. `Escape` empties it, and closes the list when it is empty.
+
+The same can be done from the context menu of a branch or tag, in the graph, in the references and in the Branches view:
+
+| Entry | Does |
+| --- | --- |
+| **Show only this history** | Narrows the graph to what that reference can reach |
+| **Show this history too** | Adds it to the ones shown, when the graph is narrowed already |
+| **Hide this history** | Takes it out of the ones shown |
+| **Show all branches** | Shows everything again |
+
+While the graph is narrowed the button is pressed in, and a bar above the commits says to what, with **Show all branches** to undo it. The choice is one for the graph and the Commits view of the side bar, and is remembered for each repository of the workspace. A branch that is deleted is forgotten.
+
+What narrows the graph further works inside the branches shown: the history of a file is the one it has on them, and a search finds only their commits. Going to a commit that is on none of them, by its hash or from the reflog, shows all the branches again. The uncommitted changes are listed above the graph only when the commit they are made on is in it.
 
 ### Bisect
 
@@ -138,7 +158,7 @@ The commits found stay where they are in the graph and the others are dimmed. Th
 | --- | --- |
 | `Enter`, `F3` or the arrow down | Selects the next match, and starts again from the first after the last |
 | `Shift+Enter`, `Shift+F3` or the arrow up | Selects the previous one |
-| `Ctrl+F` (`Cmd+F` on macOS) | Puts the cursor in the box, from anywhere in the view |
+| `Ctrl+F` (`Cmd+F` on macOS) | Puts the cursor in the box, from anywhere in the view. While the graph or the Commits view has the keyboard the key is theirs, and the editor behind does not open its own search |
 | `Escape` | Empties the box |
 
 A match further back than the history is loaded is loaded when you step to it. What a search of the whole history found is found again when the commits change, so a commit made or fetched meanwhile is counted too; a search stops counting at 5,000 commits and says so with a `+`.
@@ -270,7 +290,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -289,6 +309,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
 - the search counts the commits it finds and steps through them with the keys and the arrows, goes to a commit by its hash even when no branch reaches it, highlights in the graph what git finds in the whole history or lists it alone, and counts a commit made meanwhile;
+- the branches shown in the graph are chosen from the list under the button, with one click or one by one, with the box that narrows the list, and from the context menu of a branch; the Commits view of the side bar has the same button;
 - a branch dragged onto the checked out commit offers to merge or rebase;
 - the references and the details get wider when the line beside them is dragged, and a double click undoes it;
 - a graph of twenty branches side by side keeps to its width by drawing them closer, gets narrower and wider when its edge is dragged, and a double click undoes it;

@@ -3,6 +3,7 @@ import type { RepoState, Search, SyncAction, UiCommand } from '../shared/protoco
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { RepoSelect } from './RepoSelect';
+import { ScopeButton } from './ScopeButton';
 import { act } from './menus';
 import { loadUiState, post, saveUiState } from './vscode';
 
@@ -130,8 +131,18 @@ export function Toolbar({ state, busy, compact, matches, searching, onQuery, onS
   };
   useEffect(() => {
     const listener = (event: KeyboardEvent) => onKey.current(event);
+    // The extension is told while the view has the keyboard, to keep the key that searches from the editor behind it.
+    const focus = () => post({ type: 'focus', focused: true });
+    const blur = () => post({ type: 'focus', focused: false });
     window.addEventListener('keydown', listener);
-    return () => window.removeEventListener('keydown', listener);
+    window.addEventListener('focus', focus);
+    window.addEventListener('blur', blur);
+    if (document.hasFocus()) focus();
+    return () => {
+      window.removeEventListener('keydown', listener);
+      window.removeEventListener('focus', focus);
+      window.removeEventListener('blur', blur);
+    };
   }, []);
 
   /** A click on a button of the search leaves the focus in the box, where Enter and Shift+Enter go on from it. */
@@ -139,6 +150,9 @@ export function Toolbar({ state, busy, compact, matches, searching, onQuery, onS
 
   const run = (command: UiCommand) => () => post({ type: 'command', command });
   const more: MenuEntry[] = [
+    // Its button is the first to go when the toolbar is short of room.
+    !compact && { label: 'Refresh', run: () => post({ type: 'refresh' }) },
+    !compact && 'separator',
     { label: 'Compare branches, tags or commits…', run: () => post({ type: 'compare' }) },
     { label: 'Go to commit…', run: run('goToCommit') },
     { label: 'History of the active file', run: run('activeFileHistory') },
@@ -239,6 +253,7 @@ export function Toolbar({ state, busy, compact, matches, searching, onQuery, onS
     return (
       <div className="toolbar compact">
         {search}
+        <ScopeButton state={state} compact />
         {working}
         {moreButton}
       </div>
@@ -315,8 +330,9 @@ export function Toolbar({ state, busy, compact, matches, searching, onQuery, onS
 
       <span className="spacer" />
 
+      <ScopeButton state={state} />
       {search}
-      <button className="button icon" onClick={() => post({ type: 'refresh' })} aria-label="Refresh" title="Refresh">
+      <button className="button icon refresh" onClick={() => post({ type: 'refresh' })} aria-label="Refresh" title="Refresh">
         <Icon name="refresh" />
       </button>
       {moreButton}

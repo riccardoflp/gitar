@@ -287,10 +287,151 @@ input:focus-visible,
   outline-offset: -1px;
 }
 
+/* Which branches the graph shows: pressed in when it is not all of them. */
+.button.scope .label {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A long name gives way before the buttons after it are pushed out of the toolbar, down to its first letters. */
+.toolbar .button.scope {
+  min-width: 80px;
+}
+
+.button.scope .label.more,
+.button.scope .codicon {
+  flex: none;
+}
+
+/* Its words are the first to go, and it is left an icon like the ones beside it: the bar under the toolbar says them too. */
+@container (max-width: 1200px) {
+  .toolbar .button.scope {
+    flex: none;
+    min-width: 0;
+    padding: 0 5px;
+  }
+
+  .toolbar .button.scope .label,
+  .toolbar .button.scope .codicon-chevron-down {
+    display: none;
+  }
+}
+
+.button.scope .codicon-chevron-down {
+  font-size: 12px;
+}
+
+.button.scope.on,
+.button.scope.on:hover {
+  color: var(--vscode-inputOption-activeForeground, inherit);
+  background: var(--vscode-inputOption-activeBackground, var(--vscode-toolbar-hoverBackground));
+  border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder));
+}
+
+.popover {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 260px;
+  max-width: calc(100vw - 8px);
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--vscode-menu-foreground);
+  background: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgb(0 0 0 / 35%));
+}
+
+.scope-picker .quick {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: 2px 2px 6px;
+}
+
+.scope-picker .quick button {
+  flex: 1;
+  height: 22px;
+  border-radius: 3px;
+  text-align: center;
+  border: 1px solid var(--vscode-button-border, color-mix(in srgb, currentColor 25%, transparent));
+}
+
+.scope-picker .quick button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.scope-picker .quick button[aria-checked='true'] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.scope-picker .refs-filter {
+  flex: none;
+  position: static;
+  margin: 0 2px 4px;
+}
+
+.scope-picker .choices {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.scope-picker .heading {
+  padding: 4px 6px 2px;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+.scope-picker label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.scope-picker label:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.scope-picker label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-picker label.current span {
+  font-weight: 600;
+}
+
+.scope-picker input[type='checkbox'] {
+  flex: none;
+  margin: 0;
+  accent-color: var(--vscode-button-background);
+}
+
+.scope-picker .none {
+  padding: 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* The panel is often narrower than the toolbar is long: the buttons keep their icons and give up their words. */
-@container (max-width: 980px) {
+@container (max-width: 1040px) {
   .toolbar .button .label,
   .toolbar .busy .label {
+    display: none;
+  }
+
+  /* The graph refreshes by itself, and the menu beside has the way to ask: its button makes room. */
+  .toolbar .button.refresh {
     display: none;
   }
 
@@ -300,7 +441,7 @@ input:focus-visible,
 }
 
 /* Narrower still, the search moves to a line of its own rather than pushing the last buttons out of sight. */
-@container (max-width: 760px) {
+@container (max-width: 800px) {
   .toolbar {
     flex-wrap: wrap;
   }
