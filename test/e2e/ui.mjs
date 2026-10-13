@@ -1175,23 +1175,37 @@ try {
     await until('the details', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === 'Add the guide'`));
     await until('the files', () => graph.evaluate(`document.querySelectorAll('.detail .files .file').length === 3`));
 
-    // The message: its first line, then four and a half of the rest, as wide as the details, with what is left a scroll
-    // away and the files in sight under it.
-    const message = await graph.evaluate(`(() => {
-      const box = document.querySelector('.detail .said');
-      const body = box.querySelector('.body');
-      const detail = document.querySelector('.detail').getBoundingClientRect();
-      return {
-        line: body.scrollHeight / ${lines.length},
-        height: box.clientHeight,
-        whole: box.scrollHeight,
-        scrolls: getComputedStyle(box).overflowY,
-        wide: detail.right - box.getBoundingClientRect().right <= 14,
-        files: document.querySelector('.detail .files').getBoundingClientRect().top < detail.bottom,
-      };
-    })()`);
-    assert(message.height > message.line * 4 && message.height < message.line * 6, `the message takes ${JSON.stringify(message)}`);
-    assert(message.whole > message.height * 2 && message.scrolls === 'auto' && message.wide && message.files, `the message: ${JSON.stringify(message)}`);
+    // The message: its first line, then four lines of the rest, as wide as the details, with the files in sight under
+    // them; and all of it when asked, in place.
+    const said = () =>
+      graph.evaluate(`(() => {
+        const box = document.querySelector('.detail .said');
+        const body = box.querySelector('.body');
+        const detail = document.querySelector('.detail').getBoundingClientRect();
+        return {
+          line: body.scrollHeight / ${lines.length},
+          height: body.clientHeight,
+          whole: body.scrollHeight,
+          more: box.querySelector('.more')?.textContent ?? null,
+          wide: box.getBoundingClientRect().width >= document.querySelector('.detail dl').getBoundingClientRect().width - 1,
+          files: document.querySelector('.detail .files').getBoundingClientRect().top < detail.bottom,
+        };
+      })()`);
+    const message = await until('the message measured', async () => {
+      const now = await said();
+      return now.more ? now : null;
+    });
+    assert(message.height > message.line * 3.5 && message.height < message.line * 4.5, `the message takes ${JSON.stringify(message)}`);
+    assert(message.whole > message.height * 2 && message.more === 'Show more' && message.wide && message.files, `the message: ${JSON.stringify(message)}`);
+    await graph.click('.detail .said .more');
+    const whole = await until('the whole message', async () => {
+      const now = await said();
+      return now.more === 'Show less' ? now : null;
+    });
+    assert(whole.height >= whole.whole - 1 && whole.height > whole.line * 13, `the whole message: ${JSON.stringify(whole)}`);
+    await shot('detail-message');
+    await graph.click('.detail .said .more');
+    await until('its first lines again', async () => (await said()).more === 'Show more');
 
     // One after the other, each file says where it is.
     const rows = () =>

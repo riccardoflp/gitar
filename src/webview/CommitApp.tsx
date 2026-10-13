@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { unwrap } from '../shared/message';
 import type { CommitDetail, DiffSource, FileChange, FilePatch, FilesLayout, Hunk, RepoState } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { buildLabels } from './App';
@@ -218,7 +219,7 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
             ))}
           </div>
         )}
-        {detail.body && <pre className="body">{detail.body}</pre>}
+        {detail.body && <pre className="body">{unwrap(detail.body)}</pre>}
         <dl>
           <dt>Author</dt>
           <dd>

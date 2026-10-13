@@ -922,18 +922,27 @@ input:focus-visible,
 
 /*
  * Only the first line of the message shares its width with the buttons. The rest starts under them, as wide as the
- * details: it has the room of four lines and a half, the half saying there is more, and scrolls in it when it is longer.
+ * details: four lines of it, the last cut with an ellipsis when there are more, and all of it when asked.
  */
 .detail .said {
   clear: right;
-  max-height: 4.5lh;
   margin-bottom: 8px;
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .detail .said .body {
   margin: 0;
+}
+
+.detail .said .body.clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.detail .said .more {
+  margin-top: 2px;
+  font-size: 0.9em;
 }
 
 .detail h2 {

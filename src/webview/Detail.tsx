@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { unwrap } from '../shared/message';
 import { WORKTREE, type CommitDetail, type DiffSource, type FileChange, type FilesLayout } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
@@ -16,6 +17,41 @@ interface Props {
 }
 
 const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * What a message says after its first line. A long one shows its first lines, which leaves the files in sight, and
+ * the rest when asked: in place, so that nothing scrolls inside the details but the details.
+ */
+function Said({ body }: { body: string }) {
+  const [whole, setWhole] = useState(false);
+  // Whether there is more than the lines shown: known once they are laid out, and again when the width changes.
+  const [cut, setCut] = useState(false);
+  const element = useRef<HTMLPreElement>(null);
+  const text = useMemo(() => unwrap(body), [body]);
+
+  useLayoutEffect(() => {
+    const shown = element.current;
+    if (!shown || whole) return;
+    const measure = () => setCut(shown.scrollHeight > shown.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(shown);
+    return () => observer.disconnect();
+  }, [text, whole]);
+
+  return (
+    <div className="said">
+      <pre ref={element} className={whole ? 'body' : 'body clamped'}>
+        {text}
+      </pre>
+      {(cut || whole) && (
+        <button className="link more" aria-expanded={whole} onClick={() => setWhole(!whole)}>
+          {whole ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function Detail({ hash, detail, onJump, onClose }: Props) {
   const worktree = hash === WORKTREE;
@@ -70,12 +106,7 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
       ) : (
         <>
           <h2>{detail.subject}</h2>
-          {/* A long message scrolls in the few lines it has, and leaves the files in sight: the tab of the commit has it whole. */}
-          {detail.body && (
-            <div className="said">
-              <pre className="body">{detail.body}</pre>
-            </div>
-          )}
+          {detail.body && <Said key={hash} body={detail.body} />}
           {!worktree && (
             <dl>
               <dt>Author</dt>
