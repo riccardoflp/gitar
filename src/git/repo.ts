@@ -17,6 +17,7 @@ import {
   type WorkingState,
 } from '../shared/protocol';
 import { SCOPE_PREFIXES, pruneScope } from '../shared/scope';
+import { resolveConflicts, type Conflict } from './conflicts';
 import { GitError, formatCommand, git, type GitResult } from './exec';
 import type { UndoInfo } from './ops';
 import {
@@ -45,6 +46,20 @@ import {
 export function isHash(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{7,64}$/.test(value);
 }
+
+/** A file in conflict as it is in the working tree, and as it would be with the conflicts that need no choice resolved. */
+export interface ConflictPlan {
+  path: string;
+  /** What the file has now, markers and all. */
+  text: string;
+  resolved: string;
+  conflicts: Conflict[];
+}
+
+/** Larger files in conflict are left to the user. */
+const CONFLICT_BYTES = 2 * 1024 * 1024;
+/** No more files in conflict than this are read to see what can be resolved. */
+const CONFLICT_FILES = 200;
 
 /** Read-only view of one repository. Everything that changes the repository goes through `ops.ts` instead. */
 export class Repo {
@@ -130,6 +145,31 @@ export class Repo {
       .map((record) => Number(record.split('\t')[0].split(' ')[2]));
   }
 
+  /**
+   * What can be resolved without a choice in each of these files in conflict. Left out are the files without the
+   * markers of git: binary ones, the ones a side deleted, and the ones that are not text that can be written as read.
+   */
+  async conflictPlans(files: string[]): Promise<ConflictPlan[]> {
+    const plans: ConflictPlan[] = [];
+    for (const file of files.slice(0, CONFLICT_FILES)) {
+      try {
+        const full = path.join(this.root, file);
+        const stat = await fs.promises.lstat(full);
+        if (!stat.isFile() || stat.size > CONFLICT_BYTES) continue;
+        const bytes = await fs.promises.readFile(full);
+        const text = bytes.toString('utf8');
+        if (!text.includes('<<<<<<<') || text.includes('\0') || !Buffer.from(text, 'utf8').equals(bytes)) continue;
+        // The file before either side changed it: there is none when both added it.
+        const [base, ours, theirs] = await Promise.all([':1', ':2', ':3'].map((stage) => this.show(stage, file)));
+        const { text: resolved, conflicts } = resolveConflicts(text, base, { ours, theirs });
+        if (conflicts.length) plans.push({ path: file, text, resolved, conflicts });
+      } catch {
+        // A file that cannot be read is one to resolve by hand.
+      }
+    }
+    return plans;
+  }
+
   /** The bisect in progress, if any, with the commits marked so far. */
   async bisect(): Promise<Bisect | null> {
     if (!(await this.hasMarker('BISECT_START'))) return null;
@@ -179,6 +219,7 @@ export class Repo {
     ]);
     const head = headOut.trim() || null;
     const changes = allChanges(working);
+    const plans = working.conflicts.length ? await this.conflictPlans(working.conflicts.map((file) => file.path)) : [];
     const refs = parseRefs(refsOut);
     const branch = branchOut.trim().replace(/^refs\/heads\//, '') || null;
     // A branch chosen for the graph may have been deleted since.
@@ -226,6 +267,11 @@ export class Repo {
       hasMore,
       changes: changes.length,
       working,
+      conflictFiles: plans.map((plan) => ({
+        path: plan.path,
+        conflicts: plan.conflicts.length,
+        resolvable: plan.conflicts.flatMap((conflict) => conflict.resolution ?? []),
+      })),
       operation,
       bisect,
       identity: parseIdentity(identityOut),

@@ -32,6 +32,7 @@ import {
   refNameProblem,
   renameBranchOp,
   resetOp,
+  resolveConflictsOp,
   revertOp,
   skipOp,
   stageAllOp,
@@ -39,6 +40,7 @@ import {
   stashBranchOp,
   stashOp,
   stashPushOp,
+  takeSideOp,
   unstageAllOp,
   unstageOp,
   type GitOp,
@@ -255,6 +257,12 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
     case 'stage':
       return stageOp(action.paths);
+    case 'resolveConflicts': {
+      const files = state.working.conflicts.map((file) => file.path);
+      return resolveConflictsOp(await repo.conflictPlans(action.paths ? files.filter((file) => action.paths?.includes(file)) : files));
+    }
+    case 'takeSide':
+      return takeSideOp(action.path, action.side, await repo.conflictStages(action.path), state.operation);
     case 'stageAll':
       return stageAllOp();
     case 'unstage':

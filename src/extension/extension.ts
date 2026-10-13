@@ -75,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     command('gitar.compare', () => controller.compare()),
     command('gitar.goToCommit', () => controller.goToCommit()),
     command('gitar.openCommit', (hash) => controller.openCommit(typeof hash === 'string' ? hash : undefined)),
+    command('gitar.resolveConflicts', () => controller.action({ kind: 'resolveConflicts' })),
     // The views that list commits put the cursor in their search box at Ctrl+F by themselves. While one of them has the
     // keyboard the key is bound to this, for VS Code to run something other than the search of the editor behind them.
     command('gitar.find', () => {}),

@@ -153,7 +153,7 @@ To find the commit that broke something, right-click a commit you know is broken
 
 ### Undo
 
-**Undo** in the toolbar takes back the last commit, amend, checkout, merge, pull, rebase or reset, including ones made from the terminal, by reading the reflog. It always shows what it is about to do first. Undoing twice redoes. It also restores a branch deleted or a stash dropped in Gitar, as long as nothing else happened since.
+**Undo** in the toolbar takes back the last commit, amend, checkout, merge, pull, rebase or reset, including ones made from the terminal, by reading the reflog. It always shows what it is about to do first. Undoing twice redoes. It also restores a branch deleted or a stash dropped in Gitar, and the conflicts Gitar resolved, as long as nothing else happened since.
 
 ### Previews before risky operations
 
@@ -260,9 +260,30 @@ Gitar shows one repository at a time. It finds the repository of each workspace 
 
 ### Conflicts
 
-When a merge, rebase, cherry-pick or revert stops, the Graph and Changes views show a banner with **Continue**, **Skip** and **Abort**. Conflicting files are listed in the Changes view, and **Mark as resolved** stages one.
+When a merge, rebase, cherry-pick or revert stops, the Graph and Changes views show a banner with **Continue**, **Skip** and **Abort**. The banner also shows while files are in conflict without such an operation, as after a stash that did not apply cleanly. Conflicting files are listed in the Changes view, and **Mark as resolved** stages one.
 
 Selecting a conflicting file opens it in VS Code's merge editor, with the common ancestor as the base and the two sides labelled by what they are in the operation that stopped: in a rebase, **Current** is what you are rebasing onto and **Incoming** is your own commit. Save the result there, then mark the file as resolved. A file that was added or deleted on one side has no three versions to merge, and opens as a normal file instead. The merge editor is opened through the command VS Code's own Git extension uses, which is not part of the documented API: if a future version changes it, the file opens in the normal editor with its conflict markers.
+
+#### Conflicts that need no choice
+
+Git stops wherever the two sides changed lines that touch. Many of those stops need no choice between the sides, and Gitar can resolve them: the banner says how many (**Resolve 2 of 3 automatically**), a file in conflict has the same button on its row in the Changes view, **Gitar: Resolve Conflicts Automatically** does it from the command palette, and the message that says an operation stopped offers it. A conflict is resolved when it is one of these:
+
+- **Changes to lines next to each other.** One side changed a line and the other the line after it, or one added or removed lines beside the ones the other changed. Each change is kept where it was made.
+- **The same change on both sides**, such as a line both added among lines each changed in its own way. It is written once.
+- **Spaces or line endings only.** The two sides have the same lines spaced differently: indented with tabs on one and with spaces on the other, with spaces left at the end of a line, or with other line endings. The current side is written. When one side only touched the spaces at the end of lines the other really changed, the real change is written. A space that parts one word in two is not such a difference: `a=1` and `a = 1` stay a conflict.
+- **A change on one side only**, where the other turns out to have the lines as they were.
+
+Everything else is left exactly as git marked it: two different changes to the same line, a line one side removed and the other changed, lines both added at the same place, two conflicts with nothing certain between them, a conflict with markers of its own inside. Every line Gitar writes is a line of one of the two sides, as it is in the file: it never makes one up. What the lines were before either side changed them is read from the index (`git show :1:<file>`), so the style of the markers does not matter. Binary files, files one side deleted, files larger than 2 MB and files that are not UTF-8 are not touched.
+
+It is also cautious where a file can be read in more than one way. Lines that repeat, such as closing braces and empty lines, can be paired with the ones of the common ancestor in several ways, and git made its choice without saying which. A conflict is resolved only when pairing them from the top and from the bottom gives the same lines, when no new line would end up written twice, when the changes of the two sides do touch as they must have for git to stop, and when the lines around the conflict are lines both sides really have (`git show :2:<file>` and `:3:<file>`). The tests run this against git itself on files made mostly of such lines, and it resolves there nothing that git's own account of the conflict would not.
+
+Before it writes anything Gitar asks, saying for each file how many of its conflicts it would resolve and why, which files it would write and which command it would run. **Preview** opens the files beside what they would become, and asks again. Then the files are written: the ones left without conflicts are staged with `git add`, and the ones that still have some keep the markers of those and stay unstaged, to be finished in the merge editor. What was typed in a file since git stopped is kept, though a conflict right beside lines changed by hand is left alone, and nothing is written if a file changed between the question and the answer.
+
+**Undo**, in the message that follows and in the toolbar, marks every conflict again as git had (`git checkout --merge`), in the files that were staged too.
+
+#### A whole file from one side
+
+In the Changes view a file in conflict also has **Take the current side** and **Take the incoming side**, for when one side is simply right: `git checkout --ours` or `--theirs` followed by `git add`, or `git rm` when that side deleted the file. Gitar asks first and says what each side is in the operation that stopped. Undo marks the conflicts again, except in a file one side deleted, which git cannot mark again.
 
 ## Command preview
 
@@ -272,7 +293,7 @@ Set `gitar.commandPreview` to `all` to see the exact commands before they run an
 
 | Value | Behavior |
 | --- | --- |
-| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, dropping a stash, force-deleting a branch, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, and a merge or cherry-pick that is going to conflict. |
+| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, dropping a stash, force-deleting a branch, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically and taking one side of a file in conflict. |
 | `all` | Shows the commands and asks before running anything that changes the repository or a remote, staging included. |
 
 The commands shown are the commands that run: Gitar adds no hidden flags to them. Where a command would open an editor for a commit message, which cannot work from an extension, the flag that prevents it is part of the command you see (`--no-edit`, or `-c core.editor=true` when continuing an operation).
@@ -281,6 +302,8 @@ For the same reason, two things that look odd in a command are there on purpose:
 
 - A file whose name is also a pattern to git (it contains `[`, `]`, `*`, `?` or `\`, or starts with `:`) is passed as `:(literal)<name>`. Without it, staging or discarding `pages/[id].tsx` would also act on `pages/i.tsx` and `pages/d.tsx`.
 - A branch that shares its name with a tag or with a remote branch is named in full, as `refs/heads/<name>`, where the short name would mean the other one or be refused: merging it, starting a branch from it, pushing it.
+
+One operation does more than run commands: resolving conflicts automatically writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
 
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
 
@@ -303,7 +326,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 | `npm run build` | Bundles the extension, the webview and the preview server into `dist/`. |
 | `npm run watch` | Rebuilds on change. |
 | `npm run typecheck` | Type-checks with `tsc`. |
-| `npm test` | Runs the tests with Vitest. The integration tests run the real commands against throwaway repositories. |
+| `npm test` | Runs the tests with Vitest. The integration tests run the real commands against throwaway repositories, and resolve conflicts marked by git itself, hundreds of them made at random. |
 | `npm run test:e2e` | Builds, then runs the end-to-end tests inside a real VS Code: see below. |
 | `npm run test:ui` | Builds, then uses the extension in a real VS Code window, with real clicks and keys, saving screenshots: see below. |
 | `npm run package` | Makes a minified build and packs it into `gitar-<version>.vsix`. It leaves the minified build in `dist/`; `npm run build` brings the development one back. |
@@ -314,7 +337,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitar loaded.
 
 `npm run test:e2e` starts the VS Code installed on the machine as a separate instance, with a throwaway profile and a throwaway workspace holding two small repositories and a bare remote, and runs `test/e2e/suite.ts` inside its Extension Host. Your own VS Code window, settings and extensions are not touched; a second window opens for about half a minute and closes by itself. Pass the path of the executable as an argument, or set `VSCODE_PATH`, if it is not in a standard place.
 
-The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, and that diffs and the merge editor open with the right content.
+The suite drives the extension through its commands and its controller, with VS Code's dialogs, input boxes and pickers answered by stubs that record what they were asked. It checks, among other things, that the webviews of all five views load, that only the views that list commits are sent them, that a comparison goes to the view that asked for it, that a commit is reached by its hash wherever it is in the history, that a commit opens in one editor tab with its changes and stays of its repository when the others move on, that the graph is narrowed to the branches chosen and remembers them for each repository, that the views follow changes made outside the editor, that the commands shown in a confirmation are the ones that run and the ones logged, that diffs and the merge editor open with the right content, and that the conflicts that need no choice are resolved after the preview, the others left marked, and all of them marked again by Undo.
 
 `npm run test:vsix` runs the same suite on the packaged extension: the `.vsix` is unpacked into the throwaway folder and loaded from there, which catches a file left out of the package or broken by minification. The package has no license file and no repository URL, so it is built with the flags that allow that; add both before publishing it anywhere.
 
@@ -342,7 +365,8 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know;
 - the Stashes view unfolds a stash to its files, and its header counts the stashes;
 - the graph opens as an editor tab, with the details of a commit beside it;
-- a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost and their diffs numbered line by line; the button in the details opens another the same way, and **Show in the graph** leads back.
+- a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost and their diffs numbered line by line; the button in the details opens another the same way, and **Show in the graph** leads back;
+- a merge that stops counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.
 
@@ -378,7 +402,7 @@ Measure the views with the minified build (`node esbuild.mjs --production`): the
 
 | Path | Contents |
 | --- | --- |
-| `src/git` | Running Git, finding the repositories of a workspace, parsing Git's output, building the commands for each operation, and reading GitHub's answers. No VS Code dependency. |
+| `src/git` | Running Git, finding the repositories of a workspace, parsing Git's output, building the commands for each operation, resolving the conflicts that need no choice (`conflicts.ts`), and reading GitHub's answers. No VS Code dependency. |
 | `src/shared` | Types shared by the extension and the webview, the graph lane layout, the tree the files of a commit are laid out in, how to name a reference that has namesakes, and the commit message prompt. |
 | `src/extension` | VS Code integration: views, commands, prompts, file watching, command preview, diff content, inline blame, GitHub sign-in, language model. |
 | `src/webview` | The React UI. |

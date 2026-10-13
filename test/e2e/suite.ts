@@ -937,6 +937,124 @@ export async function run(): Promise<void> {
     assert.equal(state().changes, 0);
   });
 
+  await step('resolves the conflicts that need no choice after showing what it would write, leaves the others, and takes it back', async () => {
+    const lines = (changes: Record<number, string> = {}) => Array.from({ length: 12 }, (_, index) => `${changes[index] ?? `line ${index}`}\n`).join('');
+    const read = (file: string) => fs.readFileSync(path.join(app, file), 'utf8');
+    write('c.txt', lines());
+    write('d.txt', 'one\ntwo\n');
+    await git(app, ['add', '--', 'c.txt', 'd.txt']);
+    await git(app, ['commit', '-m', 'Add c and d']);
+    await git(app, ['checkout', '-b', 'beside']);
+    // In c.txt each side changes a line next to one the other changes, and both change line 9; in d.txt only the first.
+    write('c.txt', lines({ 2: 'two, theirs', 9: 'nine, theirs' }));
+    write('d.txt', 'one\nTWO\n');
+    await git(app, ['commit', '-am', 'Beside, theirs']);
+    await git(app, ['checkout', 'main']);
+    write('c.txt', lines({ 3: 'three, ours', 9: 'nine, ours' }));
+    write('d.txt', 'ONE\ntwo\n');
+    await git(app, ['commit', '-am', 'Beside, ours']);
+    await controller.refresh();
+
+    asked.length = 0;
+    answer = run;
+    await controller.action({ kind: 'merge', ref: 'beside' });
+    assert.equal(state().operation, 'merge');
+    const both = [
+      { path: 'c.txt', conflicts: 2, resolvable: ['separate'] },
+      { path: 'd.txt', conflicts: 1, resolvable: ['separate'] },
+    ];
+    assert.deepEqual(state().conflictFiles, both);
+    const stopped = asked.find((question) => /stopped: 2 files have conflicts/.test(question.message));
+    assert.match(stopped?.message ?? '', /Gitar can resolve 2 of the 3 conflicts automatically\.$/);
+    assert.deepEqual(stopped?.items, ['Resolve Automatically', 'Show Log']);
+
+    // It asks first, saying the files it writes and the command it runs, and shows each file beside what it would become.
+    const marked = read('c.txt');
+    asked.length = 0;
+    answer = (_text, _detail, items) => (items.includes('Preview') ? 'Preview' : undefined);
+    await vscode.commands.executeCommand('gitar.resolveConflicts');
+    assert.equal(asked[0].message, 'Resolve 2 of 3 conflicts automatically?');
+    assert.deepEqual(asked[0].items, ['Resolve', 'Preview']);
+    assert.match(asked[0].detail, /^c\.txt: 1 of 2 conflicts \(changes to lines next to each other\)\nd\.txt: 1 of 1 conflict \(/);
+    assert.match(asked[0].detail, /1 conflict will be left to resolve by hand/);
+    assert.match(asked[0].detail, /Gitar will write in [^\n]+:\n\nc\.txt\nd\.txt\n\nand then run:\n\ngit add -- d\.txt$/);
+    assert.equal(asked[1].message, 'Resolve 2 of 3 conflicts automatically, as in the preview?');
+    assert.deepEqual(asked[1].items, ['Resolve']);
+    const tab = await until('the preview', () => vscode.window.tabGroups.activeTabGroup.activeTab);
+    assert.match(tab.label, /^Preview of the conflicts resolved automatically/);
+    const proposed = await until('what is proposed for d.txt', () =>
+      vscode.workspace.textDocuments.find((document) => document.uri.scheme === 'gitar' && document.uri.path === '/d.txt' && /proposal/.test(document.uri.query)),
+    );
+    assert.equal(proposed.getText(), 'ONE\nTWO\n');
+    // The second question was left without an answer: nothing is written.
+    assert.equal(read('c.txt'), marked);
+    assert.deepEqual(state().conflictFiles, both);
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+    asked.length = 0;
+    logged.length = 0;
+    answer = (_text, _detail, items) => (items.includes('Resolve') ? 'Resolve' : undefined);
+    await fromWebview({ type: 'action', action: { kind: 'resolveConflicts' } });
+    assert.deepEqual(
+      logged.filter((line) => line.startsWith('> ')),
+      ['> write c.txt', '> write d.txt', '> git add -- d.txt'],
+    );
+    assert.equal(read('d.txt'), 'ONE\nTWO\n');
+    const left = '<<<<<<< HEAD\nnine, ours\n=======\nnine, theirs\n>>>>>>> beside\n';
+    assert.equal(read('c.txt'), lines({ 2: 'two, theirs', 3: 'three, ours', 9: 'LEFT' }).replace('LEFT\n', left));
+    assert.deepEqual(state().working.conflicts, [{ status: 'U', path: 'c.txt' }]);
+    assert.deepEqual(state().conflictFiles, [{ path: 'c.txt', conflicts: 1, resolvable: [] }]);
+    const done = asked.find((question) => question.message.startsWith('Gitar resolved conflicts'));
+    assert.equal(done?.message, 'Gitar resolved conflicts in 2 files. 1 file still has conflicts to resolve by hand.');
+    assert.deepEqual(done?.items, ['Undo']);
+
+    // Undo puts every conflict back, in the file that was staged too.
+    asked.length = 0;
+    answer = run;
+    await controller.action({ kind: 'undo' });
+    assert.equal(asked[0].message, 'Undo: restore the conflicts of 2 files?');
+    assert.match(asked[0].detail, /git checkout --merge -- c\.txt d\.txt$/);
+    assert.deepEqual(state().conflictFiles, both);
+    assert.deepEqual(state().working.staged, []);
+
+    // A whole file for one side, which can be taken back the same way.
+    asked.length = 0;
+    await controller.action({ kind: 'takeSide', path: 'd.txt', side: 'theirs' });
+    assert.equal(asked[0].message, 'Take the incoming side of d.txt?');
+    assert.match(asked[0].detail, /The incoming side is the branch being merged\./);
+    assert.match(asked[0].detail, /git checkout --theirs -- d\.txt\ngit add -- d\.txt$/);
+    assert.equal(read('d.txt'), 'one\nTWO\n');
+    assert.deepEqual(state().working.conflicts, [{ status: 'U', path: 'c.txt' }]);
+    await controller.action({ kind: 'undo' });
+    assert.deepEqual(state().conflictFiles, both);
+
+    // One file only, as from its row in the Changes view; with nothing left in conflict the merge is offered to continue.
+    write('c.txt', lines({ 2: 'two, theirs', 3: 'three, ours', 9: 'nine, both' }));
+    await controller.action({ kind: 'stage', paths: ['c.txt'] });
+    asked.length = 0;
+    answer = (_text, _detail, items) => (items.includes('Resolve') ? 'Resolve' : undefined);
+    await controller.action({ kind: 'resolveConflicts', paths: ['d.txt'] });
+    assert.equal(asked[0].message, 'Resolve the conflict automatically?');
+    const whole = asked.find((question) => question.message.startsWith('Gitar resolved conflicts'));
+    assert.equal(whole?.message, 'Gitar resolved conflicts in 1 file. No file is left in conflict: the merge can continue.');
+    assert.deepEqual(whole?.items, ['Continue', 'Undo']);
+    assert.deepEqual(state().working.conflicts, []);
+
+    // With nothing to resolve it says so and asks nothing.
+    asked.length = 0;
+    const before = errors.length;
+    await controller.action({ kind: 'resolveConflicts' });
+    assert.match(errors[before], /There are no conflicts marked in the files to resolve\./);
+    errors.length = before;
+    assert.deepEqual(asked, []);
+
+    answer = run;
+    await controller.action({ kind: 'continue' });
+    assert.equal(state().operation, null);
+    assert.equal(state().rows[0].parents.length, 2);
+    assert.equal(read('d.txt'), 'ONE\nTWO\n');
+  });
+
   await step('blames the line under the cursor without errors, and can be switched off', async () => {
     const before = errors.length;
     const editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(app, 'a.txt')));

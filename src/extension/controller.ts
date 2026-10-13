@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { discoverRepos, repoName } from '../git/discover';
-import { GitError, formatCommand, git } from '../git/exec';
+import { GitError, formatCommand, git, writeFiles } from '../git/exec';
 import { compareUrl, parseGitHubRemote, type GitHubRepo } from '../git/github';
 import {
+  CONFLICT_SIDES,
   cleanupBranchesOp,
   clearIdentityOp,
   fetchRemoteOp,
@@ -15,6 +16,7 @@ import {
   remoteRenameOp,
   remoteSetUrlOp,
   restoreBranchOp,
+  restoreConflictsOp,
   restoreStashOp,
   syncOp,
   undoOp,
@@ -32,7 +34,6 @@ import type {
   FilesLayout,
   Filter,
   HostMessage,
-  Operation,
   PullRequest,
   RepoInfo,
   RepoState,
@@ -45,20 +46,12 @@ import type {
 } from '../shared/protocol';
 import { resolveAction } from './actions';
 import { draftCommitMessage } from './ai';
-import { CONFLICT, INDEX, contentUri } from './content';
+import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
 
 const PAGE_SIZE = 1000;
 /** The most commits a search is told about, to highlight them in the graph. */
 const FOUND_LIMIT = 5000;
-/** What the two sides of a conflict are, which depends on the operation that stopped: a rebase swaps them. */
-const CONFLICT_SIDES: Record<Operation | 'none', [current: string, incoming: string]> = {
-  merge: ['The branch checked out', 'The branch being merged'],
-  rebase: ['What the branch is being rebased onto', 'Your commit being replayed'],
-  'cherry-pick': ['The branch checked out', 'The commit being picked'],
-  revert: ['The branch checked out', 'The state before the reverted commit'],
-  none: ['Your files', 'The changes being applied'],
-};
 
 const REFRESH_DELAY = 400;
 /** Builds and installs write many files at once, so those are given longer to settle. */
@@ -698,10 +691,15 @@ export class Controller implements vscode.Disposable {
       // A series of cherry-picks that stopped is still the same series while the user continues or skips.
       if (!state.operation) this.series = undefined;
 
+      // Git can mark the conflicts of a file again only while it has both of its sides.
+      const sides = action.kind === 'takeSide' ? await repo.conflictStages(action.path) : [];
       const op = await resolveAction(action, state, repo);
       if (!op) return;
+      // What is about to be written can be looked at first.
+      const asked = action.kind === 'resolveConflicts';
+      if (asked && !(await this.confirmWrites(repo, op))) return;
 
-      let result = await this.run(op, { silent: Boolean(op.fallback) });
+      let result = await this.run(op, { silent: Boolean(op.fallback), asked });
       if (op.fallback && result.error !== undefined) {
         if (op.fallback.when.test(result.error)) result = await this.run(op.fallback.op);
         else this.reportFailure(op, result.error);
@@ -718,6 +716,13 @@ export class Controller implements vscode.Disposable {
       const stash = action.kind === 'stashDrop' && state.stashes.find((candidate) => candidate.ref === action.ref);
       if (branch) this.undoable = { reflogTop, op: restoreBranchOp(branch.name, branch.hash) };
       if (stash) this.undoable = { reflogTop, op: restoreStashOp(stash.message, stash.hash) };
+      if (action.kind === 'takeSide' && sides.includes(2) && sides.includes(3)) {
+        this.undoable = { reflogTop, op: restoreConflictsOp([action.path]) };
+      }
+      if (action.kind === 'resolveConflicts' && op.writes?.length) {
+        this.undoable = { reflogTop, op: restoreConflictsOp(op.writes.map((write) => write.path)) };
+        this.reportResolved(op.writes.length);
+      }
 
       // Each commit of a series moves the branch on its own, so the reflog alone would only take back the last one.
       const series = this.series;
@@ -731,6 +736,35 @@ export class Controller implements vscode.Disposable {
     } catch (error) {
       void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
     }
+  }
+
+  /** Asks before an operation writes files, and shows what it would write in each to who wants to see that first. */
+  private async confirmWrites(repo: Repo, op: GitOp): Promise<boolean> {
+    let choice = await vscode.window.showInformationMessage(`${op.title}?`, { modal: true, detail: this.describe(repo, op) }, 'Resolve', 'Preview');
+    if (choice === 'Preview') {
+      const resources = (op.writes ?? []).map((write) => {
+        const onDisk = vscode.Uri.file(path.join(repo.root, write.path));
+        return [onDisk, onDisk, proposalUri(repo.root, write.path, write.content)];
+      });
+      await vscode.commands.executeCommand('vscode.changes', 'Preview of the conflicts resolved automatically', resources);
+      choice = await vscode.window.showInformationMessage(`${op.title}, as in the preview?`, 'Resolve');
+    }
+    return choice === 'Resolve';
+  }
+
+  /** Says what is left to do after conflicts were resolved, and offers the way back. */
+  private reportResolved(written: number): void {
+    const operation = this.state?.operation;
+    const left = this.state?.working.conflicts.length ?? 0;
+    const files = written === 1 ? '1 file' : `${written} files`;
+    const rest = left
+      ? `${left === 1 ? '1 file still has' : `${left} files still have`} conflicts to resolve by hand.`
+      : `No file is left in conflict${operation ? `: the ${operation} can continue` : ''}.`;
+    const buttons = !left && operation ? ['Continue', 'Undo'] : ['Undo'];
+    void vscode.window.showInformationMessage(`Gitar resolved conflicts in ${files}. ${rest}`, ...buttons).then((choice) => {
+      if (choice === 'Undo') void this.action({ kind: 'undo' });
+      if (choice === 'Continue') void this.action({ kind: 'continue' });
+    });
   }
 
   /** Says so when the last answer left a single suspect: that is the commit the bisect was looking for. */
@@ -1091,16 +1125,14 @@ export class Controller implements vscode.Disposable {
   }
 
   /** Runs an operation, first showing its exact commands when the user asked for that or when it can lose work. */
-  private async run(op: GitOp, options: { silent?: boolean } = {}): Promise<RunResult> {
+  private async run(op: GitOp, options: { silent?: boolean; asked?: boolean } = {}): Promise<RunResult> {
     const repo = this.repo;
     if (!repo || this.running) return { ok: false };
 
     const preview = vscode.workspace.getConfiguration('gitar').get<string>('commandPreview') === 'all';
-    if (preview || op.danger || op.confirm) {
-      const commands = op.commands.map(formatCommand).join('\n');
-      const detail = `${op.note ? `${op.note}\n\n` : ''}Gitar will run in ${repo.root}:\n\n${commands}`;
+    if (!options.asked && (preview || op.danger || op.confirm)) {
       const ask = op.danger ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
-      if ((await ask(`${op.title}?`, { modal: true, detail }, 'Run')) !== 'Run') return { ok: false };
+      if ((await ask(`${op.title}?`, { modal: true, detail: this.describe(repo, op) }, 'Run')) !== 'Run') return { ok: false };
     }
 
     let error: string | undefined;
@@ -1111,6 +1143,10 @@ export class Controller implements vscode.Disposable {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: `Gitar: ${op.title}` },
         async () => {
+          if (op.writes?.length) {
+            for (const write of op.writes) this.log.info(`> write ${write.path}`);
+            await writeFiles(repo.root, op.writes);
+          }
           for (const [index, args] of op.commands.entries()) {
             const input = index === op.commands.length - 1 ? op.input : undefined;
             this.log.info(`> ${formatCommand(args)}`);
@@ -1136,17 +1172,37 @@ export class Controller implements vscode.Disposable {
     return { ok: false, error };
   }
 
+  /** What an operation is about to do, for who is asked whether to do it: the files it writes and the commands it runs. */
+  private describe(repo: Repo, op: GitOp): string {
+    const commands = op.commands.map(formatCommand).join('\n');
+    const note = op.note ? `${op.note}\n\n` : '';
+    if (!op.writes?.length) return `${note}Gitar will run in ${repo.root}:\n\n${commands}`;
+    const files = op.writes.map((write) => write.path).join('\n');
+    return `${note}Gitar will write in ${repo.root}:\n\n${files}${commands ? `\n\nand then run:\n\n${commands}` : ''}`;
+  }
+
   private reportFailure(op: GitOp, error: string): void {
     const showLog = (choice?: string) => choice && this.log.show();
     const conflicts = this.state?.working.conflicts.length ?? 0;
-    if (this.state?.operation && conflicts) {
+    if (this.state && conflicts) {
+      const { operation } = this.state;
       const files = conflicts === 1 ? '1 file has conflicts' : `${conflicts} files have conflicts`;
+      // Without an operation to continue, as after a stash that did not apply cleanly, staging the files is all there is to do.
+      const then = operation ? `continue or abort the ${operation}` : 'stage the files';
+      const marked = this.state.conflictFiles.reduce((sum, file) => sum + file.conflicts, 0);
+      const resolvable = this.state.conflictFiles.reduce((sum, file) => sum + file.resolvable.length, 0);
+      // The ones that need no choice between the two sides are a click away.
+      const which = marked === 1 ? 'the conflict' : resolvable === marked ? `all ${marked} conflicts` : `${resolvable} of the ${marked} conflicts`;
+      const offer = resolvable ? ` Gitar can resolve ${which} automatically.` : '';
       void vscode.window
         .showWarningMessage(
-          `${op.title} stopped: ${files}. Resolve them in the Changes view, then continue or abort the ${this.state.operation}.`,
-          'Show Log',
+          `${op.title} stopped: ${files}. Resolve them, then ${then}.${offer}`,
+          ...(resolvable ? ['Resolve Automatically', 'Show Log'] : ['Show Log']),
         )
-        .then(showLog);
+        .then((choice) => {
+          if (choice === 'Resolve Automatically') void this.action({ kind: 'resolveConflicts' });
+          if (choice === 'Show Log') this.log.show();
+        });
       return;
     }
     // Git prefixes the line that matters; hints and progress come after it.

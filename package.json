@@ -205,6 +205,12 @@
         "category": "Gitar"
       },
       {
+        "command": "gitar.resolveConflicts",
+        "title": "Resolve Conflicts Automatically",
+        "category": "Gitar",
+        "icon": "$(wand)"
+      },
+      {
         "command": "gitar.createBranch",
         "title": "Create Branch…",
         "category": "Gitar",

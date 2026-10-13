@@ -1,5 +1,7 @@
-import type { Operation, RebaseStep, RepoState, SyncAction, WorkingState } from '../shared/protocol';
+import type { Operation, RebaseStep, RepoState, Resolution, SyncAction, WorkingState } from '../shared/protocol';
 import { refArg } from '../shared/refs';
+import type { FileWrite } from './exec';
+import type { ConflictPlan } from './repo';
 
 /** A user-visible operation: one or more git commands that change the repository or a remote. */
 export interface GitOp {
@@ -13,6 +15,8 @@ export interface GitOp {
   note?: string;
   /** Fed to the standard input of the last command. */
   input?: string;
+  /** Files Gitar writes itself before the commands run, which is said along with them. */
+  writes?: FileWrite[];
   /** What to offer when git refuses with a message matching `when`, typically the forced variant. */
   fallback?: { when: RegExp; op: GitOp };
   /** Called once all commands have succeeded. */
@@ -485,6 +489,88 @@ export function clearIdentityOp(localKeys: string[]): GitOp {
   const keys = IDENTITY_KEYS.filter((key) => localKeys.includes(key));
   if (!keys.length) throw new Error('This repository already uses the global identity.');
   return { title: 'Use the global identity', commands: keys.map((key) => ['config', '--unset-all', key]) };
+}
+
+/** What the two sides of a conflict are, which depends on the operation that stopped: a rebase swaps them. */
+export const CONFLICT_SIDES: Record<Operation | 'none', [current: string, incoming: string]> = {
+  merge: ['The branch checked out', 'The branch being merged'],
+  rebase: ['What the branch is being rebased onto', 'Your commit being replayed'],
+  'cherry-pick': ['The branch checked out', 'The commit being picked'],
+  revert: ['The branch checked out', 'The state before the reverted commit'],
+  none: ['Your files', 'The changes being applied'],
+};
+
+const RESOLUTIONS: Record<Resolution, string> = {
+  separate: 'changes to lines next to each other',
+  same: 'the same change on both sides',
+  whitespace: 'spaces or line endings only',
+  oneSide: 'a change on one side only',
+};
+
+const plural = (count: number, one: string) => (count === 1 ? `1 ${one}` : `${count} ${one}s`);
+
+/**
+ * Resolves the conflicts that need no choice between their two sides. The files are written with those resolved; the
+ * ones left without conflicts are staged, and the others keep the markers of what is left.
+ */
+export function resolveConflictsOp(plans: ConflictPlan[]): GitOp {
+  const solved = (plan: ConflictPlan) => plan.conflicts.filter((conflict) => conflict.resolution).length;
+  const total = plans.reduce((sum, plan) => sum + plan.conflicts.length, 0);
+  const count = plans.reduce((sum, plan) => sum + solved(plan), 0);
+  if (!total) throw new Error('There are no conflicts marked in the files to resolve.');
+  if (!count) throw new Error(`None of the ${plural(total, 'conflict')} can be resolved without choosing a side.`);
+
+  const changed = plans.filter((plan) => solved(plan) > 0);
+  const done = changed.filter((plan) => solved(plan) === plan.conflicts.length);
+  const files = changed.map((plan) => {
+    const kinds = new Set(plan.conflicts.flatMap((conflict) => (conflict.resolution ? RESOLUTIONS[conflict.resolution] : [])));
+    return `${plan.path}: ${solved(plan)} of ${plural(plan.conflicts.length, 'conflict')} (${[...kinds].join(', ')})`;
+  });
+  const left = total - count;
+  const rest = left ? `${plural(left, 'conflict')} will be left to resolve by hand, with the markers as they are.` : 'No conflict will be left.';
+  const all = total === 1 ? 'the conflict' : `all ${total} conflicts`;
+  return {
+    title: `Resolve ${count === total ? all : `${count} of ${total} conflicts`} automatically`,
+    writes: changed.map((plan) => ({ path: plan.path, content: plan.resolved, expected: plan.text })),
+    commands: done.length ? [['add', '--', ...done.map((plan) => pathspec(plan.path))]] : [],
+    confirm: true,
+    note: `${files.join('\n')}\n\nEvery line written is a line of one of the two sides. ${rest}`,
+  };
+}
+
+/** Takes back a resolution: the files are as git left them when it stopped, in conflict and with all their markers. */
+export function restoreConflictsOp(files: string[]): GitOp {
+  return {
+    title: `Undo: restore the conflicts of ${files.length === 1 ? files[0] : `${files.length} files`}`,
+    commands: [['checkout', '--merge', '--', ...files.map(pathspec)]],
+    danger: true,
+    note: 'The files go back to how git left them when it stopped, with every conflict marked. What was changed in them since is lost.',
+  };
+}
+
+/** Resolves a whole file for one side. `stages` are the sides the index has for it: a side without it deleted the file. */
+export function takeSideOp(file: string, side: 'ours' | 'theirs', stages: number[], operation: Operation | null): GitOp {
+  if (!stages.length) throw new Error(`${file} is not in conflict.`);
+  const sides = CONFLICT_SIDES[operation ?? 'none'];
+  const [name, what] = side === 'ours' ? ['current', sides[0]] : ['incoming', sides[1]];
+  const which = `${what[0].toLowerCase()}${what.slice(1)}`;
+  if (!stages.includes(side === 'ours' ? 2 : 3)) {
+    return {
+      title: `Delete ${file}, as the ${name} side did`,
+      commands: [['rm', '--', pathspec(file)]],
+      confirm: true,
+      note: `The ${name} side is ${which}, which has no such file. The changes the other side made to it are left out.`,
+    };
+  }
+  return {
+    title: `Take the ${name} side of ${file}`,
+    commands: [
+      ['checkout', `--${side}`, '--', pathspec(file)],
+      ['add', '--', pathspec(file)],
+    ],
+    confirm: true,
+    note: `The ${name} side is ${which}. The whole file becomes what that side has: the changes the other side made to it are left out.`,
+  };
 }
 
 /** Continuing would open an editor for the commit message, which cannot work here, so the prepared message is kept as is. */

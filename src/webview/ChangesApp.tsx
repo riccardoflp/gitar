@@ -5,7 +5,7 @@ import { BisectBanner } from './BisectBanner';
 import { FILES_LIMIT, useCapped } from './Capped';
 import { ActionButtons, FileRow, type FileAction } from './FileRow';
 import { Icon } from './Icon';
-import { OperationBanner } from './OperationBanner';
+import { OperationBanner, resolvableConflicts } from './OperationBanner';
 import { RepoSelect } from './RepoSelect';
 import { act } from './menus';
 import { loadUiState, onMessage, post, saveUiState } from './vscode';
@@ -289,7 +289,18 @@ export function ChangesApp() {
           title="Conflicts"
           files={conflicts}
           source={{ kind: 'conflict' }}
-          fileActions={(file) => [{ icon: 'add', title: 'Mark as resolved', run: () => act({ kind: 'stage', paths: [file.path] }) }]}
+          fileActions={(file) => {
+            const [resolvable, marked] = resolvableConflicts(state, file.path);
+            const some = resolvable === marked ? (marked === 1 ? 'its conflict' : `its ${marked} conflicts`) : `${resolvable} of its ${marked} conflicts`;
+            return [
+              ...(resolvable
+                ? [{ icon: 'wand', title: `Resolve ${some} automatically`, run: () => act({ kind: 'resolveConflicts', paths: [file.path] }) }]
+                : []),
+              { icon: 'arrow-left', title: 'Take the current side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'ours' }) },
+              { icon: 'arrow-right', title: 'Take the incoming side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'theirs' }) },
+              { icon: 'add', title: 'Mark as resolved', run: () => act({ kind: 'stage', paths: [file.path] }) },
+            ];
+          }}
         />
         <Group
           title="Staged changes"

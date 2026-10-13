@@ -130,6 +130,20 @@ export interface PullRequest {
   checks: 'success' | 'failure' | 'pending' | null;
 }
 
+/**
+ * Why a conflict needs no choice between its two sides: they changed lines next to each other (`separate`), they made
+ * the same change (`same`), they differ in spaces or line endings only (`whitespace`), or only one of them changed
+ * the lines after all (`oneSide`).
+ */
+export type Resolution = 'separate' | 'same' | 'whitespace' | 'oneSide';
+
+/** A file in conflict whose text has the markers of git: how many conflicts it has, and how the ones that need no choice resolve. */
+export interface ConflictFile {
+  path: string;
+  conflicts: number;
+  resolvable: Resolution[];
+}
+
 /** A multi-step git operation that stopped and waits for the user. */
 export type Operation = 'merge' | 'rebase' | 'cherry-pick' | 'revert';
 
@@ -149,6 +163,8 @@ export interface RepoState {
   /** Number of files with uncommitted changes. */
   changes: number;
   working: WorkingState;
+  /** The files in conflict that have the markers of git in them, with what can be resolved of each without a choice. */
+  conflictFiles: ConflictFile[];
   operation: Operation | null;
   bisect: Bisect | null;
   identity: Identity;
@@ -284,6 +300,10 @@ export type Action =
   | { kind: 'stashPush'; paths?: string[]; staged?: boolean }
   | { kind: 'stashApply' | 'stashPop' | 'stashDrop' | 'stashBranch'; ref: string }
   | { kind: 'stage' | 'unstage' | 'discard'; paths: string[] }
+  /** Resolves the conflicts that need no choice between the two sides, in these files or in all of them. */
+  | { kind: 'resolveConflicts'; paths?: string[] }
+  /** Makes a file in conflict what one side has, whole: `ours` is what is checked out, `theirs` what is coming in. */
+  | { kind: 'takeSide'; path: string; side: 'ours' | 'theirs' }
   | { kind: 'stageAll' | 'unstageAll' | 'discardAll' }
   | { kind: 'commit'; message: string; amend: boolean }
   /** Folds the staged changes, or all changes when nothing is staged, into an earlier commit. `isRoot`: that commit has no parent. */

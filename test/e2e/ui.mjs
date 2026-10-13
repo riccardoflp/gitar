@@ -952,6 +952,106 @@ try {
     await other.click('.commit-actions .button', 'Show in the graph');
     await until('the commit selected in the graph', () => graph.evaluate(`document.querySelector('.row.selected .subject')?.textContent === 'Add notes'`));
   });
+
+  await step('a merge that stops offers to resolve the conflicts that need no choice, shows what it would write first, and can take it back', async () => {
+    await command('View: Close All Editors');
+    const numbered = (changes = {}) => Array.from({ length: 12 }, (_, index) => `${changes[index] ?? `line ${index}`}\n`).join('');
+    const file = (name, content) => fs.writeFileSync(path.join(app, name), content);
+    const read = (name) => fs.readFileSync(path.join(app, name), 'utf8');
+    const status = () => git(app, 'status', '--porcelain').toString();
+    file('c.txt', numbered());
+    file('d.txt', 'one\ntwo\n');
+    git(app, 'add', 'c.txt', 'd.txt');
+    git(app, 'commit', '-m', 'Add c and d');
+    git(app, 'checkout', '-b', 'beside');
+    // In c.txt each side changes a line next to one the other changes, and both change line 9; in d.txt only the first.
+    file('c.txt', numbered({ 2: 'two, theirs', 9: 'nine, theirs' }));
+    file('d.txt', 'one\nTWO\n');
+    git(app, 'commit', '-m', 'Beside, theirs', '--', 'c.txt', 'd.txt');
+    git(app, 'checkout', 'main');
+    file('c.txt', numbered({ 3: 'three, ours', 9: 'nine, ours' }));
+    file('d.txt', 'ONE\ntwo\n');
+    git(app, 'commit', '-m', 'Beside, ours', '--', 'c.txt', 'd.txt');
+    let stopped = false;
+    try {
+      git(app, 'merge', 'beside');
+    } catch {
+      stopped = true;
+    }
+    assert(stopped && /^UU c\.txt$/m.test(status()) && /^UU d\.txt$/m.test(status()), `the merge stopped on both files: ${status()}`);
+
+    // The banner counts what can be resolved without a choice.
+    const graph = await webview('graph');
+    const banner = () => graph.evaluate(`({ text: document.querySelector('.banner .grow')?.textContent, resolve: document.querySelector('.banner .resolve')?.textContent ?? null })`);
+    await until('the banner', async () => (await banner()).resolve === 'Resolve 2 of 3 automatically');
+    assert((await banner()).text === 'Merge in progress · 2 files have conflicts', `banner: ${JSON.stringify(await banner())}`);
+    await shot('conflicts-banner');
+
+    // It asks first, with the files it writes and the command it runs.
+    await graph.click('.banner .resolve');
+    let dialog = await until('the question', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
+    await shot('conflicts-ask');
+    assert(dialog.text.includes('Resolve 2 of 3 conflicts automatically?'), `dialog: ${JSON.stringify(dialog)}`);
+    assert(dialog.text.includes('c.txt: 1 of 2 conflicts (changes to lines next to each other)'), `dialog: ${dialog.text}`);
+    assert(/and then run:\s+git add -- d\.txt\s*$/.test(dialog.text), `dialog: ${dialog.text}`);
+    assert([...dialog.buttons].sort().join() === 'Cancel,Preview,Resolve', `buttons: ${dialog.buttons}`);
+
+    // The preview puts each file beside what it would become, and nothing is written until the answer.
+    await clickText('.monaco-dialog-box .monaco-button', 'Preview');
+    const tabs = () => page.evaluate(`[...document.querySelectorAll('.tabs-container .tab')].map((tab) => tab.textContent)`);
+    await until('the preview', async () => (await tabs()).some((tab) => tab.includes('Preview of the conflicts resolved automatically')));
+    const toasts = () => page.evaluate(`[...document.querySelectorAll('.notification-toast .notification-list-item-message')].map((toast) => toast.textContent)`);
+    await until('the second question', async () => (await toasts()).some((toast) => toast.includes('Resolve 2 of 3 conflicts automatically, as in the preview?')));
+    await until('the diffs', () => page.evaluate(`document.querySelectorAll('.multiDiffEntry, .multi-diff-entry, .monaco-diff-editor').length > 0`));
+    await sleep(1500);
+    await shot('conflicts-preview');
+    assert(read('c.txt').split('<<<<<<<').length === 3 && read('d.txt').includes('<<<<<<<'), 'nothing is written yet');
+
+    await clickText('.notification-toast .monaco-button', 'Resolve');
+    await until('the files written', () => !read('d.txt').includes('<<<<<<<'));
+    assert(read('d.txt') === 'ONE\nTWO\n', `d.txt: ${read('d.txt')}`);
+    const left = '<<<<<<< HEAD\nnine, ours\n=======\nnine, theirs\n>>>>>>> beside\n';
+    assert(read('c.txt') === numbered({ 2: 'two, theirs', 3: 'three, ours', 9: 'LEFT' }).replace('LEFT\n', left), `c.txt: ${read('c.txt')}`);
+    await until('the file without conflicts staged', () => /^M  d\.txt$/m.test(status()) && /^UU c\.txt$/m.test(status()));
+    await until('the banner to follow', async () => {
+      const now = await banner();
+      return now.text === 'Merge in progress · 1 file has conflicts' && now.resolve === null;
+    });
+    await until('what is left to do', async () =>
+      (await toasts()).some((toast) => toast.includes('Gitar resolved conflicts in 2 files. 1 file still has conflicts to resolve by hand.')),
+    );
+    await command('View: Close All Editors');
+    await sleep(500);
+    await shot('conflicts-resolved');
+
+    // The way back is in the same message: the conflicts are marked again, in the file that was staged too.
+    await clickText('.notification-toast .monaco-button', 'Undo');
+    dialog = await until('the confirmation', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
+    assert(dialog.text.includes('Undo: restore the conflicts of 2 files?') && /git checkout --merge -- c\.txt d\.txt\s*$/.test(dialog.text), `dialog: ${dialog.text}`);
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('the conflicts back', () => /^UU c\.txt$/m.test(status()) && /^UU d\.txt$/m.test(status()));
+    await until('the banner as it was', async () => (await banner()).resolve === 'Resolve 2 of 3 automatically');
+    assert(read('d.txt').includes('<<<<<<<') && read('c.txt').split('<<<<<<<').length === 3, 'every conflict is marked again');
+
+    // The files in conflict have their buttons in the changes view: what can be resolved, a whole side, or done by hand.
+    await fold('Branches');
+    await fold('Stashes');
+    await clickText('.sidebar .pane-header[aria-expanded="false"] .title', 'Gitar Changes');
+    await until('the view unfolded', async () => (await panes()).some((pane) => pane.title === 'Gitar Changes' && pane.open));
+    const changes = await webview('changes');
+    const buttons = (name) =>
+      changes.evaluate(`[...[...document.querySelectorAll('.group .file')].find((row) => row.textContent.includes(${JSON.stringify(name)}))?.querySelectorAll('button[title]') ?? []].map((button) => button.title).filter((title) => !title.includes('.txt')).join(' | ')`);
+    await until('the files in conflict listed', async () => (await buttons('d.txt')).includes('Mark as resolved'));
+    assert(
+      (await buttons('d.txt')) === 'Resolve its conflict automatically | Take the current side for the whole file | Take the incoming side for the whole file | Mark as resolved',
+      `d.txt: ${await buttons('d.txt')}`,
+    );
+    assert((await buttons('c.txt')).startsWith('Resolve 1 of its 2 conflicts automatically | '), `c.txt: ${await buttons('c.txt')}`);
+    await shot('conflicts-changes');
+
+    git(app, 'merge', '--abort');
+    await until('the banner gone', () => graph.evaluate(`!document.querySelector('.banner:not(.bisect)')`));
+  });
 } catch (error) {
   await finish(error);
 }
