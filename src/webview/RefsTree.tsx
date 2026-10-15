@@ -1,14 +1,27 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import type { PullRequest, RepoState } from '../shared/protocol';
+import type { PullRequest, RepoState, Submodule } from '../shared/protocol';
 import { changesText, pullOf, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { scopeLabel, scopeRefs } from '../shared/scope';
+import { submoduleDepth, submoduleStatus, submoduleStatusText } from '../shared/submodules';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { endDrag, startDrag, type DragSource } from './drag';
-import { act, branchMenu, openBranch, openRemoteBranch, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, worktreesMenu, type Comparing } from './menus';
+import {
+  act,
+  branchMenu,
+  openBranch,
+  openRemoteBranch,
+  remoteBranchMenu,
+  stashMenu,
+  submoduleMenu,
+  tagMenu,
+  worktreeMenu,
+  worktreesMenu,
+  type Comparing,
+} from './menus';
 import { loadUiState, post, saveUiState } from './vscode';
 
-export type SectionId = 'favorites' | 'recent' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
+export type SectionId = 'favorites' | 'recent' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees' | 'submodules';
 
 interface Props {
   state: RepoState;
@@ -19,9 +32,18 @@ interface Props {
   sections?: SectionId[];
 }
 
+/** Where a submodule stands against the commit recorded for it, as an icon with the number of commits beside it. */
+interface Badge {
+  icon: string;
+  tone: 'ok' | 'moved' | 'off';
+  text: string;
+  count?: string;
+}
+
 interface Item {
   key: string;
-  hash: string;
+  /** The commit to select in the graph when it is clicked. None for what is not a commit of the repository. */
+  hash?: string;
   label: string;
   hint?: string;
   title?: string;
@@ -40,6 +62,9 @@ interface Item {
   worktree?: string;
   /** How many files are not committed in the worktree, when there are any. */
   changes?: number;
+  /** How far it is indented under the one it is in. */
+  depth?: number;
+  badge?: Badge;
 }
 
 /** A button beside the title of a section: what adds to it, or a menu of what else there is to do with it. */
@@ -60,6 +85,27 @@ const FILTER_FROM = 15;
 function pullTitle(pull: PullRequest): string {
   const checks = pull.checks ? ` · ${CHECKS[pull.checks]}` : '';
   return `${pull.draft ? 'Draft pull' : 'Pull'} request #${pull.number}: ${pull.title}${checks}`;
+}
+
+function submoduleBadge(submodule: Submodule): Badge {
+  const text = submoduleStatusText(submodule);
+  const { ahead, behind } = submodule;
+  switch (submoduleStatus(submodule)) {
+    case 'synced':
+      return { icon: 'pass-filled', tone: 'ok', text };
+    case 'ahead':
+      return { icon: 'arrow-up', tone: 'moved', text, count: String(ahead) };
+    case 'behind':
+      return { icon: 'arrow-down', tone: 'moved', text, count: String(behind) };
+    case 'diverged':
+      return { icon: 'arrow-swap', tone: 'moved', text, count: `${ahead}↑ ${behind}↓` };
+    case 'unknown':
+      return { icon: 'warning', tone: 'moved', text };
+    case 'added':
+      return { icon: 'diff-added', tone: 'off', text };
+    case 'uninitialized':
+      return { icon: 'circle-slash', tone: 'off', text };
+  }
 }
 
 export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, sections }: Props) {
@@ -117,15 +163,16 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           listed.map((item) => (
             <button
               key={item.key}
-              className={`ref${item.current ? ' current' : ''}${item.hash === selected ? ' selected' : ''}`}
+              className={`ref${item.current ? ' current' : ''}${item.hash && item.hash === selected ? ' selected' : ''}`}
+              style={item.depth ? { paddingLeft: 26 + item.depth * 12 } : undefined}
               title={item.title ?? item.label}
-              onClick={() => onSelect(item.hash)}
+              onClick={() => item.hash && onSelect(item.hash)}
               onDoubleClick={item.open}
               draggable={item.drag !== undefined}
               onDragStart={(event) => item.drag && startDrag(event, item.drag)}
               onDragEnd={endDrag}
               onContextMenu={(event) => {
-                onSelect(item.hash);
+                if (item.hash) onSelect(item.hash);
                 openMenu(event, item.menu?.() ?? []);
               }}
             >
@@ -137,6 +184,12 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
                 <span className="dirty">
                   <Icon name="edit" />
                   {item.changes}
+                </span>
+              )}
+              {item.badge && (
+                <span className={`badge ${item.badge.tone}`} aria-label={item.badge.text}>
+                  <Icon name={item.badge.icon} />
+                  {item.badge.count}
                 </span>
               )}
               {item.pull && (
@@ -302,6 +355,37 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           { icon: 'add', title: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },
           { icon: 'ellipsis', title: 'More actions for worktrees', menu: () => worktreesMenu(state) },
         ],
+      )}
+      {section(
+        'submodules',
+        'Submodules',
+        'file-submodule',
+        state.submodules.map((submodule): Item => {
+          const badge = submoduleBadge(submodule);
+          const where = submodule.headBranch ?? (submodule.head ? 'detached' : undefined);
+          return {
+            key: submodule.path,
+            label: submodule.parent ? submodule.path.slice(submodule.parent.length + 1) : submodule.path,
+            hint: where,
+            title: [
+              submodule.path,
+              submodule.url,
+              badge.text,
+              submodule.head && `Checked out: ${where} at ${submodule.head.slice(0, 7)}`,
+              submodule.staged && `Staged as the recorded commit: ${submodule.staged.slice(0, 7)}`,
+              changesText(submodule.changes),
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            changes: submodule.changes || undefined,
+            depth: submoduleDepth(submodule, state.submodules),
+            badge,
+            menu: () => submoduleMenu(submodule, state),
+            open: submodule.head ? () => act({ kind: 'submoduleOpen', path: submodule.path }) : undefined,
+          };
+        }),
+        true,
+        [{ icon: 'add', title: 'Add submodule…', run: () => act({ kind: 'submoduleAdd' }) }],
       )}
     </nav>
   );

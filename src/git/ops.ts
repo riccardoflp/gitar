@@ -580,6 +580,141 @@ export function worktreePruneOp(): GitOp {
   return { title: 'Prune worktrees', commands: [['worktree', 'prune']] };
 }
 
+/** A submodule as its operations need it: its folder from the root, and the folder of the repository that has it. */
+export interface SubmoduleAt {
+  path: string;
+  parent: string;
+}
+
+/**
+ * Where a command about a submodule runs, and what it calls the submodule there: one inside another submodule is
+ * managed from that one, by its path from it.
+ */
+function inParent({ path, parent }: SubmoduleAt): { at: string[]; inner: string } {
+  return parent ? { at: ['-C', parent], inner: path.slice(parent.length + 1) } : { at: [], inner: path };
+}
+
+/** The name a repository is cloned under: the last part of its URL or path, without `.git`. */
+export function repoNameOfUrl(url: string): string {
+  return url.trim().replace(/[\\/]+$/, '').replace(/\.git$/, '').split(/[\\/:]/).pop() ?? '';
+}
+
+/**
+ * Git refuses to clone a submodule from a folder on disk unless told it may, since a repository could point one at any
+ * folder of the computer. What `make` builds is offered again with that allowed, for its commands only, when git refuses.
+ */
+function allowingDisk(make: (allow: string[]) => GitOp): GitOp {
+  const op = make([]);
+  const allowed = make(['-c', 'protocol.file.allow=always']);
+  allowed.title += ' from a folder on disk';
+  allowed.confirm = true;
+  allowed.note = [
+    'Git does not clone submodules from folders on disk by default, since a repository could point one at any folder of this computer. This allows it for these commands only.',
+    allowed.note,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  op.fallback = { when: /transport 'file' not allowed/, op: allowed };
+  return op;
+}
+
+/** Clones a repository into a folder as a submodule, with the submodules it has. */
+export function submoduleAddOp(url: string, dir: string, branch: string): GitOp {
+  const add = ['submodule', 'add'];
+  if (branch) add.push('-b', arg(branch));
+  add.push('--', arg(url), arg(dir));
+  return allowingDisk((allow) => ({
+    title: `Add submodule ${dir}`,
+    commands: [
+      [...allow, ...add],
+      [...allow, 'submodule', 'update', '--init', '--recursive', '--', pathspec(dir)],
+    ],
+    note: 'Git clones it and stages it along with .gitmodules: commit them to record it in the repository.',
+  }));
+}
+
+/**
+ * Checks out in a submodule the commit recorded for it, and in its submodules theirs, cloning what is not initialized.
+ * With `remote`, it goes to the last commit of the branch it follows instead, and its submodules to what that records.
+ */
+export function submoduleUpdateOp(submodule: SubmoduleAt, remote: boolean): GitOp {
+  const { at, inner } = inParent(submodule);
+  if (!remote) {
+    return allowingDisk((allow) => ({
+      title: `Update ${submodule.path} to the recorded commit`,
+      commands: [[...allow, ...at, 'submodule', 'update', '--init', '--recursive', '--', pathspec(inner)]],
+    }));
+  }
+  return allowingDisk((allow) => ({
+    title: `Update ${submodule.path} to its remote branch`,
+    commands: [
+      [...allow, ...at, 'submodule', 'update', '--init', '--remote', '--', pathspec(inner)],
+      [...allow, '-C', submodule.path, 'submodule', 'update', '--init', '--recursive'],
+    ],
+    note: 'Stage the submodule afterwards to record the commit it is on now.',
+  }));
+}
+
+/** Stages the commit checked out in a submodule as the one the repository that has it records. */
+export function submoduleRecordOp(submodule: SubmoduleAt, head: string): GitOp {
+  const { at, inner } = inParent(submodule);
+  return {
+    title: `Stage ${submodule.path} at ${short(head)}`,
+    commands: [[...at, 'add', '--', pathspec(inner)]],
+    note: 'Commit it to record that commit for the submodule.',
+  };
+}
+
+/** Empties the folder of a submodule and forgets it locally. Git refuses while it has changes, unless forced. */
+export function submoduleDeinitOp(submodule: SubmoduleAt, force = false): GitOp {
+  const { at, inner } = inParent(submodule);
+  const command = [...at, 'submodule', 'deinit', ...(force ? ['--force'] : []), '--', pathspec(inner)];
+  if (force) {
+    return {
+      title: `Deinitialize ${submodule.path} (force)`,
+      commands: [command],
+      danger: true,
+      note: 'The submodule has changes that are not committed: they will be lost. Its commits stay in its clone in the git directory.',
+    };
+  }
+  return {
+    title: `Deinitialize ${submodule.path}`,
+    commands: [command],
+    confirm: true,
+    note: 'Its folder is emptied, and it stays in .gitmodules and in the commits: update it to get it back. Its commits stay in its clone in the git directory.',
+    fallback: { when: /local modifications/, op: submoduleDeinitOp(submodule, true) },
+  };
+}
+
+/**
+ * Removes a submodule from the repository: its folder, its entry in `.gitmodules`, which is staged, and the record of
+ * it. Its clone in the git directory, `gitDir`, is deleted after, or a submodule added again at the same path would get
+ * it back.
+ */
+export function submoduleRemoveOp(submodule: SubmoduleAt, gitDir: string | null): GitOp {
+  const { at, inner } = inParent(submodule);
+  return {
+    title: `Remove submodule ${submodule.path}`,
+    commands: [
+      [...at, 'submodule', 'deinit', '--force', '--', pathspec(inner)],
+      [...at, 'rm', '--force', '--', pathspec(inner)],
+    ],
+    danger: true,
+    note: [
+      'Its folder is deleted, with the changes and the commits in it that are not pushed.',
+      gitDir && `Gitardo then deletes its clone in ${gitDir}.`,
+      'The removal is staged along with .gitmodules: commit them to record it.',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  };
+}
+
+/** Copies the URLs of `.gitmodules` to the configuration of the submodules, and of theirs. */
+export function submoduleSyncOp(): GitOp {
+  return { title: 'Synchronize submodule URLs', commands: [['submodule', 'sync', '--recursive']] };
+}
+
 /** Undoes a branch deletion. The upstream setting of the branch is not restored. */
 export function restoreBranchOp(name: string, hash: string): GitOp {
   return { title: `Undo: restore branch ${name}`, commands: [['branch', arg(name), arg(hash)]], confirm: true };

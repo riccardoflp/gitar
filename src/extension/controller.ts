@@ -30,6 +30,7 @@ import { previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSet
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { cleanPatterns, type IgnoredEntry } from '../shared/worktreeSetup';
+import { submoduleFolder } from '../shared/submodules';
 import type {
   Action,
   ComparedRef,
@@ -1156,11 +1157,16 @@ export class Controller implements vscode.Disposable {
       await this.memento.update(REPO_KEY, repo.root);
       return this.open(repo.root);
     }
-    const worktree = this.state?.worktrees.find((each) => samePath(each.path, root) && !each.prunable);
-    if (!worktree) return;
+    const state = this.state;
+    // A worktree of it, or one of its submodules initialized since the repositories of the workspace were looked for.
+    const folder = !state
+      ? undefined
+      : (state.worktrees.find((each) => samePath(each.path, root) && !each.prunable)?.path ??
+        state.submodules.filter((each) => each.head).map((each) => submoduleFolder(each, state)).find((each) => samePath(each, root)));
+    if (!folder) return;
     // The way back is the repository of the workspace that was shown, or the one that was before another worktree.
     this.home = this.repos.find((each) => shown && samePath(each.root, shown)) ?? this.home;
-    await this.open(worktree.path);
+    await this.open(folder);
   }
 
   private async pickRepo(): Promise<void> {
@@ -1230,7 +1236,8 @@ export class Controller implements vscode.Disposable {
   private watch(root: string, gitDir: string): void {
     const pattern = new vscode.RelativePattern(
       vscode.Uri.file(gitDir),
-      '{HEAD,FETCH_HEAD,ORIG_HEAD,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,index,config,packed-refs,refs/**,logs/refs/stash,worktrees/**}',
+      // The submodules keep their repositories in it too: what is checked out in them and their branches.
+      '{HEAD,FETCH_HEAD,ORIG_HEAD,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,index,config,packed-refs,refs/**,logs/refs/stash,worktrees/**,modules/**/HEAD,modules/**/refs/**}',
     );
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
     const schedule = () => this.scheduleRefresh();

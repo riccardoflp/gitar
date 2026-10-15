@@ -24,6 +24,13 @@ import {
   worktreePruneOp,
   worktreeRemoveOp,
   worktreeTrackOp,
+  repoNameOfUrl,
+  submoduleAddOp,
+  submoduleDeinitOp,
+  submoduleRecordOp,
+  submoduleRemoveOp,
+  submoduleSyncOp,
+  submoduleUpdateOp,
   checkoutLocalOp,
   checkoutOp,
   cherryPickManyOp,
@@ -63,8 +70,9 @@ import { parseWorktrees, samePath } from '../git/parse';
 import { setUpWorktree, unlinkFolderLinks } from '../git/worktreeSetup';
 import type { SetupPatterns } from '../shared/worktreeSetup';
 import { setupPatterns } from './worktreeSettings';
-import type { Action, RepoState, Worktree } from '../shared/protocol';
+import type { Action, RepoState, Submodule, Worktree } from '../shared/protocol';
 import { isHome, refArg, worktreeOf } from '../shared/refs';
+import { submoduleFolder } from '../shared/submodules';
 
 function askName(title: string, state: RepoState, kind: 'branch' | 'tag', value = ''): Thenable<string | undefined> {
   const taken = new Set((kind === 'branch' ? state.branches : state.tags).map((ref) => ref.name));
@@ -226,6 +234,48 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     case 'worktreeReveal':
       await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(action.path));
       return;
+
+    case 'submoduleAdd':
+      return addSubmodule(state);
+    case 'submoduleUpdate': {
+      const submodule = findSubmodule(action.path, state);
+      return action.remote ? submoduleUpdateOp(submodule, true) : updateSubmodule(submodule);
+    }
+    case 'submoduleRecord': {
+      const submodule = findSubmodule(action.path, state);
+      if (!submodule.head) throw new Error(`${submodule.path} is not initialized.`);
+      return submoduleRecordOp(submodule, submodule.head);
+    }
+    case 'submoduleDeinit':
+      return submoduleDeinitOp(findSubmodule(action.path, state));
+    case 'submoduleRemove': {
+      const submodule = findSubmodule(action.path, state);
+      // Its clone is in the git directory of the repository that has it, under its name, which comes from .gitmodules:
+      // a name that leads out of there is no clone to delete.
+      const modules = path.join(await repo.gitDirAt(submodule.parent), 'modules');
+      const gitDir = path.resolve(modules, submodule.name);
+      const exists = gitDir.startsWith(modules + path.sep) && fs.existsSync(gitDir);
+      const op = submoduleRemoveOp(submodule, exists ? gitDir : null);
+      if (exists) {
+        op.finish = async (log) => {
+          log.info(`> delete ${gitDir}`);
+          try {
+            await fs.promises.rm(gitDir, { recursive: true, force: true, maxRetries: 3 });
+          } catch (error) {
+            log.warn(`${gitDir} could not be deleted: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        };
+      }
+      return op;
+    }
+    case 'submoduleSync':
+      return submoduleSyncOp();
+    case 'submoduleOpen': {
+      const submodule = findSubmodule(action.path, state);
+      if (!submodule.head) throw new Error(`${submodule.path} is not initialized: update it first.`);
+      await openWorktree(submoduleFolder(submodule, state), 'window');
+      return;
+    }
 
     case 'stageHunk':
     case 'unstageHunk':
@@ -481,6 +531,76 @@ export function setUpExistingOp(state: RepoState, dir?: string): GitOp {
   if (dirs.some((each) => samePath(each, state.root))) throw new Error('This is the checkout it comes from.');
   const which = dirs.length === 1 ? path.basename(dirs[0]) : `${dirs.length} worktrees`;
   return { title: `Bring ignored files into ${which}`, commands: [], confirm: true, note, finish: (log) => setUpWorktrees(state.root, dirs, patterns, log) };
+}
+
+function findSubmodule(folder: string, state: RepoState): Submodule {
+  const submodule = state.submodules.find((candidate) => candidate.path === folder);
+  if (!submodule) throw new Error(`${folder} is no longer a submodule of this repository.`);
+  return submodule;
+}
+
+/**
+ * Going back to the recorded commit leaves the commits made in a submodule on a detached HEAD where nothing reaches
+ * them, and git carries its changes along or refuses: that is said first.
+ */
+function updateSubmodule(submodule: Submodule): GitOp {
+  const op = submoduleUpdateOp(submodule, false);
+  const notes: string[] = [];
+  if (submodule.ahead && !submodule.headBranch) {
+    const commits = submodule.ahead === 1 ? '1 commit' : `${submodule.ahead} commits`;
+    notes.push(`It has ${commits} after the recorded one on a detached HEAD: no branch will have them. Create a branch in it first to keep them.`);
+  }
+  if (submodule.changes) notes.push('It has changes that are not committed: git keeps them, or stops if they are in the way.');
+  if (notes.length) {
+    op.confirm = true;
+    op.note = notes.join('\n\n');
+  }
+  return op;
+}
+
+/** A folder typed, with forward slashes and none at the end. */
+const typedFolder = (value: string) => value.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+
+/** Asks for the URL of a repository to add as a submodule, the folder it goes in, and the branch it follows if any. */
+async function addSubmodule(state: RepoState): Promise<GitOp | undefined> {
+  const title = 'Add submodule';
+  const url = (
+    await vscode.window.showInputBox({
+      title,
+      prompt: 'URL of the repository, or its path on disk',
+      placeHolder: 'https://github.com/owner/repo.git',
+      validateInput: (value) => (!value.trim() ? 'Enter a URL' : value.trim().startsWith('-') ? 'That is not a URL' : undefined),
+    })
+  )?.trim();
+  if (!url) return;
+  const taken = new Set(state.submodules.filter((each) => !each.parent).map((each) => each.path));
+  const typed = await vscode.window.showInputBox({
+    title,
+    prompt: 'Folder to clone it in, from the root of the repository',
+    value: repoNameOfUrl(url),
+    validateInput: (value) => {
+      const folder = typedFolder(value);
+      if (!folder) return 'Enter a folder';
+      if (folder.startsWith('-') || folder.startsWith('/') || /^[a-z]:/i.test(folder) || folder.split('/').includes('..')) {
+        return 'Enter a folder inside the repository';
+      }
+      if (taken.has(folder)) return 'A submodule is there already';
+      const full = path.join(state.root, folder);
+      if (fs.existsSync(full) && (!fs.statSync(full).isDirectory() || fs.readdirSync(full).length)) {
+        return { message: `${full} is not empty`, severity: vscode.InputBoxValidationSeverity.Error };
+      }
+      return { message: `In ${full}`, severity: vscode.InputBoxValidationSeverity.Info };
+    },
+  });
+  const dir = typed && typedFolder(typed);
+  if (!dir) return;
+  const branch = await vscode.window.showInputBox({
+    title,
+    prompt: 'Branch it follows, for updates from its remote. Leave empty for the default branch of the remote.',
+    validateInput: (value) => (value.trim() ? refNameProblem(value.trim()) : undefined),
+  });
+  if (branch === undefined) return;
+  return submoduleAddOp(url, dir, branch.trim());
 }
 
 function findWorktree(dir: string, state: RepoState): Worktree {

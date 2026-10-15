@@ -10,6 +10,7 @@ import { environment, findCode, isolated, source } from './fixture.mjs';
 export const CTRL = 2;
 export const SHIFT = 8;
 const KEYS = {
+  A: { key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 },
   P: { key: 'p', code: 'KeyP', windowsVirtualKeyCode: 80 },
   F: { key: 'f', code: 'KeyF', windowsVirtualKeyCode: 70 },
   W: { key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87 },

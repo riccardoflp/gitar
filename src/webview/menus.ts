@@ -8,9 +8,11 @@ import {
   type RepoState,
   type Row,
   type Stash,
+  type Submodule,
   type Worktree,
 } from '../shared/protocol';
 import { canFastForward, isHome, nameOnRemote, pullOf, pushedName, refArg, worktreeOf } from '../shared/refs';
+import { submoduleFolder, submoduleStatus } from '../shared/submodules';
 
 export { pullOf, pushedName };
 import { scopeRefs, toggleScopeRef } from '../shared/scope';
@@ -409,6 +411,45 @@ export function worktreesMenu(state: RepoState): MenuEntry[] {
     },
     'separator',
     state.worktrees.some((candidate) => candidate.prunable) && { label: 'Prune missing worktrees', run: () => act({ kind: 'worktreePrune' }) },
+  ];
+}
+
+/**
+ * What can be done with a submodule. One that is not initialized can only be cloned; the others open like a worktree,
+ * and the commit they have checked out can be recorded when it is not the one recorded.
+ */
+export function submoduleMenu(submodule: Submodule, state: RepoState): MenuEntry[] {
+  const { path, recorded, head } = submodule;
+  const folder = submoduleFolder(submodule, state);
+  const initialized = head !== null;
+  const status = submoduleStatus(submodule);
+  const moved = status === 'ahead' || status === 'behind' || status === 'diverged' || status === 'unknown';
+  return [
+    initialized && { label: 'Open in new window', run: () => act({ kind: 'submoduleOpen', path }) },
+    initialized && { label: 'Open in terminal', run: () => act({ kind: 'worktreeTerminal', path: folder }) },
+    initialized && { label: REVEAL, run: () => act({ kind: 'worktreeReveal', path: folder }) },
+    initialized && { label: 'Show in Gitardo', run: () => post({ type: 'selectRepo', root: folder }) },
+    'separator',
+    !initialized && { label: 'Initialize', run: () => act({ kind: 'submoduleUpdate', path }) },
+    moved && recorded !== null && {
+      label: `Update to the recorded commit ${shortHash(recorded)}`,
+      run: () => act({ kind: 'submoduleUpdate', path }),
+    },
+    moved && head !== null && {
+      label: `Stage ${shortHash(head)} as the recorded commit`,
+      run: () => act({ kind: 'submoduleRecord', path }),
+    },
+    initialized && {
+      label: submodule.branch ? `Update to the latest of ${submodule.branch}` : 'Update to the latest of its remote',
+      run: () => act({ kind: 'submoduleUpdate', path, remote: true }),
+    },
+    { label: 'Synchronize URLs from .gitmodules', run: () => act({ kind: 'submoduleSync' }) },
+    'separator',
+    { label: 'Copy path', run: () => copy(path) },
+    !!submodule.url && { label: 'Copy URL', run: () => copy(submodule.url) },
+    'separator',
+    initialized && { label: 'Deinitialize…', danger: true, run: () => act({ kind: 'submoduleDeinit', path }) },
+    { label: 'Remove…', danger: true, run: () => act({ kind: 'submoduleRemove', path }) },
   ];
 }
 

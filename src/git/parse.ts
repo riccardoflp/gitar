@@ -405,3 +405,80 @@ export function allChanges(working: WorkingState): FileChange[] {
   }
   return [...byPath.values()];
 }
+
+/** A submodule as `.gitmodules` describes it. */
+export interface GitmodulesEntry {
+  name: string;
+  path: string;
+  url: string;
+  branch: string | null;
+}
+
+/**
+ * Parses `git config -z --file .gitmodules --get-regexp ^submodule\.`: a key, a line break and a value in each record.
+ * The name of a submodule can have dots in it, the name of the key after it cannot. One without a path is no submodule.
+ */
+export function parseGitmodules(out: string): GitmodulesEntry[] {
+  const byName = new Map<string, Partial<GitmodulesEntry>>();
+  for (const record of out.split('\0')) {
+    const newline = record.indexOf('\n');
+    const key = newline === -1 ? record : record.slice(0, newline);
+    const match = /^submodule\.(.+)\.(path|url|branch)$/.exec(key);
+    if (!match) continue;
+    const [, name, field] = match;
+    const entry = byName.get(name) ?? { name };
+    entry[field as 'path' | 'url' | 'branch'] = newline === -1 ? '' : record.slice(newline + 1);
+    byName.set(name, entry);
+  }
+  return [...byName.values()]
+    .filter((entry) => entry.path)
+    .map((entry) => ({
+      name: entry.name!,
+      path: entry.path!.replace(/\\/g, '/').replace(/\/+$/, ''),
+      url: entry.url ?? '',
+      branch: entry.branch || null,
+    }));
+}
+
+/**
+ * The commits recorded for submodules, by their paths: from `git ls-tree -z` (`<mode> <type> <object>\t<path>`) or
+ * `git ls-files -s -z` (`<mode> <object> <stage>\t<path>`). Only the entries of submodules, mode 160000, are kept.
+ */
+export function parseGitlinks(out: string, from: 'tree' | 'index'): Map<string, string> {
+  const links = new Map<string, string>();
+  for (const record of out.split('\0')) {
+    const tab = record.indexOf('\t');
+    if (tab === -1) continue;
+    const fields = record.slice(0, tab).split(' ');
+    if (fields[0] !== '160000') continue;
+    links.set(record.slice(tab + 1), from === 'tree' ? fields[2] : fields[1]);
+  }
+  return links;
+}
+
+/**
+ * Parses `git status --porcelain=v2 --branch -z`: the commit checked out (null before the first one), the branch
+ * (null when detached), and how many files are not committed.
+ */
+export function parseBranchStatus(out: string): { head: string | null; branch: string | null; changes: number } {
+  let head: string | null = null;
+  let branch: string | null = null;
+  let changes = 0;
+  const records = out.split('\0');
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    if (!record) continue;
+    if (record.startsWith('# branch.oid ')) {
+      const oid = record.slice('# branch.oid '.length);
+      head = oid === '(initial)' ? null : oid;
+    } else if (record.startsWith('# branch.head ')) {
+      const name = record.slice('# branch.head '.length);
+      branch = name === '(detached)' ? null : name;
+    } else if (!record.startsWith('#')) {
+      changes++;
+      // A rename or a copy has the path it came from as a record of its own.
+      if (record.startsWith('2 ')) i++;
+    }
+  }
+  return { head, branch, changes };
+}

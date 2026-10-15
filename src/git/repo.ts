@@ -15,6 +15,7 @@ import {
   type Row,
   type Scope,
   type Search,
+  type Submodule,
   type WorkingState,
   type Worktree,
 } from '../shared/protocol';
@@ -40,6 +41,9 @@ import {
   type BlameLine,
   type ReflogEntry,
   parseLog,
+  parseBranchStatus,
+  parseGitlinks,
+  parseGitmodules,
   parseNameStatus,
   parsePatch,
   parseRefs,
@@ -67,6 +71,8 @@ const RECENT_MOVES = 300;
 const CONFLICT_BYTES = 2 * 1024 * 1024;
 /** No more files in conflict than this are read to see what can be resolved. */
 const CONFLICT_FILES = 200;
+/** How deep submodules inside submodules are looked for. */
+const SUBMODULE_DEPTH = 4;
 
 export interface BlameOptions {
   /** The text of the file when it has unsaved edits. */
@@ -122,6 +128,11 @@ export class Repo {
   async commonDir(): Promise<string> {
     const out = await this.read(['rev-parse', '--git-common-dir']);
     return path.resolve(this.root, out.trim());
+  }
+
+  /** The git directory of the repository in a folder, from the root: a submodule has its own inside the one that has it. */
+  async gitDirAt(folder: string): Promise<string> {
+    return (await this.read([...(folder ? ['-C', folder] : []), 'rev-parse', '--absolute-git-dir'])).trim();
   }
 
   async working(): Promise<WorkingState> {
@@ -250,9 +261,70 @@ export class Repo {
     );
   }
 
+  /**
+   * The submodules of the repository in the folder `parent` (from the root, empty for the root itself), and theirs, each
+   * after the one it is in. Each initialized one is asked what it has checked out, all of them at once.
+   */
+  async submodules(parent = '', depth = 0): Promise<Submodule[]> {
+    if (depth > SUBMODULE_DEPTH || !fs.existsSync(path.join(this.root, parent, '.gitmodules'))) return [];
+    // Run in the repository that has them, which for a submodule inside another is that other one.
+    const at = (folder: string) => (folder ? ['-C', folder] : []);
+    const entries = parseGitmodules(await this.read([...at(parent), 'config', '-z', '--file', '.gitmodules', '--get-regexp', '^submodule\\.'], true));
+    if (!entries.length) return [];
+    const paths = entries.map((entry) => entry.path);
+    const [treeOut, indexOut] = await Promise.all([
+      // Before the first commit there is no HEAD, and nothing recorded.
+      this.read([...at(parent), 'ls-tree', '-z', 'HEAD', '--', ...paths], true),
+      this.read([...at(parent), 'ls-files', '-s', '-z', '--', ...paths.map((file) => `:(literal)${file}`)], true),
+    ]);
+    const recorded = parseGitlinks(treeOut, 'tree');
+    const staged = parseGitlinks(indexOut, 'index');
+    const found = await Promise.all(
+      entries.map(async (entry): Promise<Submodule[]> => {
+        const folder = parent ? `${parent}/${entry.path}` : entry.path;
+        const commit = recorded.get(entry.path) ?? null;
+        const inIndex = staged.get(entry.path) ?? null;
+        const submodule: Submodule = {
+          path: folder,
+          parent,
+          name: entry.name,
+          url: entry.url,
+          branch: entry.branch,
+          recorded: commit,
+          staged: inIndex && inIndex !== commit ? inIndex : null,
+          head: null,
+          headBranch: null,
+          ahead: null,
+          behind: null,
+          changes: null,
+        };
+        // Without a repository of its own, git would run in the one around it.
+        if (!fs.existsSync(path.join(this.root, folder, '.git'))) return [submodule];
+        try {
+          const status = parseBranchStatus(await this.read([...at(folder), 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']));
+          submodule.head = status.head;
+          submodule.headBranch = status.branch;
+          submodule.changes = status.changes;
+        } catch {
+          return [submodule];
+        }
+        if (commit && submodule.head === commit) {
+          submodule.ahead = 0;
+          submodule.behind = 0;
+        } else if (commit && submodule.head) {
+          // Fails when the recorded commit is not in it yet.
+          const counts = (await this.read([...at(folder), 'rev-list', '--left-right', '--count', `${commit}...${submodule.head}`, '--'], true)).trim();
+          if (counts) [submodule.behind, submodule.ahead] = counts.split(/\s+/).map(Number);
+        }
+        return [submodule, ...(await this.submodules(folder, depth + 1))];
+      }),
+    );
+    return found.flat();
+  }
+
   /** With `resolve`, the files with conflicts are read to say which of the conflicts need no choice between the two sides. */
   async state(limit: number, filter: Filter | null = null, scope: Scope | null = null, resolve = false): Promise<RepoState> {
-    const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, movesOut, working, operation, bisect] = await Promise.all([
+    const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, movesOut, working, operation, bisect, submodules] = await Promise.all([
       this.read(['for-each-ref', `--format=${REF_FORMAT}`]),
       this.read(['rev-parse', '--verify', '--quiet', 'HEAD'], true),
       // Asked in full: the short form of a branch that shares its name with a tag is `heads/<name>`.
@@ -266,6 +338,7 @@ export class Repo {
       this.working(),
       this.operation(),
       this.bisect(),
+      this.submodules(),
     ]);
     const head = headOut.trim() || null;
     const changes = allChanges(working);
@@ -312,6 +385,7 @@ export class Repo {
       ...refs,
       stashes: parseStashes(stashOut),
       worktrees: await this.worktreeChanges(parseWorktrees(worktreeOut, this.root), changes.length),
+      submodules,
       remotes: remoteOut.split('\n').filter(Boolean),
       rows,
       hasMore,

@@ -41,7 +41,7 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 - The first button of the toolbar puts the references away, to leave their room to the commits, and brings them back. It is remembered too.
 - The graph is as wide as its lines need, up to sixteen side by side and a third of the list. With more branches than that open at once it draws the lines closer, and past a point it fades out at its edge rather than push the messages away. Drag that edge to give it less room or more, up to the width at which every line has its place; double-click it to let the graph choose again. This works in the Commits view of the side bar too, and each view remembers its own.
 - Uncommitted changes shown as the first row of the graph, also before the first commit of a new repository.
-- References tree: local branches with ahead and behind counts, remote branches, tags, stashes and worktrees. From 15 branches and tags on, a filter box appears above it, and a section with more than 100 entries lists the first 100 and a **Show all** entry.
+- References tree: local branches with ahead and behind counts, remote branches, tags, stashes, worktrees and submodules. From 15 branches and tags on, a filter box appears above it, and a section with more than 100 entries lists the first 100 and a **Show all** entry.
 - Above them, when there are some, two shorter lists. **Recent** has the local branches that were checked out last, the latest first and up to five, without the one that is checked out now: where you were before is one double click away. **Favorites** has the branches you marked with **Add to favorites** in their context menu, local or remote; they also carry a star where they are listed with the others, and are remembered for each repository of the workspace.
 - While the graph is narrowed to some branches (see [Filter by branch](#filter-by-branch)) the references list only those, in every section, under a line that says what they are narrowed to and has **Show all** to undo it.
 - Commit details with the list of changed files; selecting a file opens it in the VS Code diff editor, and the button next to the count opens the diffs of all of them in one editor. The two buttons before it choose how the files are listed: one after the other, each with its directory beside its name, or as a tree of directories that fold. The choice is remembered.
@@ -71,6 +71,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
 | Stash | Apply, pop, create branch, drop |
 | Worktree | Open in the Agents window, open in a new window (also by double-click), open a terminal in it, reveal it in the file manager, rename, copy its path, remove (with its branch, if you want), prune missing ones |
+| Submodule | Open in a new window (also by double-click), open a terminal in it, reveal it in the file manager, show it in Gitardo, initialize, update to the recorded commit or to the latest of its branch, stage the commit it is on as the recorded one, synchronize URLs, copy its path or URL, deinitialize, remove (see [Submodules](#submodules)) |
 
 ### Several commits at once
 
@@ -349,6 +350,24 @@ The branch of the main worktree, seen from another worktree, is the same, except
 With `gitardo.branches.openIn` set to `worktree`, that is what a double click on a branch does, and **Open in worktree** comes first in its menu: every branch is worked on in its own worktree, and the folder open in this window stays on its branch. `checkout`, the default, checks the branch out here.
 
 **Gitardo: Switch Worktree…**, also in the **…** menu of the Branches view, lists the worktrees with their branches and how they stand, as the Worktrees section shows them, the one of this window last, and opens the one you pick where `gitardo.worktrees.openIn` says. Its last entry creates a worktree.
+
+### Submodules
+
+A repository with submodules has a **Submodules** section among the references, beside the graph and in the Branches view, with the submodules inside them indented under theirs. Each says, by an icon, where it stands against the commit the repository records for it in its last commit:
+
+- a green check: it has that commit checked out;
+- a yellow arrow up, with a number: it has that many commits after it, made in it or pulled into it;
+- a yellow arrow down: it is that many commits behind it, as after a pull of the repository that moved it;
+- both numbers when each has commits the other has not, and a warning when it does not have the recorded commit at all, which a fetch in it or an update brings;
+- a grey sign when it is not initialized, its folder empty, and when it is added but not committed yet.
+
+Beside it are the branch it has checked out, or `detached`, and the number of its files not committed. Hover it for its URL and the two commits.
+
+Its context menu opens it in a new window (also by double-click), in a terminal, in the file manager or in the views of this window with **Show in Gitardo**; **Update to the recorded commit** checks that commit out in it, and in its own submodules theirs, with `git submodule update --init --recursive`, after saying what it would leave behind when it has commits on a detached HEAD or files not committed; **Stage `<commit>` as the recorded commit** stages the commit it has checked out, to commit it in the repository; **Update to the latest of `<branch>`** goes to the last commit of the branch it follows, with `--remote`; **Initialize** clones one that is not initialized. **Deinitialize…** empties its folder and keeps it in `.gitmodules`, after asking, and offers to force it when it has changes; **Remove…** deletes it from the repository with `git submodule deinit` and `git rm`, then deletes its clone in `.git/modules`, after a warning, and the removal is staged with `.gitmodules`, ready to commit.
+
+The **+** on the title of the section, **Add submodule…** in the **…** menu of the graph while there are none, and **Gitardo: Add Submodule…** ask for the URL of a repository, the folder to clone it in, named after it unless you change it, and the branch it follows, if any: `git submodule add` clones it, and its own submodules too. Git does not clone a submodule from a folder on disk unless allowed, since a repository could point one at any folder of the computer: when it refuses, Gitardo offers to allow it for those commands only, with `-c protocol.file.allow=always`. **Synchronize URLs from .gitmodules** copies the URLs of `.gitmodules` to the submodules after they changed there.
+
+Gitardo follows what happens in the submodules: a commit or a checkout made in one, in its window or a terminal, updates its icon.
 
 ### Remotes
 

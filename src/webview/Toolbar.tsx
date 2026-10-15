@@ -167,6 +167,8 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
     { label: 'Browse reflog…', run: run('reflog') },
     { label: 'Clean up branches…', run: run('cleanupBranches') },
     { label: 'Manage remotes…', run: run('remotes') },
+    // With submodules, their section has the same button.
+    !state.submodules.length && { label: 'Add submodule…', run: () => act({ kind: 'submoduleAdd' }) },
     (state.repos.length > 1 || state.home) && { label: 'Select repository…', run: run('selectRepository') },
     'separator',
     { label: 'Switch identity…', run: run('switchIdentity') },

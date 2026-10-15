@@ -71,6 +71,35 @@ export interface Worktree {
   changes: number | null;
 }
 
+/** A submodule of the repository, or of one of its submodules. */
+export interface Submodule {
+  /** Its folder from the root of the repository shown, with forward slashes. */
+  path: string;
+  /** The folder of the submodule it is in, from the same root: empty for one of the repository itself. */
+  parent: string;
+  /** Its name in `.gitmodules`, which is usually its path. */
+  name: string;
+  url: string;
+  /** The branch `.gitmodules` says it follows, which an update from its remote goes to. */
+  branch: string | null;
+  /** The commit the repository that has it records for it in HEAD. Null when it is added but not committed yet. */
+  recorded: string | null;
+  /** The commit staged for it, when that is not the one recorded. */
+  staged: string | null;
+  /** The commit checked out in it. Null when it is not initialized: its folder has no repository. */
+  head: string | null;
+  /** The branch checked out in it, or null on a detached HEAD. */
+  headBranch: string | null;
+  /**
+   * The commits it has checked out that the recorded one has not, and the other way round. Null when that cannot be
+   * told: the recorded commit is not in it, which a fetch in it would bring.
+   */
+  ahead: number | null;
+  behind: number | null;
+  /** How many of its files are not committed. Null when they could not be read. */
+  changes: number | null;
+}
+
 export interface FileChange {
   status: string;
   path: string;
@@ -163,6 +192,8 @@ export interface RepoState {
   tags: NamedRef[];
   stashes: Stash[];
   worktrees: Worktree[];
+  /** Its submodules and theirs, each after the one it is in. */
+  submodules: Submodule[];
   remotes: string[];
   rows: Row[];
   hasMore: boolean;
@@ -355,6 +386,23 @@ export type Action =
   | { kind: 'worktreePrune' }
   /** Brings into the worktree in `path`, or into every other worktree, what new worktrees get of what git ignores here. */
   | { kind: 'worktreeSetUp'; path?: string }
+  /** Asks for the URL, the folder and the branch of a new submodule. */
+  | { kind: 'submoduleAdd' }
+  /**
+   * Checks out in a submodule, and in the ones inside it, the commit that is recorded for it, cloning it first when it
+   * is not initialized. With `remote`, the last commit of the branch it follows instead.
+   */
+  | { kind: 'submoduleUpdate'; path: string; remote?: boolean }
+  /** Stages the commit checked out in a submodule as the one recorded for it. */
+  | { kind: 'submoduleRecord'; path: string }
+  /** Removes the folder of a submodule and forgets it locally, keeping it in `.gitmodules` and in the commits. */
+  | { kind: 'submoduleDeinit'; path: string }
+  /** Removes a submodule from the repository: its folder, its entry in `.gitmodules` and its clone in the git directory. */
+  | { kind: 'submoduleRemove'; path: string }
+  /** Copies the URLs of `.gitmodules` to the configuration of the submodules, after they changed there. */
+  | { kind: 'submoduleSync' }
+  /** Opens the folder of a submodule in a new window. */
+  | { kind: 'submoduleOpen'; path: string }
   | { kind: 'stageHunk' | 'unstageHunk' | 'discardHunk'; path: string; patch: string }
   | { kind: 'cherryPick'; hash: string; isMerge: boolean }
   /** Several commits in one go, in any order: they are applied oldest first. */

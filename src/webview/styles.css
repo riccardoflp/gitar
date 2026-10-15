@@ -716,6 +716,24 @@ input:focus-visible,
   color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-descriptionForeground));
 }
 
+/* Where a submodule stands against the commit recorded for it. */
+.badge {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.badge.ok {
+  color: var(--vscode-testing-iconPassed, var(--vscode-gitDecoration-addedResourceForeground));
+}
+
+.badge.moved {
+  color: var(--vscode-editorWarning-foreground, var(--vscode-gitDecoration-modifiedResourceForeground));
+}
+
 .pull {
   flex: none;
   display: flex;

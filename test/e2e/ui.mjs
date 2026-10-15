@@ -17,7 +17,7 @@ const WIDTH = 1500;
 const HEIGHT = 950;
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-ui-'));
-const { workspace, app } = createWorkspace(temp);
+const { workspace, app, lib } = createWorkspace(temp);
 const window = await startWindow({ workspace, temp, out, codePath, width: WIDTH, height: HEIGHT });
 const { shot, setting, mouse, clickText, key, type, prompt, command, webview, problems } = window;
 
@@ -1580,6 +1580,88 @@ try {
       git(app, 'reset', '-q');
       git(app, 'checkout', '--', 'sample.ts');
     }
+  });
+
+  await step('a submodule is added from the real prompts, says where it stands against the recorded commit, and is removed', async () => {
+    // A step before stops a merge on purpose: if it failed half way, the merge is still there.
+    if (fs.existsSync(path.join(app, '.git', 'MERGE_HEAD'))) git(app, 'merge', '--abort');
+    await command('View: Close All Editors');
+    await command('Gitardo: Show Graph');
+    const graph = await webview('graph');
+    const rows = () =>
+      graph.evaluate(`(() => {
+        const section = document.querySelector('.refs section[data-section="submodules"]');
+        section?.scrollIntoView();
+        return section ? [...section.querySelectorAll('.ref')].map((row) => ({
+          label: row.querySelector('.grow').textContent,
+          badge: row.querySelector('.badge')?.className ?? null,
+          icon: row.querySelector('.badge .codicon')?.className.replace('codicon codicon-', '') ?? null,
+          count: row.querySelector('.badge')?.textContent ?? '',
+          title: row.title,
+        })) : null;
+      })()`);
+    assert((await rows()) === null, 'no section without submodules');
+
+    await command('Gitardo: Add Submodule…');
+    await until('the prompt for the URL', async () => (await prompt())?.title === 'Add submodule');
+    await type(lib);
+    await key('Enter');
+    // Named after the repository, which is taken here by a folder of the app: the box says so while it is typed.
+    await until('the prompt for the folder', async () => (await prompt())?.message.includes('Folder to clone it in'));
+    await key('End');
+    await type('/');
+    await until('the folder refused', async () => (await prompt())?.message.includes(`${path.join(app, 'lib')} is not empty`));
+    await key('A', CTRL);
+    await type('vendor/lib');
+    await until('where it goes', async () => (await prompt())?.message.includes(`In ${path.join(app, 'vendor', 'lib')}`));
+    await shot('submodule-folder');
+    await key('Enter');
+    await until('the prompt for the branch', async () => (await prompt())?.message.includes('Branch it follows'));
+    await key('Enter');
+    // Git refuses to clone from a folder on disk: allowing it is asked first.
+    const dialog = await until('the question', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
+    await shot('submodule-from-disk');
+    assert(dialog.text.includes('Add submodule vendor/lib from a folder on disk?'), `dialog: ${JSON.stringify(dialog)}`);
+    assert(dialog.text.includes('git -c protocol.file.allow=always submodule add --'), `dialog: ${dialog.text}`);
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('the submodule', async () => (await rows())?.[0]?.icon === 'diff-added');
+
+    git(app, 'commit', '-m', 'Add the submodule lib');
+    await until('the submodule on the recorded commit', async () => (await rows())?.[0]?.icon === 'pass-filled');
+    const synced = (await rows())[0];
+    assert(synced.label === 'vendor/lib' && synced.badge === 'badge ok' && synced.title.includes('On the recorded commit'), `row: ${JSON.stringify(synced)}`);
+
+    // A commit made in the submodule puts it one ahead, in the color of a warning.
+    const folder = path.join(app, 'vendor', 'lib');
+    fs.writeFileSync(path.join(folder, 'lib.txt'), 'lib\nmore\n');
+    git(folder, 'commit', '-am', 'More lib');
+    await until('the submodule ahead', async () => (await rows())?.[0]?.icon === 'arrow-up');
+    const ahead = (await rows())[0];
+    assert(ahead.count === '1' && ahead.badge === 'badge moved', `row: ${JSON.stringify(ahead)}`);
+    await shot('submodule-ahead');
+
+    // Its commit is recorded from its menu.
+    await graph.click('.refs section[data-section="submodules"] .ref', 'vendor/lib', 'right');
+    const items = await until('the menu', () => graph.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)`));
+    await shot('submodule-menu');
+    for (const wanted of ['Open in new window', 'Show in Gitardo', 'Update to the recorded commit', 'Remove…']) {
+      assert(items.some((item) => item.startsWith(wanted)), `menu: ${items}`);
+    }
+    await graph.click('[role="menuitem"]', 'as the recorded commit');
+    await until('the new commit staged', () => /^M  vendor\/lib$/m.test(git(app, 'status', '--porcelain').toString()));
+    git(app, 'commit', '-m', 'Move lib');
+    await until('the submodule on the recorded commit again', async () => (await rows())?.[0]?.icon === 'pass-filled');
+
+    // Removing it asks first, as what loses work does.
+    await graph.click('.refs section[data-section="submodules"] .ref', 'vendor/lib', 'right');
+    await graph.click('[role="menuitem"]', 'Remove…');
+    const removal = await until('the warning', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
+    assert(removal.text.includes('Remove submodule vendor/lib?') && removal.text.includes('modules'), `dialog: ${removal.text}`);
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('the section gone', async () => (await rows()) === null);
+    assert(!fs.existsSync(folder), 'its folder is deleted');
+    assert(!fs.existsSync(path.join(app, '.git', 'modules', 'vendor', 'lib')), 'its clone is deleted');
+    git(app, 'commit', '-m', 'Remove the submodule lib');
   });
 } catch (error) {
   await finish(error);

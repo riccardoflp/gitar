@@ -348,6 +348,11 @@
         "category": "Gitardo"
       },
       {
+        "command": "gitardo.addSubmodule",
+        "title": "Add Submodule…",
+        "category": "Gitardo"
+      },
+      {
         "command": "gitardo.switchWorktree",
         "title": "Switch Worktree…",
         "category": "Gitardo"
@@ -636,6 +641,11 @@
           "command": "gitardo.createWorktree",
           "when": "view == gitardo.branches",
           "group": "0_create@1"
+        },
+        {
+          "command": "gitardo.addSubmodule",
+          "when": "view == gitardo.branches",
+          "group": "0_create@2"
         },
         {
           "command": "gitardo.switchWorktree",
