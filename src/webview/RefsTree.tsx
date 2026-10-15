@@ -44,6 +44,12 @@ interface SectionAction {
   run(): void;
 }
 
+/** A worktree where new ones go by its path from there, slashes and all; any other by the name of its folder. */
+function worktreeLabel(dir: string, root: string | null): string {
+  if (root && dir.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return dir.slice(root.length + 1);
+  return dir.split('/').pop() ?? dir;
+}
+
 const CHECKS = { success: 'checks passed', failure: 'checks failed', pending: 'checks running' };
 /** How many entries of a section are listed before asking. */
 const SECTION_LIMIT = 100;
@@ -259,7 +265,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         state.worktrees.map((worktree) => ({
           key: worktree.path,
           hash: worktree.hash,
-          label: worktree.path.split('/').pop() ?? worktree.path,
+          label: worktreeLabel(worktree.path, state.worktreesRoot),
           hint: worktree.prunable ? 'missing' : (worktree.branch ?? 'detached'),
           title: worktree.path,
           current: worktree.current,

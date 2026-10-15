@@ -269,7 +269,10 @@ export async function run(): Promise<void> {
       await controller.action({ kind: 'worktreeAdd' });
       const created = state().worktrees.find((worktree) => worktree.branch === 'agents/first');
       assert.ok(created, JSON.stringify(state().worktrees));
-      assert.equal(created.path.toLowerCase(), `${home}/agents-first`.toLowerCase());
+      // A folder in a folder, as the name of the branch has it.
+      assert.equal(created.path.toLowerCase(), `${home}/agents/first`.toLowerCase());
+      // The views name it by its path from there.
+      assert.equal(state().worktreesRoot?.toLowerCase(), home.toLowerCase());
       assert.ok(!created.main && !created.current);
       assert.ok(state().worktrees.find((worktree) => worktree.current)?.main);
       // It offers to open it, in the Agents window where VS Code has one.
@@ -284,6 +287,8 @@ export async function run(): Promise<void> {
       assert.ok(renamed, JSON.stringify(state().worktrees));
       assert.equal(renamed.path.toLowerCase(), `${home}/agents-two`.toLowerCase());
       assert.ok(!fs.existsSync(created.path));
+      // The folder that held only it went with it.
+      assert.ok(!fs.existsSync(`${home}/agents`));
 
       // The main worktree cannot be renamed, which is said rather than tried.
       errors.length = 0;
@@ -300,8 +305,105 @@ export async function run(): Promise<void> {
       assert.ok(!fs.existsSync(renamed.path));
     } finally {
       answer = () => undefined;
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    }
+  });
+
+  await step('names the branch of a new worktree from the format, asking for its inputs, or as it is typed', async () => {
+    const config = vscode.workspace.getConfiguration('gitardo');
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    const branches = state().branches.length;
+    // Answers to the input boxes, where KEEP takes what the box proposes, and the labels to pick in turn.
+    const KEEP = Symbol('keep');
+    let typed: (string | typeof KEEP)[] = [];
+    const proposed: string[] = [];
+    const showInputBox = ui.showInputBox;
+    ui.showInputBox = ((options: vscode.InputBoxOptions = {}) => {
+      proposed.push(options.value ?? '');
+      const next = typed.shift();
+      return Promise.resolve(next === KEEP ? options.value : next);
+    }) as never;
+    let picks: (string | RegExp)[] = [];
+    const titles: string[] = [];
+    choose = (items, options) => {
+      titles.push(options.title ?? '');
+      return byLabel(picks.shift()!)(items);
+    };
+    await config.update('worktrees.branchFormat', 'PRJ-${input:ticket}-${input:kind}-rfi-${base}', vscode.ConfigurationTarget.Global);
+    await config.update(
+      'worktrees.inputs',
+      [
+        { id: 'ticket', type: 'promptString', description: 'Ticket number', pattern: '^\\d+$' },
+        { id: 'kind', type: 'pickString', description: 'Type of change', options: ['feat', 'fix'], allowCustom: true },
+      ],
+      vscode.ConfigurationTarget.Global,
+    );
+    try {
+      answer = () => undefined;
+      // The format, picked first, from main: the ticket typed, the kind picked, and the name it makes kept.
+      picks = ['Use the format', 'main', 'fix'];
+      typed = ['123', KEEP];
+      await controller.action({ kind: 'worktreeAdd' });
+      const made = state().worktrees.find((worktree) => worktree.branch === 'PRJ-123-fix-rfi-main');
+      assert.ok(made, JSON.stringify(state().worktrees));
+      assert.equal(made.path.toLowerCase(), `${home}/PRJ-123-fix-rfi-main`.toLowerCase());
+
+      // From a remote branch, ${base} has no remote; the ticket used last is proposed, and a kind can be typed.
+      picks = ['Use the format', 'origin/main', 'Type another value…'];
+      proposed.length = 0;
+      typed = [KEEP, 'hotfix', KEEP];
+      await controller.action({ kind: 'worktreeAdd' });
+      assert.equal(proposed[0], '123');
+      assert.ok(state().worktrees.some((worktree) => worktree.branch === 'PRJ-123-hotfix-rfi-main'), JSON.stringify(state().worktrees));
+
+      // A typed ticket that is not a number is refused.
+      errors.length = 0;
+      picks = ['Use the format', 'main'];
+      typed = ['12a'];
+      await controller.action({ kind: 'worktreeAdd' });
+      assert.ok(errors.some((text) => /Ticket number: It has to match/.test(text)), JSON.stringify(errors));
+      errors.length = 0;
+
+      // At a commit, ${base} is the commit or one of the branches that have it.
+      const head = state().head!;
+      picks = ['Use the format', head.slice(0, 7), 'feat'];
+      typed = ['7', KEEP];
+      await controller.action({ kind: 'worktreeAdd', ref: head, isBranch: false });
+      assert.ok(state().worktrees.some((worktree) => worktree.branch === `PRJ-7-feat-rfi-${head.slice(0, 7)}`), JSON.stringify(state().worktrees));
+      assert.ok(titles.includes(`Create worktree at ${head.slice(0, 7)}: what \${base} is`), JSON.stringify(titles));
+
+      // Or the name is typed, as without a format.
+      picks = ['Type a branch name', 'main'];
+      typed = ['typed/name'];
+      await controller.action({ kind: 'worktreeAdd' });
+      assert.ok(state().worktrees.some((worktree) => worktree.branch === 'typed/name'), JSON.stringify(state().worktrees));
+
+      // On a branch, the branch itself, in a folder of its name, or a new branch from the format.
+      await git(app, ['branch', 'side/work']);
+      await vscode.commands.executeCommand('gitardo.refresh');
+      picks = ['Use the branch side/work'];
+      typed = [KEEP];
+      await controller.action({ kind: 'worktreeAdd', ref: 'side/work', isBranch: true });
+      const side = state().worktrees.find((worktree) => worktree.branch === 'side/work');
+      assert.ok(side, JSON.stringify(state().worktrees));
+      assert.equal(side.path.toLowerCase(), `${home}/side/work`.toLowerCase());
+    } finally {
+      ui.showInputBox = showInputBox;
+      choose = () => undefined;
+      await config.update('worktrees.branchFormat', undefined, vscode.ConfigurationTarget.Global);
+      await config.update('worktrees.inputs', undefined, vscode.ConfigurationTarget.Global);
+      // Windows can hold a folder that was just made for a moment: it is deleted with retries, and git forgets it after.
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+      const made = (await git(app, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).stdout.split('\n');
+      for (const branch of made) {
+        if (/^(PRJ-|typed\/|side\/)/.test(branch)) await git(app, ['branch', '-D', branch]);
+      }
+      await vscode.commands.executeCommand('gitardo.refresh');
       fs.rmSync(home, { recursive: true, force: true });
     }
+    assert.equal(state().branches.length, branches);
+    assert.equal(state().worktrees.length, 1);
   });
 
   await step('serves file contents at a commit and in the index, and opens diffs', async () => {

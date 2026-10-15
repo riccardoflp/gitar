@@ -760,6 +760,64 @@
           "default": "${repo}.worktrees",
           "markdownDescription": "Where **Create Worktree** puts new worktrees, each in a folder named after it. `${repo}` is the name of the folder of the repository, and a relative path starts from the folder that holds it: with the default, the worktree `fix-login` of `~/code/app` goes in `~/code/app.worktrees/fix-login`."
         },
+        "gitardo.worktrees.branchFormat": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "A format for the names of the branches that **Create Worktree** makes, such as `PRJ-${input:ticket}-${input:kind}-rfi-${base}`. `${input:<id>}` is asked for as `#gitardo.worktrees.inputs#` says, `${base}` is the branch it starts from without its remote, `${repo}` the name of the folder of the repository and `${date}` today, as `2026-10-15`. The name it makes can still be changed before the worktree is created, and a branch name can be typed instead. Empty, the name is typed."
+        },
+        "gitardo.worktrees.inputs": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "What `${input:<id>}` in `#gitardo.worktrees.branchFormat#` asks for: a text typed (`promptString`), or a value picked from `options` (`pickString`), which can also be typed when `allowCustom` is true. The value used last is proposed the next time.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The name used in the format, as in ${input:ticket}."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "promptString",
+                  "pickString"
+                ],
+                "enumDescriptions": [
+                  "A text typed.",
+                  "A value picked from the options."
+                ]
+              },
+              "description": {
+                "type": "string",
+                "description": "What is asked, as the prompt says it."
+              },
+              "default": {
+                "type": "string",
+                "description": "The value proposed before any was used."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "A regular expression that a typed value must match, such as ^\\d+$ for a number."
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The values to pick from, for pickString."
+              },
+              "allowCustom": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether a value that is not among the options can be typed, for pickString."
+              }
+            }
+          }
+        },
         "gitardo.conflicts.autoResolve": {
           "type": "boolean",
           "default": false,

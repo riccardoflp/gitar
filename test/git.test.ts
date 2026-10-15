@@ -25,6 +25,11 @@ import {
   undoOp,
   worktreeAddOp,
   worktreeDir,
+  worktreesRoot,
+  expandFormat,
+  formatInputs,
+  formatProblem,
+  withoutRemote,
   worktreeFolderName,
   worktreeMoveOp,
   worktreeRemoveOp,
@@ -532,8 +537,25 @@ describe('operations', () => {
     expect(worktreeAddOp('../wt', hash, null, true).commands).toEqual([['worktree', 'add', '--detach', '../wt', hash]]);
   });
 
+  it('names branches from a format, with inputs, the base without its remote, the repository and the date', () => {
+    const format = 'PRJ-${input:ticket}-${input:kind}-rfi-${base}';
+    expect(formatInputs(`${format}-\${input:ticket}`)).toEqual(['ticket', 'kind']);
+    expect(formatProblem(format, ['ticket', 'kind'])).toBeUndefined();
+    expect(formatProblem(format, ['ticket'])).toMatch(/\$\{input:kind\}, which gitardo\.worktrees\.inputs does not define/);
+    expect(formatProblem('${branch}-x', [])).toMatch(/\$\{branch\}, which is not one of/);
+    const values = { base: 'feature/login', repo: 'app', date: '2026-10-15', inputs: { ticket: '123', kind: 'feat' } };
+    expect(expandFormat(format, values)).toBe('PRJ-123-feat-rfi-feature/login');
+    expect(expandFormat('${repo}/${date}', values)).toBe('app/2026-10-15');
+    expect(withoutRemote('origin/feature/login', ['origin'])).toBe('feature/login');
+    expect(withoutRemote('team/fork/fix', ['team', 'team/fork'])).toBe('fix');
+    expect(withoutRemote('main', ['origin'])).toBe('main');
+  });
+
   it('puts new worktrees in the folder the setting names, each in a folder named after it', () => {
-    expect(worktreeDir('C:/prj/app', '${repo}.worktrees', 'feature/login')).toBe('C:/prj/app.worktrees/feature-login');
+    // Slashes make folders in folders, as they do in the names of branches.
+    expect(worktreeDir('C:/prj/app', '${repo}.worktrees', 'feature/login')).toBe('C:/prj/app.worktrees/feature/login');
+    expect(worktreesRoot('C:/prj/app', '')).toBe('C:/prj/app.worktrees');
+    expect(worktreeFolderName('a\\b//c d')).toBe('a/b/c-d');
     expect(worktreeDir('C:\\prj\\app\\', '', 'fix')).toBe('C:/prj/app.worktrees/fix');
     expect(worktreeDir('/home/me/app', './trees/${repo}', 'fix')).toBe('/home/me/trees/app/fix');
     expect(worktreeDir('/home/me/app', '/tmp/wt/', 'fix')).toBe('/tmp/wt/fix');

@@ -187,6 +187,8 @@ export interface RepoState {
   pulls: Record<string, PullRequest>;
   /** Whether this VS Code has the Agents window, where a worktree can be opened for agent sessions. */
   agentsWindow: boolean;
+  /** Where new worktrees go, as the settings say: the ones in it are named by their path from there. */
+  worktreesRoot: string | null;
 }
 
 /** The commits of what is checked out, for the view that lists them apart from the graph. */

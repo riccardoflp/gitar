@@ -264,9 +264,27 @@ The button with a person at the top right of an editor shows it for the whole fi
 
 A worktree is another folder checked out from the same repository, on a branch of its own: a place to work on something else, or to let an agent work, without touching the folder you are in.
 
-The **+** on the title of the Worktrees section, in the Branches view or beside the graph, and **Gitardo: Create Worktree…** ask for a name and the branch to start from. The name is that of a new branch, and of the worktree's folder: `feature/login` makes the branch `feature/login` in the folder `feature-login`. While you type, the box says where the folder goes. The new branch has no upstream until it is first pushed, even when it starts from a remote branch, so that it is not pushed onto the branch it came from. **Create worktree…** on a branch puts that branch in a new worktree, and on a commit makes a new branch there, or leaves the worktree on a detached HEAD if the name is left empty.
+The **+** on the title of the Worktrees section, in the Branches view or beside the graph, and **Gitardo: Create Worktree…** ask for the branch to start from and a name. The name is that of a new branch, and of the worktree's folder, slashes and all: `feature/login` makes the branch `feature/login` in the folder `login` inside `feature`. While you type, the box says where the folder goes. The new branch has no upstream until it is first pushed, even when it starts from a remote branch, so that it is not pushed onto the branch it came from. **Create worktree…** on a branch puts that branch in a new worktree, in a folder of its name, and on a commit makes a new branch there, or leaves the worktree on a detached HEAD if the name is left empty.
 
-New worktrees go in the folder that `gitardo.worktrees.folder` names, `${repo}.worktrees` next to the repository unless you change it: the worktree `fix-login` of `~/code/app` is `~/code/app.worktrees/fix-login`. `${repo}` is the name of the repository's folder, a relative path starts from the folder that holds it, and `~` is your home folder.
+New worktrees go in the folder that `gitardo.worktrees.folder` names, `${repo}.worktrees` next to the repository unless you change it: the worktree `fix-login` of `~/code/app` is `~/code/app.worktrees/fix-login`. `${repo}` is the name of the repository's folder, a relative path starts from the folder that holds it, and `~` is your home folder. A folder left empty when a worktree is renamed or removed goes too.
+
+#### A format for the names
+
+When branches are named after a convention, `gitardo.worktrees.branchFormat` writes it down, and Gitardo asks for its parts:
+
+```json
+"gitardo.worktrees.branchFormat": "PRJ-${input:ticket}-${input:kind}-rfi-${base}",
+"gitardo.worktrees.inputs": [
+  { "id": "ticket", "type": "promptString", "description": "Ticket number", "pattern": "^\\d+$" },
+  { "id": "kind", "type": "pickString", "description": "Type of change", "options": ["feat", "fix", "chore"], "allowCustom": true }
+]
+```
+
+- `${input:<id>}` is asked for as `gitardo.worktrees.inputs` says, in the order the format has them. A `promptString` is typed, and when it has a `pattern`, a regular expression, what is typed has to match it. A `pickString` is picked from its `options`, and with `allowCustom` the last entry, **Type another value…**, lets you type one. The value used last is proposed first the next time, or `default` before any was used.
+- `${base}` is the branch it starts from, without its remote: `origin/feature/login` gives `feature/login`. At a commit you choose what it is: the commit, as its short hash, or one of the branches that have it, the ones at the commit first.
+- `${repo}` is the name of the repository's folder, and `${date}` today, as `2026-10-15`.
+
+With a format set, creating a worktree first asks whether to use it, which is where the picker starts, or to type a branch name; on a branch, whether to use the format for a new branch from it or to put the branch itself in the worktree. The name the format makes is shown, and can be changed, before the worktree is created. The format and the inputs can be set for one repository in its `.vscode/settings.json`, for everyone who works on it.
 
 Once it is created, Gitardo offers to open it:
 
@@ -275,7 +293,7 @@ Once it is created, Gitardo offers to open it:
 
 The same are in the context menu of a worktree, with **Open in terminal**, **Reveal in File Explorer** (**Reveal in Finder** on macOS), and:
 
-- **Rename…** gives the folder another name where it is, with `git worktree move`, and offers to rename its branch along with it with `git branch -m`. Git cannot move the main worktree, the folder the repository was created in, nor, on Windows, a folder that another program has open, such as another VS Code window or a terminal: close them first. The worktree open in this window is renamed from another one.
+- **Rename…** gives the folder another name, with `git worktree move`: inside the folder where the worktrees go, its name is its path from there, slashes and all; anywhere else, the name of its folder where it is. It offers to rename its branch along with it with `git branch -m`. Git cannot move the main worktree, the folder the repository was created in, nor, on Windows, a folder that another program has open, such as another VS Code window or a terminal: close them first. The worktree open in this window is renamed from another one.
 - **Remove…** asks whether to delete its branch too. The folder is removed with `git worktree remove`, which asks again with `--force` when it has changes that are not committed, and the branch with `git branch -d`, which keeps a branch that is not merged and says so.
 
 ### Remotes

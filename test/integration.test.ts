@@ -422,6 +422,8 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       { main: true, current: true, branch: 'main' },
       { main: false, current: false, branch: 'feature/login', path: dir },
     ]);
+    // In a folder in a folder, as git made them.
+    expect(dir).toBe(`${root}.worktrees/feature/login`);
     expect((await state()).branches.find((branch) => branch.name === 'feature/login')?.upstream).toBeFalsy();
 
     const moved = worktreeDir(root, '', 'auth');

@@ -14,6 +14,11 @@ import {
   undoOp,
   worktreeAddOp,
   worktreeDir,
+  worktreesRoot,
+  expandFormat,
+  formatInputs,
+  formatProblem,
+  withoutRemote,
   worktreeFolderName,
   worktreeMoveOp,
   worktreePruneOp,
@@ -86,7 +91,7 @@ function withConflictPreview(op: GitOp, conflicts: string[] | null): GitOp {
  * Turns what the user asked for into git commands, asking for whatever is still missing.
  * Returns undefined when the user backs out of a prompt, or when the action needed no git command.
  */
-export async function resolveAction(action: Action, state: RepoState, repo: Repo): Promise<GitOp | undefined> {
+export async function resolveAction(action: Action, state: RepoState, repo: Repo, memory: vscode.Memento): Promise<GitOp | undefined> {
   const hasHead = state.head !== null;
 
   switch (action.kind) {
@@ -170,18 +175,23 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     }
 
     case 'worktreeAdd':
-      return addWorktree(action.ref, action.isBranch ?? false, state);
+      return addWorktree(action.ref, action.isBranch ?? false, state, repo, memory);
 
     case 'worktreeRemove': {
       const worktree = findWorktree(action.path, state);
+      const leaveNoEmptyFolders = (op: GitOp): GitOp => {
+        op.onSuccess = () => removeEmptyParents(action.path, state);
+        if (op.fallback) leaveNoEmptyFolders(op.fallback.op);
+        return op;
+      };
       // Its branch can go with it, unless another worktree has it checked out too, which git does not allow anyway.
       const branch = worktree.branch;
-      if (!branch) return worktreeRemoveOp(action.path);
+      if (!branch) return leaveNoEmptyFolders(worktreeRemoveOp(action.path));
       const deleteBranch = await pick(`Remove worktree ${path.basename(action.path)}`, [
         { label: 'Remove the worktree', description: `Keep the branch ${branch}`, value: false },
         { label: `Remove the worktree and delete ${branch}`, description: 'Only if it is merged', value: true },
       ]);
-      return deleteBranch === undefined ? undefined : worktreeRemoveOp(action.path, false, deleteBranch ? branch : undefined);
+      return deleteBranch === undefined ? undefined : leaveNoEmptyFolders(worktreeRemoveOp(action.path, false, deleteBranch ? branch : undefined));
     }
     case 'worktreeRename':
       return renameWorktree(findWorktree(action.path, state), state);
@@ -347,14 +357,151 @@ function folderMessage(dir: string): vscode.InputBoxValidationMessage {
     : { message: `In ${dir}`, severity: vscode.InputBoxValidationSeverity.Info };
 }
 
-/**
- * A worktree goes in the folder the settings name, under a name the user gives. Without `ref` the name is also that of a
- * new branch, made from a base the user picks; at a commit it may be, or the worktree is left on a detached HEAD there.
- */
-async function addWorktree(ref: string | undefined, isBranch: boolean, state: RepoState): Promise<GitOp | undefined> {
+/** Something `${input:<id>}` in the format of branch names asks for, as `gitardo.worktrees.inputs` defines it. */
+interface WorktreeInput {
+  id: string;
+  type: 'promptString' | 'pickString';
+  description?: string;
+  default?: string;
+  pattern?: string;
+  options?: string[];
+  allowCustom?: boolean;
+}
+
+/** Where the values typed or picked for the inputs last are kept, by their ids, to be proposed the next time. */
+const LAST_INPUTS = 'worktreeInputs';
+
+/** Where new worktrees go, as `gitardo.worktrees.folder` says, with `~` for the home folder. */
+function worktreesHome(state: RepoState): { main: string; folder: string } {
   const main = state.worktrees.find((worktree) => worktree.main)?.path ?? state.root;
   const setting = vscode.workspace.getConfiguration('gitardo').get<string>('worktrees.folder', '');
-  const folder = setting.trim().replace(/^~(?=[\\/]|$)/, os.homedir());
+  return { main, folder: setting.trim().replace(/^~(?=[\\/]|$)/, os.homedir()) };
+}
+
+/** Where new worktrees go, for the views to name the ones there by their path from it. */
+export function worktreesFolder(state: RepoState): string {
+  const { main, folder } = worktreesHome(state);
+  return worktreesRoot(main, folder);
+}
+
+/** After a worktree is moved or removed, the folders that held only it go too, up to where the worktrees are. */
+function removeEmptyParents(dir: string, state: RepoState): void {
+  const { main, folder } = worktreesHome(state);
+  const home = worktreesRoot(main, folder);
+  for (let parent = path.posix.dirname(dir.replace(/\\/g, '/')); parent.startsWith(`${home}/`); parent = path.posix.dirname(parent)) {
+    try {
+      fs.rmdirSync(parent);
+    } catch {
+      return;
+    }
+  }
+}
+
+/** Asks for one input of the format. Undefined when the user backs out. */
+async function askInput(input: WorktreeInput, title: string, last: string | undefined): Promise<string | undefined> {
+  const prompt = input.description || input.id;
+  const proposed = last ?? input.default ?? '';
+  if (input.type === 'pickString') {
+    const options = input.options ?? [];
+    const OTHER = 'Type another value…';
+    // The value proposed is first, where the picker starts.
+    const values = [...new Set([...(options.includes(proposed) || (input.allowCustom && proposed) ? [proposed] : []), ...options])];
+    const picked = await vscode.window.showQuickPick(
+      [
+        ...values.map((value) => ({ label: value, description: options.includes(value) ? undefined : 'Used last' })),
+        ...(input.allowCustom ? [{ label: OTHER }] : []),
+      ],
+      { title, placeHolder: prompt },
+    );
+    if (!picked) return;
+    if (picked.label !== OTHER) return picked.label;
+    const typed = await vscode.window.showInputBox({ title, prompt, validateInput: (value) => (value.trim() ? undefined : 'Enter a value') });
+    return typed?.trim() || undefined;
+  }
+  let pattern: RegExp | undefined;
+  try {
+    pattern = input.pattern ? new RegExp(input.pattern) : undefined;
+  } catch {
+    throw new Error(`The pattern of the input ${input.id} in gitardo.worktrees.inputs is not a valid regular expression.`);
+  }
+  const problem = (value: string) =>
+    !value.trim() ? 'Enter a value' : pattern && !pattern.test(value.trim()) ? `It has to match ${input.pattern}` : undefined;
+  const typed = await vscode.window.showInputBox({ title, prompt, value: proposed, validateInput: problem });
+  if (typed === undefined) return;
+  const trouble = problem(typed);
+  if (trouble) throw new Error(`${prompt}: ${trouble}.`);
+  return typed.trim();
+}
+
+/**
+ * The name of a new branch made from the format of `gitardo.worktrees.branchFormat`: each input is asked for, and the
+ * name it makes can be changed before it is used.
+ */
+async function nameFromFormat(
+  format: string,
+  base: string,
+  title: string,
+  state: RepoState,
+  memory: vscode.Memento,
+  validate: (name: string) => string | vscode.InputBoxValidationMessage | undefined,
+): Promise<string | undefined> {
+  const inputs = vscode.workspace.getConfiguration('gitardo').get<WorktreeInput[]>('worktrees.inputs', []);
+  const problem = formatProblem(format, inputs.map((input) => input.id));
+  if (problem) throw new Error(`${problem} Change it in the settings.`);
+  const last = memory.get<Record<string, string>>(LAST_INPUTS, {});
+  const values: Record<string, string> = {};
+  for (const id of formatInputs(format)) {
+    const value = await askInput(inputs.find((input) => input.id === id)!, title, last[id]);
+    if (value === undefined) return;
+    values[id] = value;
+  }
+  await memory.update(LAST_INPUTS, { ...last, ...values });
+  const date = new Date();
+  const name = expandFormat(format, {
+    base,
+    repo: path.basename(worktreesHome(state).main),
+    date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    inputs: values,
+  });
+  return (await vscode.window.showInputBox({ title, prompt: 'Name of the new branch, and of the folder of the worktree', value: name, validateInput: validate }))?.trim();
+}
+
+/** What `${base}` is for a worktree made at a commit: the commit, or one of the branches that have it. */
+async function commitBase(hash: string, title: string, state: RepoState, repo: Repo): Promise<string | undefined> {
+  const short = hash.slice(0, 7);
+  const at = new Set([...state.branches, ...state.remoteBranches].filter((ref) => ref.hash === hash).map((ref) => ref.name));
+  const names = (await repo.branchesContaining(hash)).map((ref) =>
+    ref.startsWith('refs/heads/') ? ref.slice(11) : ref.slice(13),
+  );
+  const branches = new Map<string, boolean>();
+  // The ones at the commit first, then the others that have it, each by its own name: a remote branch without its remote.
+  for (const name of [...names.filter((name) => at.has(name)), ...names.filter((name) => !at.has(name))].slice(0, 50)) {
+    const own = state.remoteBranches.some((ref) => ref.name === name) ? withoutRemote(name, state.remotes) : name;
+    if (!branches.has(own)) branches.set(own, at.has(name));
+  }
+  const atCommit = [...branches].filter(([, exact]) => exact);
+  const containing = [...branches].filter(([, exact]) => !exact);
+  return pick(`${title}: what \${base} is`, [
+    ...atCommit.map(([name]) => ({ label: name, description: 'Branch at this commit', value: name })),
+    { label: short, description: 'This commit', value: short },
+    ...containing.map(([name]) => ({ label: name, description: 'Branch that has this commit', value: name })),
+  ]);
+}
+
+/**
+ * A worktree goes in the folder the settings name, in a folder named after it, slashes and all. Without `ref` it is on a
+ * new branch made from a base the user picks; on a branch, on that branch or on a new one made from it; at a commit, on a
+ * new branch made there, or on a detached HEAD. A new branch is named from the format, when the settings have one and the
+ * user keeps it, or typed.
+ */
+async function addWorktree(
+  ref: string | undefined,
+  isBranch: boolean,
+  state: RepoState,
+  repo: Repo,
+  memory: vscode.Memento,
+): Promise<GitOp | undefined> {
+  const { main, folder } = worktreesHome(state);
   const dirOf = (name: string) => worktreeDir(main, folder, name);
   const taken = new Set(state.branches.map((branch) => branch.name));
   // Git keeps a branch as a file: `feature/login` cannot be made beside a branch `feature`, nor `feature` beside it.
@@ -365,49 +512,89 @@ async function addWorktree(ref: string | undefined, isBranch: boolean, state: Re
     (clash(name) ? `Git cannot have it beside the branch ${clash(name)!.name}` : undefined) ??
     folderMessage(dirOf(name));
   const commit = ref && !isBranch ? ref.slice(0, 7) : undefined;
+  const title = `Create worktree${!ref ? '' : isBranch ? ` for ${ref}` : ` at ${commit}`}`;
 
-  const name = await vscode.window.showInputBox(
-    !ref
-      ? {
-          title: 'Create worktree',
-          prompt: 'Name of the new branch, and of the folder of the worktree',
-          placeHolder: 'feature/my-change',
-          validateInput: branchName,
-        }
-      : isBranch
-        ? {
-            title: `Create worktree for ${ref}`,
-            prompt: 'Name of the folder of the worktree',
-            value: worktreeFolderName(ref),
-            validateInput: (value) => (value.trim() ? folderMessage(dirOf(value.trim())) : 'Enter a name'),
-          }
-        : {
-            title: `Create worktree at ${commit}`,
-            prompt: 'Name of a new branch, and of the folder of the worktree. Leave empty for a detached HEAD.',
-            validateInput: (value) => (value ? branchName(value) : folderMessage(dirOf(commit!))),
-          },
-  );
-  if (name === undefined || (!name && (!ref || isBranch))) return;
-  const newBranch = isBranch ? null : name.trim() || null;
-  const dir = dirOf(name.trim() || commit!);
-  if (fs.existsSync(dir)) throw new Error(`${dir} already exists.`);
-
-  let base = ref;
-  if (!base) {
-    const current = state.branches.find((branch) => branch.current);
-    base = await pick(`Create worktree ${name} from`, [
-      ...(current
-        ? [{ label: current.name, description: 'Checked out', value: refArg('branch', current.name, state) }]
-        : state.head
-          ? [{ label: 'HEAD', description: 'Detached', value: state.head }]
-          : []),
-      ...state.branches.filter((branch) => !branch.current).map((branch) => ({ label: branch.name, value: refArg('branch', branch.name, state) })),
-      ...state.remoteBranches.map((remote) => ({ label: remote.name, description: 'Remote', value: refArg('remote', remote.name, state) })),
+  // The format is the first choice, where the picker starts.
+  const format = vscode.workspace.getConfiguration('gitardo').get<string>('worktrees.branchFormat', '').trim();
+  let useFormat = false;
+  if (format) {
+    const how = await pick(title, [
+      { label: 'Use the format', description: format, value: true },
+      isBranch
+        ? { label: `Use the branch ${ref}`, description: 'Check it out in the worktree', value: false }
+        : { label: 'Type a branch name', value: false },
     ]);
-    if (!base) return;
+    if (how === undefined) return;
+    useFormat = how;
   }
 
-  const op = worktreeAddOp(dir, base, newBranch, !isBranch);
+  // What it starts from: the branch or the commit it was made on, or a base the user picks.
+  let base = ref;
+  let baseName = ref ?? '';
+  if (!base) {
+    const current = state.branches.find((branch) => branch.current);
+    const picked = await pick(`${title} from`, [
+      ...(current
+        ? [{ label: current.name, description: 'Checked out', value: { arg: refArg('branch', current.name, state), name: current.name } }]
+        : state.head
+          ? [{ label: 'HEAD', description: 'Detached', value: { arg: state.head, name: state.head.slice(0, 7) } }]
+          : []),
+      ...state.branches
+        .filter((branch) => !branch.current)
+        .map((branch) => ({ label: branch.name, value: { arg: refArg('branch', branch.name, state), name: branch.name } })),
+      ...state.remoteBranches.map((remote) => ({
+        label: remote.name,
+        description: 'Remote',
+        value: { arg: refArg('remote', remote.name, state), name: withoutRemote(remote.name, state.remotes) },
+      })),
+    ]);
+    if (!picked) return;
+    base = picked.arg;
+    baseName = picked.name;
+  } else if (commit && useFormat && /\$\{base\}/.test(format)) {
+    const chosen = await commitBase(ref!, title, state, repo);
+    if (chosen === undefined) return;
+    baseName = chosen;
+  }
+
+  let newBranch: string | null = null;
+  let dir: string;
+  if (useFormat) {
+    const name = await nameFromFormat(format, baseName, title, state, memory, branchName);
+    if (!name) return;
+    newBranch = name;
+    dir = dirOf(name);
+  } else if (isBranch) {
+    const name = (
+      await vscode.window.showInputBox({
+        title,
+        prompt: 'Name of the folder of the worktree',
+        value: ref,
+        validateInput: (value) => (value.trim() ? folderMessage(dirOf(value.trim())) : 'Enter a name'),
+      })
+    )?.trim();
+    if (!name) return;
+    dir = dirOf(name);
+  } else {
+    const name = await vscode.window.showInputBox({
+      title,
+      prompt: commit
+        ? 'Name of a new branch, and of the folder of the worktree. Leave empty for a detached HEAD.'
+        : 'Name of the new branch, and of the folder of the worktree',
+      placeHolder: 'feature/my-change',
+      validateInput: (value) => (value ? branchName(value) : commit ? folderMessage(dirOf(commit)) : 'Enter a name'),
+    });
+    if (name === undefined || (!name.trim() && !commit)) return;
+    newBranch = name.trim() || null;
+    dir = dirOf(newBranch ?? commit!);
+  }
+  if (newBranch) {
+    const problem = branchName(newBranch);
+    if (typeof problem === 'string') throw new Error(`${newBranch}: ${problem}.`);
+  }
+  if (fs.existsSync(dir)) throw new Error(`${dir} already exists.`);
+
+  const op = worktreeAddOp(dir, base!, newBranch, !isBranch);
   op.onSuccess = () => {
     const choices = [...(state.agentsWindow ? ['Open in Agents Window'] : []), 'Open in New Window'];
     void vscode.window.showInformationMessage(`Worktree created in ${dir}`, ...choices).then((choice) => {
@@ -417,33 +604,41 @@ async function addWorktree(ref: string | undefined, isBranch: boolean, state: Re
   return op;
 }
 
-/** Renames the folder of a worktree, where it is, and its branch along with it if the user wants. */
+/**
+ * Renames the folder of a worktree, and its branch along with it if the user wants. Inside the folder where the worktrees
+ * go, its name is its path from there, slashes and all; anywhere else, the name of its folder where it is.
+ */
 async function renameWorktree(worktree: Worktree, state: RepoState): Promise<GitOp | undefined> {
   if (worktree.main) throw new Error('Git cannot move the main worktree, the folder the repository was created in.');
   if (worktree.current) throw new Error('This worktree is the folder open in this window: rename it from another one.');
   const dir = worktree.path.replace(/\\/g, '/');
-  const parent = dir.slice(0, dir.lastIndexOf('/'));
-  const old = dir.slice(dir.lastIndexOf('/') + 1);
+  const { main, folder } = worktreesHome(state);
+  const home = worktreesRoot(main, folder);
+  const inside = dir.toLowerCase().startsWith(`${home.toLowerCase()}/`);
+  const parent = inside ? home : dir.slice(0, dir.lastIndexOf('/'));
+  const old = dir.slice(parent.length + 1);
   const name = (
     await vscode.window.showInputBox({
       title: `Rename worktree ${old}`,
-      prompt: 'New name of its folder',
+      prompt: inside ? 'New name of its folder, which can have slashes' : 'New name of its folder',
       value: old,
       validateInput: (value) => {
         if (!value.trim()) return 'Enter a name';
-        const folder = worktreeFolderName(value.trim());
-        return folder === old ? undefined : folderMessage(`${parent}/${folder}`);
+        const renamed = inside ? worktreeFolderName(value.trim()) : worktreeFolderName(value.trim()).replace(/\//g, '-');
+        return renamed === old ? undefined : folderMessage(`${parent}/${renamed}`);
       },
     })
   )?.trim();
-  if (!name || worktreeFolderName(name) === old) return;
-  const to = `${parent}/${worktreeFolderName(name)}`;
+  if (!name) return;
+  const renamed = inside ? worktreeFolderName(name) : worktreeFolderName(name).replace(/\//g, '-');
+  if (renamed === old) return;
+  const to = `${parent}/${renamed}`;
   if (fs.existsSync(to)) throw new Error(`${to} already exists.`);
 
   let branch: { from: string; to: string } | undefined;
   if (worktree.branch) {
     const from = worktree.branch;
-    const rename = await pick(`Rename worktree ${old} to ${worktreeFolderName(name)}`, [
+    const rename = await pick(`Rename worktree ${old} to ${renamed}`, [
       { label: `Rename the branch ${from} too`, value: true },
       { label: `Keep the branch ${from}`, value: false },
     ]);
@@ -456,5 +651,9 @@ async function renameWorktree(worktree: Worktree, state: RepoState): Promise<Git
       if (next !== from) branch = { from, to: next };
     }
   }
-  return worktreeMoveOp(worktree.path, to, branch);
+  const op = worktreeMoveOp(worktree.path, to, branch);
+  // Git moves a worktree into a folder that is there already.
+  op.prepare = () => fs.mkdirSync(path.dirname(to), { recursive: true });
+  op.onSuccess = () => removeEmptyParents(dir, state);
+  return op;
 }

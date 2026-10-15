@@ -46,7 +46,7 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
-import { AGENTS_WINDOW, resolveAction } from './actions';
+import { AGENTS_WINDOW, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
 import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
@@ -164,7 +164,7 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidRenameFiles(schedule),
       vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
       vscode.workspace.onDidChangeConfiguration(
-        (event) => (event.affectsConfiguration('gitardo.conflicts') || event.affectsConfiguration('gitardo.pull')) && schedule(),
+        (event) => ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees'].some((section) => event.affectsConfiguration(section)) && schedule(),
       ),
     ];
   }
@@ -231,6 +231,7 @@ export class Controller implements vscode.Disposable {
           github: this.github,
           pulls: this.pulls,
           agentsWindow: await (this.agentsWindow ??= hasCommand(AGENTS_WINDOW)),
+          worktreesRoot: worktreesFolder(state),
         });
       }
     } catch (error) {
@@ -790,7 +791,7 @@ export class Controller implements vscode.Disposable {
 
       // Git can mark the conflicts of a file again only while it has both of its sides.
       const sides = action.kind === 'takeSide' ? await repo.conflictStages(action.path) : [];
-      const op = await resolveAction(action, state, repo);
+      const op = await resolveAction(action, state, repo, this.memento);
       if (!op) return;
       // What is about to be written can be looked at first.
       const asked = action.kind === 'resolveConflicts';
@@ -1247,6 +1248,7 @@ export class Controller implements vscode.Disposable {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: `Gitardo: ${op.title}` },
         async () => {
+          op.prepare?.();
           if (op.writes?.length) {
             for (const write of op.writes) this.log.info(`> write ${write.path}`);
             await writeFiles(repo.root, op.writes);

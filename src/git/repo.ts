@@ -318,6 +318,7 @@ export class Repo {
       github: null,
       pulls: {},
       agentsWindow: false,
+      worktreesRoot: null,
     };
   }
 
@@ -446,6 +447,12 @@ export class Repo {
   async mergedBranches(): Promise<string[]> {
     const out = await this.read(['branch', '--merged', 'HEAD', '--format=%(refname:short)'], true);
     return out.split('\n').filter(Boolean);
+  }
+
+  /** The local and remote branches that have this commit, by their full names. */
+  async branchesContaining(hash: string): Promise<string[]> {
+    const out = await this.read(['for-each-ref', '--contains', hash, '--format=%(refname)', 'refs/heads', 'refs/remotes'], true);
+    return out.split('\n').filter((ref) => ref && !ref.endsWith('/HEAD'));
   }
 
   async remoteUrl(remote: string): Promise<string> {

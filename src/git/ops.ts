@@ -19,6 +19,8 @@ export interface GitOp {
   writes?: FileWrite[];
   /** What to offer when git refuses with a message matching `when`, typically the forced variant. */
   fallback?: { when: RegExp; op: GitOp };
+  /** Called after the user agreed and before the commands run, for what they need that is not a file to write. */
+  prepare?(): void;
   /** Called once all commands have succeeded. */
   onSuccess?(): void;
 }
@@ -383,24 +385,76 @@ export function hunkOp(kind: 'stageHunk' | 'unstageHunk' | 'discardHunk', file: 
   };
 }
 
-/** The folder a new worktree goes in, by its name: a branch such as `feature/login` makes `feature-login`. */
+/**
+ * The folder a new worktree goes in, by its name, relative to where the worktrees are: a branch such as
+ * `feature/login` makes the folder `login` inside `feature`.
+ */
 export function worktreeFolderName(name: string): string {
-  return name.replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60) || 'worktree';
+  const parts = name
+    .split(/[\\/]+/)
+    .map((part) => part.replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60))
+    .filter(Boolean);
+  return parts.join('/') || 'worktree';
+}
+
+/** What a format of worktree names may say besides the inputs: `${base}`, `${repo}` and `${date}`. */
+export interface WorktreeNameValues {
+  base: string;
+  repo: string;
+  date: string;
+  inputs: Record<string, string>;
+}
+
+const VARIABLE = /\$\{([^}]*)\}/g;
+
+/** The inputs a format asks for, by their ids, in the order they first appear. */
+export function formatInputs(format: string): string[] {
+  const ids = [...format.matchAll(VARIABLE)].flatMap(([, name]) => (name.startsWith('input:') ? [name.slice(6)] : []));
+  return [...new Set(ids)];
+}
+
+/** Says what is wrong with a format, given the ids of the inputs defined for it. */
+export function formatProblem(format: string, defined: string[]): string | undefined {
+  for (const [whole, name] of format.matchAll(VARIABLE)) {
+    if (name.startsWith('input:') ? !defined.includes(name.slice(6)) : !['base', 'repo', 'date'].includes(name)) {
+      return name.startsWith('input:')
+        ? `The format uses ${whole}, which gitardo.worktrees.inputs does not define.`
+        : `The format uses ${whole}, which is not one of \${base}, \${repo}, \${date} or \${input:<id>}.`;
+    }
+  }
+  return undefined;
+}
+
+/** Fills a format of worktree names in. */
+export function expandFormat(format: string, values: WorktreeNameValues): string {
+  return format.replace(VARIABLE, (_, name: string) =>
+    name.startsWith('input:') ? (values.inputs[name.slice(6)] ?? '') : (values[name as 'base' | 'repo' | 'date'] ?? ''),
+  );
+}
+
+/** A branch by its own name: `origin/feature/login` is `feature/login`. A remote's name can have slashes in it too. */
+export function withoutRemote(ref: string, remotes: string[]): string {
+  const remote = remotes.filter((name) => ref.startsWith(`${name}/`)).sort((a, b) => b.length - a.length)[0];
+  return remote ? ref.slice(remote.length + 1) : ref;
 }
 
 /**
- * Where a new worktree named `name` goes. `folder` is the setting: `${repo}` in it is the name of the main worktree's
- * folder, and a relative path starts from the folder that holds the main worktree.
+ * Where new worktrees go. `folder` is the setting: `${repo}` in it is the name of the main worktree's folder, and a
+ * relative path starts from the folder that holds the main worktree.
  */
-export function worktreeDir(main: string, folder: string, name: string): string {
+export function worktreesRoot(main: string, folder: string): string {
   // With forward slashes, as git lists worktrees on every system.
   const slashes = (text: string) => text.replace(/\\/g, '/').replace(/\/+$/, '');
   const home = slashes(main);
   const repo = home.slice(home.lastIndexOf('/') + 1);
   const where = slashes((folder.trim() || '${repo}.worktrees').replace(/\$\{repo\}/g, repo));
   const absolute = /^([a-zA-Z]:)?\//.test(where);
-  const base = absolute ? where : `${home.slice(0, home.lastIndexOf('/'))}/${where.replace(/^\.\//, '')}`;
-  return `${base}/${worktreeFolderName(name)}`;
+  return absolute ? where : `${home.slice(0, home.lastIndexOf('/'))}/${where.replace(/^\.\//, '')}`;
+}
+
+/** Where a new worktree named `name` goes: in the folder of the setting, in a folder named after it. */
+export function worktreeDir(main: string, folder: string, name: string): string {
+  return `${worktreesRoot(main, folder)}/${worktreeFolderName(name)}`;
 }
 
 export function worktreeAddOp(dir: string, ref: string, newBranch: string | null, detach: boolean): GitOp {
