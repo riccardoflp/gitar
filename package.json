@@ -353,6 +353,11 @@
         "category": "Gitardo"
       },
       {
+        "command": "gitardo.worktreeSetup",
+        "title": "Choose What New Worktrees Get…",
+        "category": "Gitardo"
+      },
+      {
         "command": "gitardo.openCommits",
         "title": "Show Commits in the Side Bar",
         "category": "Gitardo"
@@ -556,6 +561,11 @@
           "command": "gitardo.switchWorktree",
           "when": "view == gitardo.branches",
           "group": "0_create@2"
+        },
+        {
+          "command": "gitardo.worktreeSetup",
+          "when": "view == gitardo.branches",
+          "group": "0_create@3"
         },
         {
           "command": "gitardo.cleanupBranches",
@@ -795,6 +805,24 @@
           "type": "string",
           "default": "${repo}.worktrees",
           "markdownDescription": "Where **Create Worktree** puts new worktrees, each in a folder named after it. `${repo}` is the name of the folder of the repository, and a relative path starts from the folder that holds it: with the default, the worktree `fix-login` of `~/code/app` goes in `~/code/app.worktrees/fix-login`."
+        },
+        "gitardo.worktrees.linkFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Folders that git ignores to link into each new worktree from the folder it is created from, in `.gitignore` syntax, such as `node_modules/`: what changes through a link changes there too. On Windows the links are junctions, which Gitardo takes out before removing a worktree. Set here, even empty, it takes the place of VS Code's `#git.worktreeSymlinkFolders#` for the worktrees Gitardo creates. [Choose what new worktrees get](command:gitardo.worktreeSetup), from what git ignores now."
+        },
+        "gitardo.worktrees.copyFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Files and folders that git ignores to copy into each new worktree from the folder it is created from, in `.gitignore` syntax, such as `/.env`. What is inside a linked folder, and what the worktree has from its commit, is not copied. Set here, even empty, it takes the place of VS Code's `#git.worktreeIncludeFiles#` for the worktrees Gitardo creates. [Choose what new worktrees get](command:gitardo.worktreeSetup), from what git ignores now."
         },
         "gitardo.worktrees.branchFormat": {
           "type": "string",

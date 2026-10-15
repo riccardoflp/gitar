@@ -2,19 +2,16 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { git, GitError } from './exec';
+import { suggest, type IgnoredEntry, type SetupPatterns, type SetupPreview } from '../shared/worktreeSetup';
 import type { OpLog } from './ops';
 
 /*
- * VS Code's experimental settings git.worktreeSymlinkFolders and git.worktreeIncludeFiles bring into a new worktree
- * what git ignores in the checkout it is made from, such as node_modules or .env, but VS Code's Git extension applies
- * them only to the worktrees it creates itself. What follows works out the same folders and files the way it does
- * (VS Code 1.141), so the worktrees Gitardo creates get them too.
+ * What new worktrees get of what git ignores in the checkout they are made from: folders linked, such as node_modules,
+ * and files copied, such as .env. Gitardo's settings gitardo.worktrees.linkFolders and gitardo.worktrees.copyFiles say
+ * which, or else VS Code's experimental git.worktreeSymlinkFolders and git.worktreeIncludeFiles, which VS Code's Git
+ * extension applies only to the worktrees it creates itself. What follows works out the folders and files the way it
+ * does (VS Code 1.141), so that the same patterns give the same result.
  */
-
-/** The patterns of a setting, in `.gitignore` syntax. Like VS Code, those with a line break are left out. */
-export function setupPatterns(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((pattern): pattern is string => typeof pattern === 'string' && !/[\r\n]/.test(pattern)) : [];
-}
 
 const paths = (output: string) => output.split('\0').filter(Boolean);
 
@@ -58,7 +55,7 @@ function within(folder: string, folders: Set<string>, strict = false): boolean {
 
 /**
  * The folders of the checkout in `root` to link into a new worktree: the outermost ones that git ignores and that
- * match the patterns of git.worktreeSymlinkFolders, relative to `root` with forward slashes.
+ * match the patterns of the folders to link, relative to `root` with forward slashes.
  */
 export async function foldersToLink(root: string, patterns: string[]): Promise<string[]> {
   if (!patterns.length) return [];
@@ -100,7 +97,7 @@ export async function foldersToLink(root: string, patterns: string[]): Promise<s
 
 /**
  * The files and folders of the checkout in `root` to copy into the new worktree in `worktree`: those git ignores that
- * match the patterns of git.worktreeIncludeFiles, leaving out what is inside the folders `linked`, and what the worktree
+ * match the patterns of the files to copy, leaving out what is inside the folders `linked`, and what the worktree
  * has from its commit. A folder all of whose files are copied is copied as a whole.
  */
 export async function pathsToCopy(root: string, worktree: string, patterns: string[], linked: string[]): Promise<string[]> {
@@ -219,7 +216,7 @@ async function folderOutside(link: string, worktree: string): Promise<boolean> {
 }
 
 /**
- * Takes out of the worktree in `worktree` the links to folders outside it, such as those of git.worktreeSymlinkFolders,
+ * Takes out of the worktree in `worktree` the links to folders outside it, such as the folders linked into it,
  * before git removes it: git for Windows deletes what is inside a junction, which is the folder of the checkout it
  * links to. Only what git does not track is looked into, and nothing past a link. Each one goes to the log, as
  * `unlink <path>`, before it is taken out. Elsewhere git removes the link itself, so nothing is done.
@@ -260,7 +257,7 @@ export async function unlinkFolderLinks(worktree: string, log: OpLog): Promise<v
 export async function setUpWorktree(
   root: string,
   worktree: string,
-  patterns: { link: string[]; include: string[] },
+  patterns: SetupPatterns,
   log: OpLog,
 ): Promise<string[]> {
   const failures: string[] = [];
@@ -274,7 +271,7 @@ export async function setUpWorktree(
   try {
     folders = await foldersToLink(root, patterns.link);
   } catch (error) {
-    fail('Finding the folders of git.worktreeSymlinkFolders', error);
+    fail('Finding the folders to link', error);
   }
   const linked: string[] = [];
   for (const folder of folders) {
@@ -291,9 +288,9 @@ export async function setUpWorktree(
 
   let copies: string[] = [];
   try {
-    copies = await pathsToCopy(root, worktree, patterns.include, linked);
+    copies = await pathsToCopy(root, worktree, patterns.copy, linked);
   } catch (error) {
-    fail('Finding the files of git.worktreeIncludeFiles', error);
+    fail('Finding the files to copy', error);
   }
   for (const relative of copies) {
     log.info(`> copy ${relative}`);
@@ -304,4 +301,72 @@ export async function setUpWorktree(
     }
   }
   return failures;
+}
+
+/** The most files counted in a folder for its size: past them, the folder is said to be at least that big. */
+const COUNTED = 5000;
+
+/** How many files a folder has and how big they are, without following links, up to `COUNTED` files. */
+async function measure(folder: string): Promise<{ files: number; bytes: number; more: boolean }> {
+  let files = 0;
+  let bytes = 0;
+  const pending = [folder];
+  while (pending.length) {
+    const current = pending.pop()!;
+    const children = await fs.promises.readdir(current, { withFileTypes: true }).catch(() => []);
+    const found: string[] = [];
+    for (const child of children) {
+      if (child.isDirectory()) pending.push(path.join(current, child.name));
+      else if (child.isFile()) found.push(path.join(current, child.name));
+    }
+    const counted = found.slice(0, COUNTED - files);
+    const stats = await Promise.all(counted.map((file) => fs.promises.lstat(file).catch(() => null)));
+    files += counted.length;
+    bytes += stats.reduce((sum, stat) => sum + (stat?.size ?? 0), 0);
+    if (counted.length < found.length) return { files, bytes, more: true };
+  }
+  return { files, bytes, more: false };
+}
+
+/**
+ * What git ignores in the checkout in `root`, as it lists it: a folder all of whose content it ignores as one entry,
+ * such as `node_modules`, and each file on its own. Each comes with its size and what is proposed for it.
+ */
+export async function scanIgnored(root: string): Promise<IgnoredEntry[]> {
+  const all = paths(await read(root, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z']));
+  // Git can list a file of a folder it lists too, as with `.vscode/*` and `.vscode/` both in a .gitignore.
+  const folders = all.filter((entry) => entry.endsWith('/'));
+  const listed = all.filter((entry) => !folders.some((folder) => entry !== folder && entry.startsWith(folder)));
+  const entries = await Promise.all(
+    listed.map(async (entry): Promise<IgnoredEntry | null> => {
+      const relative = entry.replace(/\/$/, '');
+      const at = path.join(root, relative.split('/').join(path.sep));
+      const stat = await fs.promises.lstat(at).catch(() => null);
+      if (!stat) return null;
+      const link = stat.isSymbolicLink();
+      const folder = link ? await fs.promises.stat(at).then((target) => target.isDirectory(), () => false) : stat.isDirectory();
+      const size = link ? { files: 0, bytes: 0, more: false } : folder ? await measure(at) : { files: 1, bytes: stat.size, more: false };
+      return { path: relative, folder, link, ...size, ...suggest({ path: relative, folder, bytes: size.bytes }) };
+    }),
+  );
+  return entries.filter((entry): entry is IgnoredEntry => entry !== null);
+}
+
+/**
+ * What the patterns would take from the checkout in `root` for a new worktree: the folders linked and the paths copied,
+ * as for a worktree that has nothing of them yet, and what each pattern takes by itself.
+ */
+export async function previewSetup(root: string, patterns: SetupPatterns): Promise<SetupPreview> {
+  const link = await foldersToLink(root, patterns.link);
+  const copy = await pathsToCopy(root, root, patterns.copy, link);
+  const counts: SetupPreview['counts'] = { link: {}, copy: {} };
+  await Promise.all([
+    ...patterns.link.map(async (pattern) => {
+      counts.link[pattern] = (await foldersToLink(root, [pattern])).length;
+    }),
+    ...patterns.copy.map(async (pattern) => {
+      counts.copy[pattern] = (await pathsToCopy(root, root, [pattern], link)).length;
+    }),
+  ]);
+  return { link, copy, counts };
 }

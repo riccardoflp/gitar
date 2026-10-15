@@ -275,9 +275,9 @@ export async function run(): Promise<void> {
       assert.equal(state().worktreesRoot?.toLowerCase(), home.toLowerCase());
       assert.ok(!created.main && !created.current);
       assert.ok(state().worktrees.find((worktree) => worktree.current)?.main);
-      // It offers to open it, in the Agents window where VS Code has one.
+      // It offers to open it, in the Agents window where VS Code has one, and this first time to choose what new worktrees get.
       const offer = await until('the offer to open it', () => asked.find((question) => /^Worktree created in /.test(question.message)));
-      assert.deepEqual(offer.items, [...(state().agentsWindow ? ['Open in Agents Window'] : []), 'Open in New Window']);
+      assert.deepEqual(offer.items, [...(state().agentsWindow ? ['Open in Agents Window'] : []), 'Open in New Window', 'Choose What It Gets…']);
 
       // Renamed, with the branch taking the name as it was typed.
       inputs = ['agents-two', 'agents-two'];
@@ -473,6 +473,99 @@ export async function run(): Promise<void> {
       fs.rmSync(path.join(app, '.env'), { force: true });
       if (excluded === null) fs.rmSync(exclude, { force: true });
       else fs.writeFileSync(exclude, excluded);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+  });
+
+  await step('chooses what new worktrees get in a tab of its own, saves it for the workspace folder, and brings it into worktrees', async () => {
+    const gitardo = () => vscode.workspace.getConfiguration('gitardo', vscode.Uri.file(app));
+    const exclude = path.join(app, '.git', 'info', 'exclude');
+    const excluded = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : null;
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    let made: string | undefined;
+    fs.writeFileSync(exclude, `${excluded ?? ''}\nnode_modules/\n.env\n*.log\n`);
+    fs.mkdirSync(path.join(app, 'node_modules', 'pkg'), { recursive: true });
+    write('node_modules/pkg/index.js', 'module\n');
+    write('.env', 'SECRET=2\n');
+    write('build.log', 'not wanted\n');
+    try {
+      posted.length = 0;
+      await vscode.commands.executeCommand('gitardo.worktreeSetup');
+      const tab = (await until('the tab', () => [...internals.views].find(([, kind]) => kind === 'worktreeSetup')))[0];
+      // The page asks for what it shows as it loads: what git ignores, each with what is proposed for it.
+      type Setup = Extract<HostMessage, { type: 'worktreeSetup' }>;
+      const shown = await until('what the tab shows', () => posted.find((message): message is Setup => message.type === 'worktreeSetup' && !!message.info));
+      const proposed = Object.fromEntries(shown.info!.entries.map((entry) => [entry.path, entry.suggestion]));
+      assert.deepEqual(proposed, { '.env': 'copy', 'build.log': 'none', node_modules: 'link' });
+      assert.deepEqual(shown.info!.effective, { link: [], copy: [], linkFrom: 'none', copyFrom: 'none' });
+      assert.equal(shown.info!.workspace?.name, path.basename(workspace));
+
+      // What the patterns take, as the page asks while they are typed.
+      const patterns = { link: ['node_modules/'], copy: ['/.env', '*.missing'] };
+      await internals.onMessage(tab, { type: 'previewWorktreeSetup', patterns });
+      type Preview = Extract<HostMessage, { type: 'worktreeSetupPreview' }>;
+      // The page asks for its own as well, so the answer is the one to these patterns.
+      const answered = (message: HostMessage): message is Preview =>
+        message.type === 'worktreeSetupPreview' && JSON.stringify(message.patterns) === JSON.stringify(patterns);
+      const preview = (await until('what the patterns take', () => posted.find(answered))).preview!;
+      assert.deepEqual([preview.link, preview.copy, preview.counts.copy], [['node_modules'], ['.env'], { '/.env': 1, '*.missing': 0 }]);
+
+      // Saved for the workspace folder: Gitardo's settings, which apply from then on.
+      posted.length = 0;
+      await internals.onMessage(tab, { type: 'saveWorktreeSetup', target: 'workspace', patterns });
+      assert.deepEqual(gitardo().inspect('worktrees.linkFolders')?.workspaceFolderValue, ['node_modules/']);
+      assert.deepEqual(gitardo().inspect('worktrees.copyFiles')?.workspaceFolderValue, ['/.env', '*.missing']);
+      const saved = await until('the tab to show what is saved', () => posted.find((message): message is Setup => message.type === 'worktreeSetup' && !!message.info));
+      assert.deepEqual([saved.info!.effective.linkFrom, saved.info!.effective.copyFrom], ['workspace', 'workspace']);
+
+      // A new worktree gets it, and no longer offers to choose it.
+      logged.length = 0;
+      asked.length = 0;
+      answer = () => undefined;
+      inputs = ['setup/one'];
+      choose = byLabel('main');
+      await controller.action({ kind: 'worktreeAdd' });
+      made = state().worktrees.find((worktree) => worktree.branch === 'setup/one')?.path;
+      assert.ok(made, JSON.stringify(state().worktrees));
+      assert.deepEqual(
+        logged.filter((line) => line.startsWith('> ') && !line.startsWith('> git ')),
+        ['> symlink node_modules', '> copy .env'],
+      );
+      assert.ok(!fs.existsSync(path.join(made, 'build.log')));
+      const offer = await until('the offer to open it', () => asked.find((question) => /^Worktree created in /.test(question.message)));
+      assert.ok(!offer.items.includes('Choose What It Gets…'), JSON.stringify(offer.items));
+
+      // Brought again into it, from its context menu: only what it no longer has.
+      fs.rmSync(path.join(made, '.env'));
+      logged.length = 0;
+      answer = run;
+      await controller.action({ kind: 'worktreeSetUp', path: made });
+      assert.equal(fs.readFileSync(path.join(made, '.env'), 'utf8'), 'SECRET=2\n');
+      assert.ok(logged.includes('> copy .env'), JSON.stringify(logged));
+      assert.ok(logged.includes('node_modules is in the worktree already.'), JSON.stringify(logged));
+
+      await controller.action({ kind: 'worktreeRemove', path: made, deleteBranch: true });
+      assert.ok(!fs.existsSync(made));
+      assert.equal(fs.readFileSync(path.join(app, 'node_modules/pkg/index.js'), 'utf8'), 'module\n');
+
+      // Taken out of the workspace folder, nothing is set there any more.
+      await internals.onMessage(tab, { type: 'saveWorktreeSetup', target: 'workspace', patterns: null });
+      assert.equal(gitardo().inspect('worktrees.linkFolders')?.workspaceFolderValue, undefined);
+      assert.equal(gitardo().inspect('worktrees.copyFiles')?.workspaceFolderValue, undefined);
+    } finally {
+      answer = () => undefined;
+      choose = () => undefined;
+      await gitardo().update('worktrees.linkFolders', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+      await gitardo().update('worktrees.copyFiles', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+      const link = made && path.join(made, 'node_modules');
+      if (link && fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(link);
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+      await git(app, ['branch', '-D', 'setup/one']).catch(() => undefined);
+      for (const file of ['node_modules', '.env', 'build.log']) fs.rmSync(path.join(app, file), { recursive: true, force: true });
+      if (excluded === null) fs.rmSync(exclude, { force: true });
+      else fs.writeFileSync(exclude, excluded);
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       await vscode.commands.executeCommand('gitardo.refresh');
     }
   });

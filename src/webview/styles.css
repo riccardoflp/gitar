@@ -1966,3 +1966,242 @@ input:focus-visible,
 .hunk-lines + .hunk-lines {
   border-top: 1px solid var(--vscode-panel-border);
 }
+
+/* The tab where what new worktrees get of what git ignores is chosen. */
+.setup-page {
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 16px 24px 0;
+}
+
+.setup-page > * {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.setup-page h1 {
+  margin: 0 0 8px;
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+.setup-page h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 24px auto 8px;
+  padding-bottom: 4px;
+  font-size: 1.1em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.setup-page h3 {
+  margin: 0 0 2px;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.setup-page p {
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.setup-page .applies {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 12px;
+  margin: 12px auto 0;
+}
+
+.setup-page .applies dt {
+  color: var(--vscode-descriptionForeground);
+}
+
+.setup-page .applies dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup-page .note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.setup-page .ignored {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* What is shown is of patterns since changed, until git says what the new ones take. */
+.setup-page .ignored.stale tbody {
+  opacity: 0.6;
+}
+
+.setup-page .ignored th {
+  padding: 4px 8px;
+  font-weight: 400;
+  text-align: left;
+  color: var(--vscode-descriptionForeground);
+}
+
+.setup-page .ignored td {
+  padding: 4px 8px;
+  vertical-align: middle;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.setup-page .ignored .path {
+  max-width: 360px;
+}
+
+.setup-page .ignored .path .codicon {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+.setup-page .ignored .path .mono {
+  overflow-wrap: anywhere;
+}
+
+.setup-page .ignored .size {
+  white-space: nowrap;
+}
+
+.setup-page .ignored .why {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-page .choices {
+  display: inline-flex;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.setup-page .choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.setup-page .choice + .choice {
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+.setup-page .choice:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.setup-page .choice:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.setup-page .choice.on,
+.setup-page .choice.on:hover {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+/* What is proposed is underlined, so that it shows whether it is chosen or not. */
+.setup-page .choice.suggested {
+  box-shadow: inset 0 -2px 0 var(--vscode-focusBorder);
+}
+
+.setup-page .more {
+  margin: 6px 8px;
+}
+
+.setup-page .pattern-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px 32px;
+  margin-top: 12px;
+}
+
+.setup-page .patterns ul {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-page .patterns li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 4px 0 8px;
+  border-radius: 3px;
+}
+
+.setup-page .patterns li:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.setup-page .patterns .none {
+  margin: 6px 0;
+}
+
+.setup-page .add {
+  display: flex;
+  gap: 6px;
+}
+
+.setup-page .add input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  font-size: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 2px;
+}
+
+.setup-page .add input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+/* Saving stays at hand however long the list above it is. */
+.setup-page .setup-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 12px 0 16px;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.setup-page .where,
+.setup-page .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-page .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.setup-page .check input {
+  margin: 0;
+  accent-color: var(--vscode-button-background);
+}

@@ -26,9 +26,10 @@ import {
 } from '../git/ops';
 import { samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
-import { unlinkFolderLinks } from '../git/worktreeSetup';
+import { previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSetup';
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
+import { cleanPatterns, type IgnoredEntry } from '../shared/worktreeSetup';
 import type {
   Action,
   ComparedRef,
@@ -49,10 +50,11 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
-import { AGENTS_WINDOW, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
+import { AGENTS_WINDOW, SETUP_OFFERED, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
 import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
+import { editSetupJson, saveSetup, worktreeSetupInfo } from './worktreeSettings';
 
 const PAGE_SIZE = 1000;
 /** The most commits a search is told about, to highlight them in the graph. */
@@ -143,6 +145,9 @@ export class Controller implements vscode.Disposable {
   /** The tabs of the commits, by repository and hash, and the repository each is of: not always the one being shown. */
   private readonly commitTabs = new Map<string, vscode.WebviewPanel>();
   private readonly pinned = new Map<vscode.Webview, Repo>();
+  /** The tab where what new worktrees get is chosen, the repository it is of and what git ignores there, once looked at. */
+  /** `saving` while the tab writes the settings one after the other, which it shows once they are all written. */
+  private setupTab?: { panel: vscode.WebviewPanel; repo: Repo; entries: IgnoredEntry[] | null; saving: boolean };
   /** The views with a search box that have the keyboard: one at most, but each says so on its own. */
   private readonly focused = new Set<vscode.Webview>();
   /** What identifies the commits each view that lists them was last sent. */
@@ -461,6 +466,57 @@ export class Controller implements vscode.Disposable {
     });
   }
 
+  /**
+   * Opens the tab where what new worktrees get of what git ignores is chosen, for the repository the views show, or
+   * shows the one open for it.
+   */
+  async openWorktreeSetup(): Promise<void> {
+    const repo = (await this.requireState()) && this.repo;
+    if (!repo) return;
+    // Once it has been seen, creating a worktree no longer offers it.
+    void this.memento.update(SETUP_OFFERED, true);
+    if (this.setupTab && samePath(this.setupTab.repo.root, repo.root)) return this.setupTab.panel.reveal();
+    this.setupTab?.panel.dispose();
+
+    const panel = vscode.window.createWebviewPanel('gitardo.worktreeSetup', `New Worktrees · ${path.basename(repo.root)}`, vscode.ViewColumn.Active, {
+      retainContextWhenHidden: true,
+    });
+    const { webview } = panel;
+    const tab = { panel, repo, entries: null as IgnoredEntry[] | null, saving: false };
+    this.setupTab = tab;
+    const attachment = this.attach(webview, 'worktreeSetup', { root: repo.root });
+    this.pinned.set(webview, repo);
+    // Settings changed elsewhere, in the Settings editor or settings.json, show here at once.
+    const watching = vscode.workspace.onDidChangeConfiguration((event) => {
+      const sections = ['gitardo.worktrees.linkFolders', 'gitardo.worktrees.copyFiles', 'git.worktreeSymlinkFolders', 'git.worktreeIncludeFiles'];
+      if (tab.saving) return;
+      if (sections.some((section) => event.affectsConfiguration(section, vscode.Uri.file(repo.root)))) void this.sendSetup(webview, false);
+    });
+    panel.onDidDispose(() => {
+      attachment.dispose();
+      watching.dispose();
+      this.pinned.delete(webview);
+      if (this.setupTab === tab) this.setupTab = undefined;
+    });
+  }
+
+  /** Sends the tab of the setup of new worktrees what it shows, looking again at what git ignores when `rescan`. */
+  private async sendSetup(webview: vscode.Webview, rescan: boolean): Promise<void> {
+    const tab = this.setupTab;
+    if (!tab || tab.panel.webview !== webview) return;
+    const { root } = tab.repo;
+    try {
+      if (rescan || !tab.entries) tab.entries = await scanIgnored(root);
+      // The other worktrees can be given what applies only while the views show this repository, which that runs in.
+      const state = this.state && samePath(this.state.root, root) ? this.state : null;
+      const others = state?.worktrees.filter((worktree) => !worktree.prunable && !samePath(worktree.path, root)).length ?? 0;
+      this.post({ type: 'worktreeSetup', info: { ...worktreeSetupInfo(root, others), entries: tab.entries } }, webview);
+    } catch (error) {
+      this.log.error(errorText(error));
+      this.post({ type: 'worktreeSetup', info: null, error: errorText(error) }, webview);
+    }
+  }
+
   /** Asks for a hash or a revision, and shows its commit in the graph. */
   async goToCommit(): Promise<void> {
     const repo = (await this.requireState()) && this.repo;
@@ -603,6 +659,7 @@ export class Controller implements vscode.Disposable {
       if (command === 'selectRepository') return await this.pickRepo();
       if (command === 'remotes') return await this.manageRemotes();
       if (command === 'switchWorktree') return await this.switchWorktree();
+      if (command === 'worktreeSetup') return await this.openWorktreeSetup();
     } catch (error) {
       void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
@@ -1256,6 +1313,33 @@ export class Controller implements vscode.Disposable {
         return this.command(message.command);
       case 'pullRequest':
         return this.openPullRequest(message.branch);
+      case 'getWorktreeSetup':
+        return this.sendSetup(webview, message.rescan === true);
+      case 'previewWorktreeSetup': {
+        if (!repo) return;
+        const patterns = { link: cleanPatterns(message.patterns?.link), copy: cleanPatterns(message.patterns?.copy) };
+        try {
+          const preview = await previewSetup(repo.root, patterns);
+          return this.post({ type: 'worktreeSetupPreview', patterns: message.patterns, preview }, webview);
+        } catch (error) {
+          return this.post({ type: 'worktreeSetupPreview', patterns: message.patterns, preview: null, error: errorText(error) }, webview);
+        }
+      }
+      case 'saveWorktreeSetup': {
+        if (!repo || (message.target !== 'user' && message.target !== 'workspace')) return;
+        const tab = this.setupTab?.panel.webview === webview ? this.setupTab : undefined;
+        if (tab) tab.saving = true;
+        try {
+          await saveSetup(repo.root, message.target, message.patterns, message.alsoVSCode === true);
+        } catch (error) {
+          void vscode.window.showErrorMessage(`Gitardo: the settings were not saved. ${errorText(error)}`);
+        } finally {
+          if (tab) tab.saving = false;
+        }
+        return this.sendSetup(webview, false);
+      }
+      case 'editWorktreeSetup':
+        return repo && editSetupJson(repo.root, message.target === 'user' ? 'user' : 'workspace');
       case 'refresh':
         return this.refresh();
       case 'loadMore':
@@ -1362,6 +1446,8 @@ export class Controller implements vscode.Disposable {
 
   /** What an operation is about to do, for who is asked whether to do it: the files it writes and the commands it runs. */
   private describe(repo: Repo, op: GitOp): string {
+    // What runs no command says what it does in its note.
+    if (!op.commands.length && !op.writes?.length) return op.note ?? '';
     const commands = op.commands.map(formatCommand).join('\n');
     const note = op.note ? `${op.note}\n\n` : '';
     if (!op.writes?.length) return `${note}Gitardo will run in ${repo.root}:\n\n${commands}`;

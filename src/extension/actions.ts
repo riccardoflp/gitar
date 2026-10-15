@@ -55,9 +55,13 @@ import {
   unstageAllOp,
   unstageOp,
   type GitOp,
+  type OpLog,
   type ResetMode,
 } from '../git/ops';
-import { setUpWorktree, setupPatterns, unlinkFolderLinks } from '../git/worktreeSetup';
+import { samePath } from '../git/parse';
+import { setUpWorktree, unlinkFolderLinks } from '../git/worktreeSetup';
+import type { SetupPatterns } from '../shared/worktreeSetup';
+import { setupPatterns } from './worktreeSettings';
 import type { Action, RepoState, Worktree } from '../shared/protocol';
 import { isHome, refArg, worktreeOf } from '../shared/refs';
 
@@ -203,6 +207,9 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       return renameWorktree(findWorktree(action.path, state), state);
     case 'worktreePrune':
       return worktreePruneOp();
+    case 'worktreeSetUp':
+      if (action.path) findWorktree(action.path, state);
+      return setUpExistingOp(state, action.path);
     case 'worktreeOpen':
       await openWorktree(action.path, action.where ?? openIn(state));
       return;
@@ -418,30 +425,57 @@ async function openInWorktree(name: string, remote: boolean, state: RepoState): 
   return withSetup(op, dir, state);
 }
 
+/** Whether creating a worktree has offered once to choose what new worktrees get, and the button that offers it. */
+export const SETUP_OFFERED = 'worktreeSetupOffered';
+const SET_UP = 'Choose What It Gets…';
+
+/** What the patterns will bring into a worktree, said for who is asked. Undefined when they bring nothing. */
+function setupNote(patterns: SetupPatterns, root: string): string | undefined {
+  const what = [
+    patterns.link.length && `link the folders matching ${patterns.link.join(', ')}`,
+    patterns.copy.length && `copy what matches ${patterns.copy.join(', ')}`,
+  ].filter(Boolean);
+  return what.length ? `Gitardo will ${what.join(', and ')} from ${root}, where git ignores them.` : undefined;
+}
+
+/** Brings into the worktrees in `dirs` what the patterns ask for, and says once at the end what failed. */
+async function setUpWorktrees(root: string, dirs: string[], patterns: SetupPatterns, log: OpLog): Promise<void> {
+  const failures: string[] = [];
+  for (const dir of dirs) failures.push(...(await setUpWorktree(root, dir, patterns, log)));
+  if (failures.length) {
+    const which = failures.length === 1 ? failures[0] : `${failures.length} folders or files`;
+    void vscode.window.showWarningMessage(`Gitardo: ${which} failed: the log says why.`);
+  }
+}
+
 /**
- * Has a new worktree get, once git has made it, what VS Code's experimental settings git.worktreeSymlinkFolders and
- * git.worktreeIncludeFiles bring from this checkout, as VS Code does for the worktrees it creates.
+ * Has a new worktree get, once git has made it, what gitardo.worktrees.linkFolders and gitardo.worktrees.copyFiles,
+ * or VS Code's own git.worktreeSymlinkFolders and git.worktreeIncludeFiles, bring from this checkout.
  */
 function withSetup(op: GitOp, dir: string, state: RepoState): GitOp {
-  const config = vscode.workspace.getConfiguration('git', vscode.Uri.file(state.root));
-  const patterns = {
-    link: setupPatterns(config.get('worktreeSymlinkFolders')),
-    include: setupPatterns(config.get('worktreeIncludeFiles')),
-  };
-  if (!patterns.link.length && !patterns.include.length) return op;
-  const what = [
-    patterns.link.length && `link the folders matching git.worktreeSymlinkFolders (${patterns.link.join(', ')})`,
-    patterns.include.length && `copy what matches git.worktreeIncludeFiles (${patterns.include.join(', ')})`,
-  ].filter(Boolean);
-  op.note = `Then Gitardo will ${what.join(', and ')} from ${state.root}, where git ignores them.`;
-  op.finish = async (log) => {
-    const failures = await setUpWorktree(state.root, dir, patterns, log);
-    if (failures.length) {
-      const which = failures.length === 1 ? failures[0] : `${failures.length} folders or files`;
-      void vscode.window.showWarningMessage(`The worktree was created, but ${which} failed: the log says why.`);
-    }
-  };
+  const patterns = setupPatterns(state.root);
+  const note = setupNote(patterns, state.root);
+  if (!note) return op;
+  op.note = `Then ${note.charAt(0).toLowerCase()}${note.slice(1)}`;
+  op.finish = (log) => setUpWorktrees(state.root, [dir], patterns, log);
   return op;
+}
+
+/**
+ * Brings into worktrees that are there already what new ones get: the one in `dir`, or every other worktree of the
+ * repository that is not missing. Nothing is made over what they have.
+ */
+export function setUpExistingOp(state: RepoState, dir?: string): GitOp {
+  const patterns = setupPatterns(state.root);
+  const note = setupNote(patterns, state.root);
+  if (!note) throw new Error('New worktrees get nothing yet: choose what they get first.');
+  const dirs = dir
+    ? [dir]
+    : state.worktrees.filter((worktree) => !worktree.prunable && !samePath(worktree.path, state.root)).map((worktree) => worktree.path);
+  if (!dirs.length) throw new Error('There are no other worktrees to bring it into.');
+  if (dirs.some((each) => samePath(each, state.root))) throw new Error('This is the checkout it comes from.');
+  const which = dirs.length === 1 ? path.basename(dirs[0]) : `${dirs.length} worktrees`;
+  return { title: `Bring ignored files into ${which}`, commands: [], confirm: true, note, finish: (log) => setUpWorktrees(state.root, dirs, patterns, log) };
 }
 
 function findWorktree(dir: string, state: RepoState): Worktree {
@@ -695,10 +729,14 @@ async function addWorktree(
   if (fs.existsSync(dir)) throw new Error(`${dir} already exists.`);
 
   const op = worktreeAddOp(dir, base!, newBranch, !isBranch);
+  // While new worktrees get nothing of what git ignores, the first one created says it can be chosen, once.
+  const offerSetup = !setupNote(setupPatterns(state.root), state.root) && !memory.get(SETUP_OFFERED);
   op.onSuccess = () => {
-    const choices = [...(state.agentsWindow ? ['Open in Agents Window'] : []), 'Open in New Window'];
+    if (offerSetup) void memory.update(SETUP_OFFERED, true);
+    const choices = [...(state.agentsWindow ? ['Open in Agents Window'] : []), 'Open in New Window', ...(offerSetup ? [SET_UP] : [])];
     void vscode.window.showInformationMessage(`Worktree created in ${dir}`, ...choices).then((choice) => {
-      if (choice) void openWorktree(dir, choice === 'Open in Agents Window' ? 'agents' : 'window');
+      if (choice === SET_UP) void vscode.commands.executeCommand('gitardo.worktreeSetup');
+      else if (choice) void openWorktree(dir, choice === 'Open in Agents Window' ? 'agents' : 'window');
     });
   };
   return withSetup(op, dir, state);

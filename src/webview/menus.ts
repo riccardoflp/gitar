@@ -385,12 +385,30 @@ export function worktreeMenu(worktree: Worktree, state: RepoState): MenuEntry[] 
     'separator',
     !worktree.prunable && !worktree.main && !worktree.current && !home && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
     { label: 'Copy path', run: () => copy(path) },
+    // From the checkout of the views, into another: what new worktrees get of what git ignores, as they are now.
+    !worktree.prunable && !worktree.current && !home && { label: 'Bring ignored files…', run: () => act({ kind: 'worktreeSetUp', path }) },
     'separator',
     !worktree.current && !worktree.main && !home && { label: 'Remove…', danger: true, run: () => act({ kind: 'worktreeRemove', path }) },
     state.worktrees.some((candidate) => candidate.prunable) && {
       label: 'Prune missing worktrees',
       run: () => act({ kind: 'worktreePrune' }),
     },
+  ];
+}
+
+/** What the "…" beside the title of the Worktrees section offers, and a right click on that title. */
+export function worktreesMenu(state: RepoState): MenuEntry[] {
+  return [
+    { label: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },
+    { label: 'Switch worktree…', run: () => post({ type: 'command', command: 'switchWorktree' }) },
+    'separator',
+    { label: 'Choose what new worktrees get…', run: () => post({ type: 'command', command: 'worktreeSetup' }) },
+    state.worktrees.some((worktree) => !worktree.prunable && !worktree.current) && {
+      label: 'Bring ignored files into the other worktrees…',
+      run: () => act({ kind: 'worktreeSetUp' }),
+    },
+    'separator',
+    state.worktrees.some((candidate) => candidate.prunable) && { label: 'Prune missing worktrees', run: () => act({ kind: 'worktreePrune' }) },
   ];
 }
 

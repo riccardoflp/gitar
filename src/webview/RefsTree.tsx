@@ -5,7 +5,7 @@ import { scopeLabel, scopeRefs } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { endDrag, startDrag, type DragSource } from './drag';
-import { act, branchMenu, openBranch, openRemoteBranch, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
+import { act, branchMenu, openBranch, openRemoteBranch, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, worktreesMenu, type Comparing } from './menus';
 import { loadUiState, post, saveUiState } from './vscode';
 
 export type SectionId = 'favorites' | 'recent' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
@@ -42,11 +42,13 @@ interface Item {
   changes?: number;
 }
 
-/** A button beside the title of a section, for what adds to it. */
+/** A button beside the title of a section: what adds to it, or a menu of what else there is to do with it. */
 interface SectionAction {
   icon: string;
   title: string;
-  run(): void;
+  run?(): void;
+  /** Opened by the button, and by a right click on the title of the section. */
+  menu?(): MenuEntry[];
 }
 
 const CHECKS = { success: 'checks passed', failure: 'checks failed', pending: 'checks running' };
@@ -78,30 +80,38 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
   };
 
   /** `optional` is a section that is not there at all while it has nothing to list. */
-  const section = (id: SectionId, title: string, icon: string, all: Item[], optional = false, action?: SectionAction): ReactNode => {
+  const section = (id: SectionId, title: string, icon: string, all: Item[], optional = false, actions: SectionAction[] = []): ReactNode => {
     if (sections && !sections.includes(id)) return null;
     if (optional && !all.length) return null;
     const items = needle ? all.filter((item) => item.label.toLowerCase().includes(needle)) : all;
     // A filter is there to find something: what it finds shows, whether the section was closed or not.
     const open = needle ? items.length > 0 : !collapsed[id];
     const listed = full[id] ? items : items.slice(0, SECTION_LIMIT);
+    const menu = actions.find((action) => action.menu);
     // The checked out branch is listed even when it comes after the others.
     const current = items.find((item) => item.current);
     if (current && !listed.includes(current)) listed.push(current);
     return (
       <section key={id} data-section={id}>
-        <div className="section-head">
+        <div className="section-head" onContextMenu={menu ? (event) => openMenu(event, menu.menu!()) : undefined}>
           <button className="section" onClick={() => toggle(id)} aria-expanded={open}>
             <Icon name={open ? 'chevron-down' : 'chevron-right'} />
             <Icon name={icon} />
             <span className="grow">{title}</span>
             <span className="count">{needle ? `${items.length} of ${all.length}` : all.length}</span>
           </button>
-          {action && (
-            <button className="section-action" onClick={action.run} title={action.title} aria-label={action.title}>
+          {actions.map((action) => (
+            <button
+              key={action.title}
+              className="section-action"
+              onClick={(event) => (action.menu ? openMenu(event, action.menu()) : action.run?.())}
+              title={action.title}
+              aria-label={action.title}
+              aria-haspopup={action.menu ? 'menu' : undefined}
+            >
               <Icon name={action.icon} />
             </button>
-          )}
+          ))}
         </div>
         {open &&
           listed.map((item) => (
@@ -288,7 +298,10 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           };
         }),
         false,
-        { icon: 'add', title: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },
+        [
+          { icon: 'add', title: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },
+          { icon: 'ellipsis', title: 'More actions for worktrees', menu: () => worktreesMenu(state) },
+        ],
       )}
     </nav>
   );

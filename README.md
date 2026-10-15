@@ -116,7 +116,7 @@ Gitardo has no icon of its own in the activity bar: its views are in the **Sourc
 Three other views show what the graph of Gitardo shows, each on its own:
 
 - **Gitardo Graph** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. A list this narrow gives each commit two lines: its message, and under it its labels with their names, who made it and when. A commit with more than three labels names two of them, what is checked out first, and counts the others: hover the count to read them.
-- **Branches** is the references tree: the recent branches and the favorites, local branches, remote branches, tags and worktrees, with the same context menus, and only the branches the graph is narrowed to while it is. Its header names the branch that is checked out and has the buttons to create a branch and to compare; the title of its Worktrees section has one to create a worktree. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
+- **Branches** is the references tree: the recent branches and the favorites, local branches, remote branches, tags and worktrees, with the same context menus, and only the branches the graph is narrowed to while it is. Its header names the branch that is checked out and has the buttons to create a branch and to compare; the title of its Worktrees section has one to create a worktree and a **…** with the rest of what concerns worktrees: switching, choosing what new ones get, bringing it into the ones there are and pruning the missing ones. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
 - **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
 
 The fifth, **Gitardo Changes**, stages and commits: see [Changes](#changes). VS Code already has a view for that right above, so this one is hidden until you ask for it, with **Gitardo: Show Changes** or by ticking it in the **…** menu of the side bar, and stays until you hide it again. The number on the icon of the side bar is the one VS Code counts.
@@ -272,17 +272,23 @@ New worktrees go in the folder that `gitardo.worktrees.folder` names, `${repo}.w
 
 #### What git ignores, in a new worktree
 
-A new worktree has only what is committed: no `node_modules`, no `.env`. Two experimental settings of VS Code's Git extension, which VS Code applies only to the worktrees it creates itself, are applied by Gitardo too, to every worktree it creates:
+A new worktree has only what is committed: no `node_modules`, no `.env`. Gitardo can give it what git ignores in the folder you are in, after `git worktree add`, as two settings say:
 
 ```json
-"git.worktreeSymlinkFolders": ["node_modules"],
-"git.worktreeIncludeFiles": [".env", ".vscode/settings.local.json"]
+"gitardo.worktrees.linkFolders": ["node_modules/"],
+"gitardo.worktrees.copyFiles": ["/.env", ".vscode/settings.local.json"]
 ```
 
-- `git.worktreeSymlinkFolders`: the folders that git ignores and that match these patterns, in `.gitignore` syntax, are linked into the new worktree from the folder you are in, the outermost ones only. What changes through a link changes in the folder you are in. On Windows the links are junctions, which need no rights.
-- `git.worktreeIncludeFiles`: the files and folders that git ignores and that match these patterns are copied, except what is inside a linked folder and what the worktree has from its commit. A folder all of whose files match is copied as a whole.
+- `gitardo.worktrees.linkFolders`: the folders that git ignores and that match these patterns, in `.gitignore` syntax, are linked into the new worktree, the outermost ones only. What changes through a link changes in the folder you are in. On Windows the links are junctions, which need no rights.
+- `gitardo.worktrees.copyFiles`: the files and folders that git ignores and that match these patterns are copied, except what is inside a linked folder and what the worktree has from its commit. A folder all of whose files match is copied as a whole.
 
-Gitardo works them out the way VS Code does, after `git worktree add`, and says each one in the log, as `symlink <folder>` and `copy <path>`, before making it. Nothing is made where the worktree has something already. One that fails does not stop the others, and Gitardo says so once they are done. With the command preview on, the question names the two settings and their patterns.
+Where neither place sets one of them, Gitardo follows the matching experimental setting of VS Code's Git extension, `git.worktreeSymlinkFolders` or `git.worktreeIncludeFiles`, which VS Code applies only to the worktrees it creates itself. One of Gitardo's set anywhere, even to an empty list, is the one that applies: the workspace folder's first, then the user's.
+
+**Gitardo: Choose What New Worktrees Get…**, also in the **…** of the Worktrees section and of the Branches view, opens a tab that helps fill them. It lists what git ignores in the folder you are in, with its size, and proposes for each one what a new worktree gets and why: dependencies such as `node_modules`, `.venv` or `vendor` linked, settings and secrets of this machine such as `.env` or `*.local.json` and the editor's settings copied, and build output, logs and the rest left out. **Use what is proposed** takes all of it; **Link**, **Copy** and **Nothing** on each line change one. Below, the patterns of the two settings can be edited by hand, each with how many it takes from the folder, and the list says at once what they take, all of it or part. **Save** writes them to the settings of the workspace folder, `.vscode/settings.json`, to share them with everyone who works on it, or to the user's settings, and can write VS Code's own two along with them, so that the worktrees VS Code creates get the same. **Edit in settings.json** opens the file, and **Remove from** takes the two settings out of it again. The tab follows what is changed in the settings elsewhere.
+
+The first worktree Gitardo creates while neither setting is set offers **Choose What It Gets…**, once. **Bring ignored files…** on a worktree, and **Bring ignored files into the other worktrees…** in the **…** of the Worktrees section, give worktrees that are there already what new ones get, without touching what they have.
+
+Gitardo works the patterns out the way VS Code does and says each one in the log, as `symlink <folder>` and `copy <path>`, before making it. Nothing is made where the worktree has something already. One that fails does not stop the others, and Gitardo says so once they are done. With the command preview on, the question says the patterns of what will be linked and copied, and from where.
 
 On Windows, git deletes what is inside a junction when it removes a worktree: the folder it links to, in the folder you are in. So before **Remove…** and **Gitardo: Clean Up Branches** remove a worktree, Gitardo takes out of it the links to folders outside it, among the files git does not track, each said in the log as `unlink <path>`. A worktree with such links, made by VS Code or by Gitardo, is to be removed from Gitardo, or after deleting the links, not with `git worktree remove` in a terminal.
 
@@ -317,6 +323,7 @@ The same are in the context menu of a worktree, with **Open in terminal**, **Rev
 
 - **Rename…** gives the folder another name, with `git worktree move`: inside the folder where the worktrees go, its name is its path from there, slashes and all; anywhere else, the name of its folder where it is. It offers to rename its branch along with it with `git branch -m`. Git cannot move the main worktree, the folder the repository was created in, nor, on Windows, a folder that another program has open, such as another VS Code window or a terminal: close them first. The worktree open in this window is renamed from another one.
 - **Remove…** asks whether to delete its branch too. The folder is removed with `git worktree remove`, which asks again with `--force` when it has changes that are not committed, and the branch with `git branch -d`, which keeps a branch that is not merged and says so.
+- **Bring ignored files…** links and copies into it what new worktrees get (see [What git ignores, in a new worktree](#what-git-ignores-in-a-new-worktree)), leaving what it has already.
 
 #### The branch of a worktree
 
@@ -435,7 +442,7 @@ For the same reason, two things that look odd in a command are there on purpose:
 A few operations do more than run commands:
 
 - Resolving conflicts automatically, which is experimental and off by default, writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
-- Creating a worktree, when `git.worktreeSymlinkFolders` or `git.worktreeIncludeFiles` is set, links and copies what they ask for after `git worktree add`, with a `symlink <folder>` or `copy <path>` line in the log for each (see [What git ignores, in a new worktree](#what-git-ignores-in-a-new-worktree)).
+- Creating a worktree, when `gitardo.worktrees.linkFolders` and `gitardo.worktrees.copyFiles`, or VS Code's `git.worktreeSymlinkFolders` and `git.worktreeIncludeFiles`, ask for something, links and copies it after `git worktree add`, with a `symlink <folder>` or `copy <path>` line in the log for each (see [What git ignores, in a new worktree](#what-git-ignores-in-a-new-worktree)). **Bring ignored files…** does the same in a worktree that is there already, and runs no git command that changes anything.
 - Removing a worktree, on Windows, first takes out of it the links to folders outside it, with an `unlink <path>` line for each.
 
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
@@ -464,7 +471,7 @@ Press `F5` in VS Code to launch an Extension Development Host with Gitardo loade
 | `npm run test:ui` | Builds, then uses the extension in a real VS Code window, with real clicks and keys, saving screenshots: see below. |
 | `npm run package` | Makes a minified build and packs it into `gitardo-<version>.vsix`. It leaves the minified build in `dist/`; `npm run build` brings the development one back. |
 | `npm run test:vsix` | Packages, then runs the end-to-end tests on what the `.vsix` contains instead of on this folder. |
-| `npm run preview -- <folder>...` | Serves the webview at `http://localhost:5174` against the repositories found in the folders, read-only, to work on the UI without an Extension Host. Add `?view=changes`, `commits`, `branches` or `stashes` for a view of the side bar, `?view=commit&commit=<revision>` for the tab of a commit, and `?theme=light` for the light theme, and `--port=<number>` before the folders to serve a second one beside it. |
+| `npm run preview -- <folder>...` | Serves the webview at `http://localhost:5174` against the repositories found in the folders, read-only, to work on the UI without an Extension Host. Add `?view=changes`, `commits`, `branches` or `stashes` for a view of the side bar, `?view=worktreeSetup` for the tab that chooses what new worktrees get, `?view=commit&commit=<revision>` for the tab of a commit, and `?theme=light` for the light theme, and `--port=<number>` before the folders to serve a second one beside it. |
 
 ### End-to-end tests
 

@@ -154,6 +154,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     command('gitardo.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
     command('gitardo.createWorktree', () => controller.action({ kind: 'worktreeAdd' })),
     command('gitardo.switchWorktree', () => controller.command('switchWorktree')),
+    command('gitardo.worktreeSetup', () => controller.command('worktreeSetup')),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),
     // Hidden until it is asked for: VS Code has its own list of changes just above.

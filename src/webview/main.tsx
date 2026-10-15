@@ -10,6 +10,7 @@ import { CommitApp } from './CommitApp';
 import { CommitsApp } from './CommitsApp';
 import { MenuProvider } from './ContextMenu';
 import { StashesApp } from './StashesApp';
+import { WorktreeSetupApp } from './WorktreeSetupApp';
 
 // What the extension wrote on the page for the view it is.
 const { view: kind, commit = '', root = '', files } = document.body.dataset;
@@ -23,6 +24,7 @@ const VIEWS: Record<ViewKind, () => ReactNode> = {
   branches: () => <BranchesApp />,
   stashes: () => <StashesApp />,
   commit: () => <CommitApp hash={commit} root={root} layout={files === 'list' ? 'list' : 'tree'} />,
+  worktreeSetup: () => <WorktreeSetupApp />,
 };
 const view = (VIEWS[kind as ViewKind] ?? VIEWS.graph)();
 

@@ -1,3 +1,5 @@
+import type { SetupPatterns, SetupPreview, SetupTarget, WorktreeSetupInfo } from './worktreeSetup';
+
 /** Pseudo-hash of the row that stands for uncommitted changes. */
 export const WORKTREE = 'WORKTREE';
 
@@ -262,9 +264,10 @@ export interface ComparedRef {
  * What a view shows. `graph` is everything, in the panel or in an editor tab. `changes`, `commits`, `sideGraph`,
  * `branches` and `stashes` are the views of the side bar: `commits` lists the commits of what is checked out, each
  * with its files, apart from the graph, and `sideGraph` is the graph without the references beside it. `commit` is
- * one commit in an editor tab, with its message, its files and what it changed in them.
+ * one commit in an editor tab, with its message, its files and what it changed in them. `worktreeSetup` is the tab
+ * where what new worktrees get of what git ignores is chosen.
  */
-export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit';
+export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit' | 'worktreeSetup';
 
 /** The views that show the graph, and so are sent its commits. */
 export const showsGraph = (kind: ViewKind) => kind === 'graph' || kind === 'sideGraph';
@@ -350,6 +353,8 @@ export type Action =
   | { kind: 'worktreeRemove'; path: string; deleteBranch?: boolean }
   | { kind: 'worktreeRename' | 'worktreeTerminal' | 'worktreeReveal'; path: string }
   | { kind: 'worktreePrune' }
+  /** Brings into the worktree in `path`, or into every other worktree, what new worktrees get of what git ignores here. */
+  | { kind: 'worktreeSetUp'; path?: string }
   | { kind: 'stageHunk' | 'unstageHunk' | 'discardHunk'; path: string; patch: string }
   | { kind: 'cherryPick'; hash: string; isMerge: boolean }
   /** Several commits in one go, in any order: they are applied oldest first. */
@@ -401,7 +406,11 @@ export type HostMessage =
   /** Show the files that differ between two commits. */
   | { type: 'compare'; comparing: Comparing }
   /** A commit message is being drafted, or has been (`message`). */
-  | { type: 'drafting'; active: boolean; message?: string };
+  | { type: 'drafting'; active: boolean; message?: string }
+  /** What the tab of the setup of new worktrees shows. Null, with `error`, when it could not be read. */
+  | { type: 'worktreeSetup'; info: WorktreeSetupInfo | null; error?: string }
+  /** What the patterns take from the checkout. Null when git could not say. */
+  | { type: 'worktreeSetupPreview'; patterns: SetupPatterns; preview: SetupPreview | null; error?: string };
 
 /** Things the UI can ask for that need the extension to prompt, pick or open something. */
 export type UiCommand =
@@ -414,7 +423,8 @@ export type UiCommand =
   | 'selectRepository'
   | 'remotes'
   | 'goToCommit'
-  | 'switchWorktree';
+  | 'switchWorktree'
+  | 'worktreeSetup';
 
 export type WebviewMessage =
   | { type: 'ready' }
@@ -454,4 +464,11 @@ export type WebviewMessage =
   | { type: 'command'; command: UiCommand }
   /** Opens the pull request of a branch, or the page to create one. */
   | { type: 'pullRequest'; branch: string }
+  /** Asks for what the tab of the setup of new worktrees shows, looking again at what git ignores when `rescan`. */
+  | { type: 'getWorktreeSetup'; rescan?: boolean }
+  | { type: 'previewWorktreeSetup'; patterns: SetupPatterns }
+  /** Saves the patterns there, and in VS Code's settings too when `alsoVSCode`; null takes Gitardo's out of there. */
+  | { type: 'saveWorktreeSetup'; target: SetupTarget; patterns: SetupPatterns | null; alsoVSCode?: boolean }
+  /** Opens the file of the settings there. */
+  | { type: 'editWorktreeSetup'; target: SetupTarget }
   | { type: 'copy'; text: string };

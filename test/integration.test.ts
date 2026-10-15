@@ -56,7 +56,7 @@ import {
 } from '../src/git/ops';
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
-import { foldersToLink, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
+import { foldersToLink, previewSetup, scanIgnored, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
 import { WORKTREE, type Filter, type Scope } from '../src/shared/protocol';
 import { canFastForward } from '../src/shared/refs';
 
@@ -464,8 +464,23 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
       write(file, content);
     }
-    const patterns = { link: ['node_modules'], include: ['.env', 'config/', 'node_modules/'] };
+    const patterns = { link: ['node_modules'], copy: ['.env', 'config/', 'node_modules/'] };
     expect((await foldersToLink(root, patterns.link)).sort()).toEqual(['node_modules', 'packages/a/node_modules']);
+
+    // What the page lists, each with its size and what is proposed, and what the patterns would take.
+    const entries = await scanIgnored(root);
+    expect(entries.map((entry) => [entry.path, entry.folder, entry.files, entry.suggestion])).toEqual([
+      ['.env', false, 1, 'copy'],
+      ['config', true, 2, 'none'],
+      ['debug.log', false, 1, 'none'],
+      ['node_modules', true, 1, 'link'],
+      ['packages', true, 1, 'none'],
+    ]);
+    expect(entries.find((entry) => entry.path === 'node_modules')?.bytes).toBe(7);
+    const preview = await previewSetup(root, { ...patterns, copy: [...patterns.copy, '*.missing'] });
+    expect(preview.link.sort()).toEqual(['node_modules', 'packages/a/node_modules']);
+    expect(preview.copy.sort()).toEqual(['.env', 'config']);
+    expect(preview.counts).toEqual({ link: { node_modules: 2 }, copy: { '.env': 1, 'config/': 1, 'node_modules/': 0, '*.missing': 0 } });
 
     const dir = `${root}-worktree`;
     await run(worktreeAddOp(dir, 'main', 'feature', false));

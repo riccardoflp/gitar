@@ -5,7 +5,9 @@ import { discoverRepos, repoName } from '../git/discover';
 import { parseGitHubRemote } from '../git/github';
 import { samePath } from '../git/parse';
 import { Repo } from '../git/repo';
+import { previewSetup, scanIgnored } from '../git/worktreeSetup';
 import type { Filter, HostMessage, Scope, ViewKind, WebviewMessage } from '../shared/protocol';
+import { cleanPatterns, type SetupLayer, type SetupSource } from '../shared/worktreeSetup';
 
 // Usage: node dist/dev-server.js [--port=5174] [folder...]   (every repository found in the folders can be chosen in the page)
 // Read-only: actions that would change the repository or open an editor are only logged.
@@ -48,7 +50,7 @@ const THEMES = {
   },
 };
 
-const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'sideGraph', 'branches', 'stashes', 'commit'];
+const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'sideGraph', 'branches', 'stashes', 'commit', 'worktreeSetup'];
 
 /** `data` is what the extension would write on the page: the view it is, and for a commit which one. */
 function page(theme: keyof typeof THEMES, data: Record<string, string>): string {
@@ -148,6 +150,27 @@ async function main() {
   let worktrees: string[] = [];
   let home: (typeof repos)[number] | null = null;
   const inRoots = (dir: string) => roots.find((root) => samePath(root, dir));
+  /** The settings of new worktrees, kept while the server runs, as the page saves them. */
+  const setup: { user: SetupLayer; workspace: SetupLayer } = { user: {}, workspace: {} };
+
+  async function worktreeSetup(): Promise<HostMessage[]> {
+    if (!repo) return [{ type: 'worktreeSetup', info: null, error: 'No repository.' }];
+    const one = (kind: 'link' | 'copy'): [string[], SetupSource] =>
+      setup.workspace[kind] ? [setup.workspace[kind]!, 'workspace'] : setup.user[kind] ? [setup.user[kind]!, 'user'] : [[], 'none'];
+    const [link, linkFrom] = one('link');
+    const [copy, copyFrom] = one('copy');
+    const others = (await repo.state(1)).worktrees.filter((worktree) => !worktree.prunable && !samePath(worktree.path, repo!.root)).length;
+    const info = {
+      root: repo.root,
+      entries: await scanIgnored(repo.root),
+      user: setup.user,
+      workspace: { ...setup.workspace, name: path.basename(repo.root), file: path.join(repo.root, '.vscode', 'settings.json') },
+      vscode: { link: [], copy: [] },
+      effective: { link, copy, linkFrom, copyFrom },
+      worktrees: others,
+    };
+    return [{ type: 'worktreeSetup', info }];
+  }
 
   async function state(): Promise<HostMessage[]> {
     if (!repo) return [{ type: 'state', state: null }];
@@ -236,6 +259,16 @@ async function main() {
         const detail = await repo?.commitDetail(message.hash);
         return [{ type: 'patch', hash: message.hash, patch: (detail && (await repo?.commitPatch(detail, 20_000))) ?? null }];
       }
+      case 'getWorktreeSetup':
+        return worktreeSetup();
+      case 'previewWorktreeSetup': {
+        if (!repo) return [];
+        const patterns = { link: cleanPatterns(message.patterns.link), copy: cleanPatterns(message.patterns.copy) };
+        return [{ type: 'worktreeSetupPreview', patterns: message.patterns, preview: await previewSetup(repo.root, patterns) }];
+      }
+      case 'saveWorktreeSetup':
+        setup[message.target] = message.patterns ? { link: cleanPatterns(message.patterns.link), copy: cleanPatterns(message.patterns.copy) } : {};
+        return worktreeSetup();
       case 'getHunks': {
         const { path: file, staged } = message;
         return [{ type: 'hunks', path: file, staged, hunks: (await repo?.hunks(file, staged)) ?? null }];
