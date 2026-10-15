@@ -21,6 +21,10 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 - A commit reworded in the interactive rebase lost the body of its message: what is typed there is its new subject, and the body stays.
 
+### Fixed
+
+- A cherry-pick of several commits no longer gets stuck when a conflict is resolved by keeping what the branch has, or when one of the commits is there already: git found nothing to commit and refused to continue, and **Continue** failed each time. That commit is now skipped, as a rebase does, said in the log, and the rest are picked.
+
 ## 0.2.0 - 2026-10-15
 
 ### Added

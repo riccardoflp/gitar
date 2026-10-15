@@ -1,6 +1,6 @@
 import type { Operation, RebaseStep, RepoState, PullAction, Resolution, SyncAction, WorkingState } from '../shared/protocol';
 import { canFastForward, refArg } from '../shared/refs';
-import type { FileWrite, GitError } from './exec';
+import { type FileWrite, GitError, formatCommand, git } from './exec';
 import type { ConflictPlan } from './repo';
 
 /** A user-visible operation: one or more git commands that change the repository or a remote. */
@@ -991,6 +991,49 @@ export function takeSideOp(file: string, side: 'ours' | 'theirs', stages: number
 /** Continuing would open an editor for the commit message, which cannot work here, so the prepared message is kept as is. */
 export function continueOp(operation: Operation): GitOp {
   return { title: `Continue ${operation}`, commands: [['-c', 'core.editor=true', operation, '--continue']] };
+}
+
+/**
+ * Gets past a cherry-pick or a revert that stopped on a commit that changes nothing on top of HEAD: one whose changes
+ * are there already, or whose conflicts were resolved by keeping what HEAD has. Git will not continue until that commit
+ * is skipped, and says so in words that read like a failure; a rebase drops such commits itself, and so does this,
+ * saying so in the log. What stops the series after that, such as the conflicts of the next commit, is the failure.
+ */
+export function skipEmptyPicks(root: string): (args: string[], error: GitError, log: OpLog) => Promise<boolean> {
+  return async (args, error, log) => {
+    const operation = args.find((arg): arg is 'cherry-pick' | 'revert' => arg === 'cherry-pick' || arg === 'revert');
+    if (!operation) return false;
+    let failure = error;
+    while (await stoppedEmpty(root, operation)) {
+      const commit = (await git(root, ['rev-parse', operation === 'revert' ? 'REVERT_HEAD' : 'CHERRY_PICK_HEAD'], { readOnly: true })).stdout.trim();
+      log.warn(`${short(commit)} changes nothing on top of HEAD, so the ${operation} skips it.`);
+      const skip = [operation, '--skip'];
+      log.info(`> ${formatCommand(skip)}`);
+      try {
+        await git(root, skip);
+        return true;
+      } catch (next) {
+        if (!(next instanceof GitError)) throw next;
+        failure = next;
+      }
+    }
+    if (failure === error) return false;
+    throw failure;
+  };
+}
+
+/** Whether the commit being picked or reverted has nothing left to commit, with no conflict and no change of the user's to lose. */
+async function stoppedEmpty(root: string, operation: 'cherry-pick' | 'revert'): Promise<boolean> {
+  const read = (args: string[]) => git(root, args, { readOnly: true });
+  try {
+    await read(['rev-parse', '-q', '--verify', operation === 'revert' ? 'REVERT_HEAD' : 'CHERRY_PICK_HEAD']);
+    if ((await read(['ls-files', '-u'])).stdout.trim()) return false;
+    // Skipping resets the tracked files, so it is only done when they are as in HEAD, in the index and on disk.
+    await read(['diff', '--quiet', 'HEAD']);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function skipOp(operation: Operation): GitOp {

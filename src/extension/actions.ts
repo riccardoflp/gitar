@@ -55,6 +55,7 @@ import {
   resetOp,
   resolveConflictsOp,
   revertOp,
+  skipEmptyPicks,
   skipOp,
   stageAllOp,
   stageOp,
@@ -223,7 +224,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     }
 
     case 'cherryPick': {
-      const op = cherryPickOp(action.hash, action.isMerge);
+      const op = { ...cherryPickOp(action.hash, action.isMerge), recover: skipEmptyPicks(state.root) };
       // Picking a commit is a merge of it into HEAD with the commit's parent as the common base.
       return action.isMerge ? op : withConflictPreview(op, await repo.conflictsWith(action.hash, `${action.hash}^`));
     }
@@ -240,6 +241,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       return {
         ...cherryPickManyOp(rows.map((row) => row.hash)),
         note: `In this order:\n${shown.join('\n')}${more}\n\nIf one of them conflicts, git stops there: resolve it and continue, skip that commit, or abort them all.`,
+        recover: skipEmptyPicks(state.root),
       };
     }
 
@@ -455,10 +457,11 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     case 'bisectReset':
       return bisectResetOp();
 
+    // A conflict resolved by keeping what HEAD has leaves the commit with nothing to commit, and so can the next one.
     case 'continue':
-      return continueOp(requireOperation(state));
+      return { ...continueOp(requireOperation(state)), recover: skipEmptyPicks(state.root) };
     case 'skip':
-      return skipOp(requireOperation(state));
+      return { ...skipOp(requireOperation(state)), recover: skipEmptyPicks(state.root) };
     case 'abort':
       return abortOp(requireOperation(state));
   }

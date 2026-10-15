@@ -1684,6 +1684,42 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('gitardo.refresh');
   });
 
+  await step('continues a series of cherry-picks past a conflict resolved by keeping what the branch has', async () => {
+    const before = state().head!;
+    await git(app, ['checkout', '-b', 'clashing']);
+    const made: string[] = [];
+    for (const [name, content] of [['clash', 'theirs'], ['after', 'after']]) {
+      write(`${name}.txt`, `${content}\n`);
+      await git(app, ['add', '--all']);
+      await git(app, ['commit', '-m', `Pick ${name}`]);
+      made.push((await git(app, ['rev-parse', 'HEAD'])).stdout.trim());
+    }
+    await git(app, ['checkout', 'main']);
+    write('clash.txt', 'ours\n');
+    await git(app, ['add', '--all']);
+    await git(app, ['commit', '-m', 'Clash on main']);
+    await vscode.commands.executeCommand('gitardo.refresh');
+    try {
+      answer = run;
+      await controller.action({ kind: 'cherryPickMany', hashes: made });
+      assert.equal(state().operation, 'cherry-pick');
+      assert.deepEqual(state().working.conflicts.map((file) => file.path), ['clash.txt']);
+      const failed = errors.length;
+
+      // Keeping main's side leaves the first commit with nothing to commit: continuing skips it and picks the next.
+      await controller.action({ kind: 'takeSide', path: 'clash.txt', side: 'ours' });
+      await controller.action({ kind: 'continue' });
+      assert.equal(state().operation, null);
+      assert.equal(errors.length, failed, errors.slice(failed).join('\n'));
+      assert.deepEqual((await git(app, ['log', '--format=%s', '-2', 'main'])).stdout.trim().split('\n'), ['Pick after', 'Clash on main']);
+    } finally {
+      await git(app, ['cherry-pick', '--abort']).catch(() => undefined);
+      await git(app, ['reset', '--hard', before]);
+      await git(app, ['branch', '-D', 'clashing']);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+  });
+
   await step('follows a renamed file in its history', async () => {
     await git(app, ['mv', 'pick-one.txt', 'renamed.txt']);
     await git(app, ['commit', '-m', 'Rename a file']);

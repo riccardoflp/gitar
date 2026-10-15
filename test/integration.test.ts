@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { discoverRepos, repoName } from '../src/git/discover';
-import { git } from '../src/git/exec';
+import { GitError, git } from '../src/git/exec';
 import {
   abortOp,
   bisectOp,
@@ -41,12 +41,14 @@ import {
   restoreBranchOp,
   restoreStashOp,
   revertOp,
+  skipEmptyPicks,
   skipOp,
   stageAllOp,
   stageOp,
   stashOp,
   stashPushOp,
   syncOp,
+  takeSideOp,
   undoOp,
   unstageAllOp,
   unstageOp,
@@ -67,12 +69,20 @@ import { canFastForward } from '../src/shared/refs';
 let root: string;
 let repo: Repo;
 
+/** What operations said in the log while getting past a failure. */
+let logged: string[] = [];
+const log = { info: (line: string) => logged.push(line), warn: (line: string) => logged.push(line) };
 const run = async (op: GitOp) => {
   for (const [index, args] of op.commands.entries()) {
-    await git(root, args, { input: index === op.commands.length - 1 ? op.input : undefined });
+    try {
+      await git(root, args, { input: index === op.commands.length - 1 ? op.input : undefined });
+    } catch (failure) {
+      if (!(failure instanceof GitError) || !(await op.recover?.(args, failure, log))) throw failure;
+    }
   }
 };
 const subjects = async () => (await state()).rows.map((row) => row.subject);
+const mainSubjects = async () => (await git(root, ['log', '--format=%s', 'main'])).stdout.trim().split('\n');
 const undo = async () => {
   const current = await state();
   const info = await repo.undoInfo(current.branch, current.working);
@@ -109,6 +119,7 @@ beforeEach(async () => {
   await git(dir, ['config', 'commit.gpgsign', 'false']);
   root = (await Repo.discover(dir))!;
   repo = new Repo(root);
+  logged = [];
 });
 
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -1393,6 +1404,78 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       'main change',
       'base',
     ]);
+  });
+
+  it('continues a series of cherry-picks past a conflict resolved by keeping what the branch has', async () => {
+    write('a.txt', 'base\n');
+    await commitAll('base');
+    await run(createBranchOp('other', 'HEAD', true));
+    write('a.txt', 'other\n');
+    const first = await commitAll('change a');
+    write('b.txt', 'b\n');
+    const second = await commitAll('add b');
+    write('a.txt', 'other again\n');
+    const third = await commitAll('change a again');
+    await run(checkoutOp('branch', 'main'));
+    write('a.txt', 'main\n');
+    await commitAll('main change');
+    const pick = (op: GitOp) => ({ ...op, recover: skipEmptyPicks(root) });
+
+    await expect(run(pick(cherryPickManyOp([first, second, third])))).rejects.toThrow();
+    expect((await state()).working.conflicts.map((file) => file.path)).toEqual(['a.txt']);
+
+    // Keeping main's side leaves the commit with nothing to commit: git refuses to continue until it is skipped.
+    await run(takeSideOp('a.txt', 'ours', await repo.conflictStages('a.txt'), 'cherry-pick'));
+    await expect(run(continueOp('cherry-pick'))).rejects.toThrow(/now empty/);
+
+    // Continuing skips it, picks the next one, and stops on the conflict of the one after.
+    await run(pick(continueOp('cherry-pick'))).catch(() => undefined);
+    let current = await state();
+    expect(current.operation).toBe('cherry-pick');
+    expect(current.working.conflicts.map((file) => file.path)).toEqual(['a.txt']);
+    expect(exists('b.txt')).toBe(true);
+    expect(logged.some((line) => line.includes(`${first.slice(0, 7)} changes nothing`))).toBe(true);
+
+    write('a.txt', 'resolved\n');
+    await run(stageOp(['a.txt']));
+    await run(pick(continueOp('cherry-pick')));
+    current = await state();
+    expect(current.operation).toBeNull();
+    expect(await mainSubjects()).toEqual(['change a again', 'add b', 'main change', 'base']);
+  });
+
+  it('skips the commits of a series whose changes the branch has already', async () => {
+    write('a.txt', 'base\n');
+    await commitAll('base');
+    await run(createBranchOp('other', 'HEAD', true));
+    write('x.txt', 'x\n');
+    const first = await commitAll('add x');
+    write('y.txt', 'y\n');
+    const second = await commitAll('add y');
+    await run(checkoutOp('branch', 'main'));
+    write('x.txt', 'x\n');
+    await commitAll('same x');
+
+    await run({ ...cherryPickManyOp([first, second]), recover: skipEmptyPicks(root) });
+    expect((await state()).operation).toBeNull();
+    expect(await mainSubjects()).toEqual(['add y', 'same x', 'base']);
+  });
+
+  it('does not skip an empty pick while the files have changes of the user', async () => {
+    write('a.txt', 'base\n');
+    await commitAll('base');
+    await run(createBranchOp('other', 'HEAD', true));
+    write('x.txt', 'x\n');
+    const first = await commitAll('add x');
+    await run(checkoutOp('branch', 'main'));
+    write('x.txt', 'x\n');
+    await commitAll('same x');
+
+    await expect(run(cherryPickOp(first, false))).rejects.toThrow();
+    write('a.txt', 'mine\n');
+    await expect(run({ ...continueOp('cherry-pick'), recover: skipEmptyPicks(root) })).rejects.toThrow();
+    expect((await state()).operation).toBe('cherry-pick');
+    expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('mine\n');
   });
 
   it('undoes a whole series of cherry-picks by aborting it', async () => {
