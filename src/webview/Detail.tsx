@@ -15,6 +15,10 @@ interface Props {
   detail: CommitDetail | null;
   /** For the changes that are not committed: whether they can be stashed, and all discarded at once. */
   changes?: { stash: boolean; discardAll: boolean };
+  /** Whether the message of the commit can be changed from here, and whether it is being changed. */
+  reword?: boolean;
+  editing?: boolean;
+  onEditing?(editing: boolean): void;
   onJump(hash: string): void;
   onClose(): void;
 }
@@ -76,7 +80,58 @@ function Said({ text }: { text: string }) {
   );
 }
 
-export function Detail({ hash, detail, changes, onJump, onClose }: Props) {
+/**
+ * The message of a commit in a box to change it: Ctrl+Enter or Save gives it to the commit, Escape or Cancel leaves it
+ * as it was.
+ */
+function MessageEditor({ message, onSave, onCancel }: { message: string; onSave(message: string): void; onCancel(): void }) {
+  const [text, setText] = useState(message);
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    element.focus();
+    element.setSelectionRange(element.value.length, element.value.length);
+  }, []);
+  const unchanged = text.trim() === message.trim();
+  const save = () => {
+    if (!text.trim()) return;
+    if (unchanged) onCancel();
+    else onSave(text.trim());
+  };
+  return (
+    <div className="message-editor">
+      <textarea
+        ref={box}
+        value={text}
+        rows={Math.min(12, Math.max(3, text.split('\n').length + 1))}
+        aria-label="Commit message"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            save();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+      <div className="message-actions">
+        <span className="grow muted">Ctrl+Enter to save</span>
+        <button className="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="button primary" disabled={!text.trim() || unchanged} onClick={save}>
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function Detail({ hash, detail, changes, reword, editing, onEditing, onJump, onClose }: Props) {
   const worktree = hash === WORKTREE;
   const message = useMemo(() => (detail ? said(detail.subject, detail.body) : null), [detail]);
   const source: DiffSource = worktree
@@ -162,12 +217,31 @@ export function Detail({ hash, detail, changes, onJump, onClose }: Props) {
           <Icon name="link-external" />
         </button>
       )}
+      {reword && !worktree && detail && !editing && (
+        <button className="button icon open-tab" onClick={() => onEditing?.(true)} aria-label="Edit message" title="Edit message">
+          <Icon name="edit" />
+        </button>
+      )}
       {!detail ? (
         <p className="muted">Loading…</p>
       ) : (
         <>
-          <h2>{message?.title}</h2>
-          {message?.text && <Said key={hash} text={message.text} />}
+          {editing && !worktree ? (
+            <MessageEditor
+              key={hash}
+              message={detail.body ? `${detail.subject}\n\n${detail.body}` : detail.subject}
+              onSave={(text) => {
+                act({ kind: 'reword', hash, message: text });
+                onEditing?.(false);
+              }}
+              onCancel={() => onEditing?.(false)}
+            />
+          ) : (
+            <>
+              <h2>{message?.title}</h2>
+              {message?.text && <Said key={hash} text={message.text} />}
+            </>
+          )}
           {!worktree && (
             <dl>
               <dt>Author</dt>

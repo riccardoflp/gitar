@@ -921,6 +921,8 @@ export class Controller implements vscode.Disposable {
 
       // Git can mark the conflicts of a file again only while it has both of its sides.
       const sides = action.kind === 'takeSide' ? await repo.conflictStages(action.path) : [];
+      // A commit given a new message is made again, with the ones after it: the new one is that many before HEAD.
+      const after = action.kind === 'reword' && action.hash !== state.head ? ((await repo.lineAfter(action.hash))?.length ?? 0) : 0;
       const op = await resolveAction(action, state, repo, this.memento);
       if (!op) return;
       // What is about to be written can be looked at first.
@@ -937,6 +939,7 @@ export class Controller implements vscode.Disposable {
 
       if (action.kind === 'commit') this.post({ type: 'committed' });
       if (action.kind === 'bisect') this.reportBisect();
+      if (action.kind === 'reword') this.show((await git(repo.root, ['rev-parse', `HEAD~${after}`])).stdout.trim());
       this.undoable = undefined;
       const branch = action.kind === 'deleteBranch' && state.branches.find((candidate) => candidate.name === action.name);
       const stash = action.kind === 'stashDrop' && state.stashes.find((candidate) => candidate.ref === action.ref);

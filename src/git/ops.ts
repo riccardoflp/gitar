@@ -316,14 +316,32 @@ export function rebaseTodo(steps: RebaseStep[], messageFile: (index: number) => 
  * Runs an interactive rebase with a todo list prepared in advance: git's "editor" for the list is a copy of `todoFile` over it.
  * `base` is the commit the steps sit on, or null to rebase from the root.
  */
-export function rebaseInteractiveOp(base: string | null, todoFile: string, todo: string, branch: string | null): GitOp {
+export function rebaseInteractiveOp(base: string | null, todoFile: string, todo: string, branch: string | null, autostash = false): GitOp {
   return {
     title: `Interactive rebase of ${branch ?? 'HEAD'}`,
     commands: [
-      ['-c', `sequence.editor=cp "${todoFile}"`, '-c', 'core.editor=true', 'rebase', '-i', base ? arg(base) : '--root'],
+      [
+        '-c',
+        `sequence.editor=cp "${todoFile}"`,
+        '-c',
+        'core.editor=true',
+        'rebase',
+        '-i',
+        ...(autostash ? ['--autostash'] : []),
+        base ? arg(base) : '--root',
+      ],
     ],
     confirm: true,
     note: `This rewrites the commits after ${base ? short(base) : 'the root'} with this todo list:\n\n${todo.trimEnd()}`,
+  };
+}
+
+/** Changes the message of the last commit and nothing else: what is staged stays staged. The message comes on standard input. */
+export function rewordHeadOp(message: string): GitOp {
+  return {
+    title: 'Edit the message of the last commit',
+    commands: [['commit', '--amend', '--only', '--allow-empty', '-F', '-']],
+    input: `${message.trim()}\n`,
   };
 }
 

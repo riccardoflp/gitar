@@ -1755,6 +1755,43 @@ try {
     assert(!git(app, 'status', '--porcelain').toString().trim(), 'git has nothing to commit');
     git(app, 'stash', 'drop');
   });
+
+  await step('the message of a commit is changed in the details, the last one at once and an older one after a question', async () => {
+    await command('View: Close All Editors');
+    await command('Gitardo: Show Graph');
+    const graph = await webview('graph');
+    const subject = (ref) => git(app, 'log', '-1', '--format=%s', ref).toString().trim();
+    const editor = () => graph.evaluate(`document.activeElement?.getAttribute('aria-label') === 'Commit message' ? document.activeElement.value : null`);
+
+    // The pencil beside the title of the last commit opens its message in a box, and Ctrl+Enter gives it the new one.
+    await graph.click('.row', subject('HEAD'));
+    await graph.click('.detail button[title="Edit message"]');
+    assert((await until('the message in a box', editor)) === git(app, 'log', '-1', '--format=%B', 'HEAD').toString().trim(), 'the whole message');
+    await key('A', CTRL);
+    await type('Edited in the details');
+    await shot('reword-editor');
+    await key('Enter', CTRL);
+    await until('the new message', () => subject('HEAD') === 'Edited in the details');
+    await until('the graph with it', async () => (await subjects(graph))[0] === 'Edited in the details');
+
+    // An older one from its menu: the commits after it are made again, which is asked first.
+    const older = subject('HEAD~2');
+    const hash = git(app, 'rev-parse', '--short=7', 'HEAD~2').toString().trim();
+    await graph.click('.row', older, 'right');
+    await graph.click('[role="menuitem"]', 'Edit message…');
+    await until('the message in a box', editor);
+    await key('End', CTRL);
+    await type(', edited');
+    await key('Enter', CTRL);
+    const dialog = await until('the question', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
+    await shot('reword-older');
+    assert(dialog.text.includes(`Edit the message of ${hash}?`) && dialog.text.includes('the 2 commits after it are made again'), `dialog: ${dialog.text}`);
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('the older one with its new message', () => subject('HEAD~2') === `${older}, edited`);
+    assert(subject('HEAD') === 'Edited in the details', 'the last one is made again as it was');
+    // The new commit is the one selected.
+    await until('the new commit in the details', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === ${JSON.stringify(`${older}, edited`)}`));
+  });
 } catch (error) {
   await finish(error);
 }

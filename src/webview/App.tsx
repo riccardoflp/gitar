@@ -18,6 +18,7 @@ import { dragging } from './drag';
 import {
   branchMenu,
   canCherryPick,
+  canReword,
   cherryPickMany,
   commitMenu,
   dropMenu,
@@ -98,6 +99,8 @@ export function App({ compact = false }: { compact?: boolean }) {
   const [find, setFind] = useState<Find | null>(null);
   const [reveal, setReveal] = useState<{ hash: string } | null>(null);
   const [rebase, setRebase] = useState<Row[] | null>(null);
+  // The commit whose message is being changed in the details.
+  const [editing, setEditing] = useState<string | null>(null);
   const [comparing, setComparing] = useState<Comparing | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [{ refsWidth, detailWidth, graphWidth, detailHeight }, setWidths] = useState(() => loadUiState(WIDTHS));
@@ -122,6 +125,7 @@ export function App({ compact = false }: { compact?: boolean }) {
     setSelected(hash);
     setDetail(null);
     setComparing(null);
+    setEditing(null);
     if (hash) post({ type: 'getDetail', hash });
   }, []);
 
@@ -299,7 +303,18 @@ export function App({ compact = false }: { compact?: boolean }) {
     if (markedRows.length > 1 && marked.has(row.hash)) return openMenu(event, selectionMenu(markedRows, state, compare));
     const before = selected;
     select(row.hash);
-    openMenu(event, commitMenu(row, state, { selected: before, onInteractiveRebase: setRebase, onCompare: compare }));
+    openMenu(
+      event,
+      commitMenu(row, state, {
+        selected: before,
+        onInteractiveRebase: setRebase,
+        onCompare: compare,
+        onEditMessage: () => {
+          select(row.hash);
+          setEditing(row.hash);
+        },
+      }),
+    );
   };
 
   const dropEntries = (row: Row) => {
@@ -435,6 +450,9 @@ export function App({ compact = false }: { compact?: boolean }) {
               hash={selected}
               detail={detail}
               changes={{ stash: state.head !== null, discardAll: !state.operation }}
+              reword={canReword(selected, state)}
+              editing={editing === selected}
+              onEditing={(on) => setEditing(on ? selected : null)}
               onJump={jump}
               onClose={() => select(null)}
             />

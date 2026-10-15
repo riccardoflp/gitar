@@ -97,6 +97,17 @@ interface CommitMenuTools {
   selected: string | null;
   onInteractiveRebase(range: Row[]): void;
   onCompare(comparing: Comparing): void;
+  /** Opens the message of the commit in the details, to change it. */
+  onEditMessage(): void;
+}
+
+/**
+ * Whether the message of a commit can be changed: the last one by amending it, merge or not, an older one by a rebase
+ * of it and the line of commits after it, which has no merge, while nothing else is going on.
+ */
+export function canReword(hash: string, state: RepoState): boolean {
+  if (hash === WORKTREE || state.operation || state.bisect) return false;
+  return hash === state.head || rebaseRange(hash, state) !== null;
 }
 
 /** What can be done with the changes that are not committed, all at once. */
@@ -120,7 +131,7 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
   if (row.hash === WORKTREE) return changesMenu(state);
 
   const { hash } = row;
-  const { selected, onInteractiveRebase, onCompare } = tools;
+  const { selected, onInteractiveRebase, onCompare, onEditMessage } = tools;
   const short = shortHash(hash);
   const isMerge = row.parents.length > 1;
   const isHead = hash === state.head;
@@ -143,6 +154,7 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
     { label: `Revert ${short}`, run: () => act({ kind: 'revert', hash, isMerge }) },
     'separator',
     ...integrate(hash, hash, state),
+    canReword(hash, state) && { label: 'Edit message…', run: onEditMessage },
     range && {
       label: range.length === 1 ? 'Edit this commit (interactive rebase)…' : `Interactive rebase of ${range.length} commits…`,
       run: () => onInteractiveRebase(range),

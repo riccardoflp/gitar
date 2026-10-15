@@ -10,6 +10,7 @@ import {
   fixupOp,
   hunkOp,
   rebaseInteractiveOp,
+  rewordHeadOp,
   rebaseTodo,
   undoOp,
   worktreeAddOp,
@@ -72,7 +73,7 @@ import { parseWorktrees, samePath } from '../git/parse';
 import { setUpWorktree, unlinkFolderLinks } from '../git/worktreeSetup';
 import type { SetupPatterns } from '../shared/worktreeSetup';
 import { setupPatterns } from './worktreeSettings';
-import type { Action, RepoState, Submodule, Worktree } from '../shared/protocol';
+import type { Action, RebaseStep, RepoState, Submodule, Worktree } from '../shared/protocol';
 import { isHome, refArg, worktreeOf } from '../shared/refs';
 import { submoduleFolder } from '../shared/submodules';
 
@@ -150,19 +151,39 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     case 'rebase':
       return rebaseOp(action.onto, state.branch, action.branch);
 
-    case 'rebaseInteractive': {
-      // The todo list and the reworded messages live in files that git reads while the rebase runs.
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-rebase-'));
-      const file = (name: string) => path.join(dir, name).replace(/\\/g, '/');
-      const messageFile = (index: number) => file(`message-${index}.txt`);
-      action.steps.forEach((step, index) => {
-        if (step.action === 'reword') fs.writeFileSync(messageFile(index), `${(step.message ?? '').trim()}\n`);
-      });
-      const todo = rebaseTodo(action.steps, messageFile);
-      fs.writeFileSync(file('todo'), todo);
-      const op = rebaseInteractiveOp(action.base, file('todo'), todo, state.branch);
-      // If the rebase stops half way the files are still needed, so they are only removed after a clean finish.
-      op.onSuccess = () => fs.rmSync(dir, { recursive: true, force: true });
+    case 'rebaseInteractive':
+      return interactiveRebase(action.steps, action.base, state, repo);
+
+    case 'reword': {
+      if (state.operation) throw new Error(`Finish or abort the ${state.operation} first.`);
+      if (state.bisect) throw new Error('End the bisect first.');
+      const message = action.message.trim();
+      if (!message) throw new Error('Enter a message.');
+      const short = action.hash.slice(0, 7);
+      let op: GitOp;
+      if (action.hash === state.head) {
+        op = rewordHeadOp(message);
+      } else {
+        // The commits after it are made again on top of it, which a merge among them would undo.
+        const after = await repo.lineAfter(action.hash);
+        if (!after) throw new Error(`${short} is not on the line of commits before HEAD without merges: its message cannot be changed by a rebase from here.`);
+        const parent = (await git(repo.root, ['rev-parse', '--verify', '--quiet', `${action.hash}^`]).catch(() => null))?.stdout.trim() || null;
+        const steps: RebaseStep[] = [{ action: 'reword', hash: action.hash, message }, ...after.reverse().map((hash): RebaseStep => ({ action: 'pick', hash }))];
+        op = await interactiveRebase(steps, parent, state, repo, true);
+        op.title = `Edit the message of ${short}`;
+        const commits = after.length === 1 ? 'the commit after it is' : `the ${after.length} commits after it are`;
+        const aside = state.working.staged.length || state.working.unstaged.length ? ' Changes that are not committed are set aside and put back.' : '';
+        op.note = `${short} gets the new message, and ${commits} made again on top of it, with new hashes.${aside}`;
+      }
+      // A commit that is on a remote is there with its old message: pushing the new one replaces it there.
+      const pushed = await repo.remoteBranchesWith(action.hash);
+      if (pushed.length) {
+        const where = pushed.length > 3 ? `${pushed.slice(0, 3).join(', ')} and ${pushed.length - 3} more` : pushed.join(', ');
+        op.confirm = true;
+        op.note = [`${short} is pushed already, on ${where}: the branch will have to be force pushed, and whoever has the old commits will have to move to the new ones.`, op.note]
+          .filter(Boolean)
+          .join('\n\n');
+      }
       return op;
     }
 
@@ -592,6 +613,32 @@ async function updatingSubmodules(op: GitOp | undefined, to: string, state: Repo
   const notes = [...lost, ...risks.flatMap((risk) => risk.changes)];
   if (lost.length) op.confirm = true;
   if (notes.length) op.note = [op.note, 'Then the submodules go to the commits recorded for them.', ...notes].filter(Boolean).join('\n\n');
+  return op;
+}
+
+/**
+ * An interactive rebase from the steps given, oldest first. The todo list and the reworded messages live in files that
+ * git reads while the rebase runs; a reword that only gives a new subject keeps the body the commit has.
+ */
+async function interactiveRebase(steps: RebaseStep[], base: string | null, state: RepoState, repo: Repo, autostash = false): Promise<GitOp> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-rebase-'));
+  const file = (name: string) => path.join(dir, name).replace(/\\/g, '/');
+  const messageFile = (index: number) => file(`message-${index}.txt`);
+  for (const [index, step] of steps.entries()) {
+    if (step.action !== 'reword') continue;
+    let message = (step.message ?? '').trim();
+    if (step.keepBody) {
+      const original = await repo.commitMessage(step.hash);
+      const end = original.search(/\n\s*\n/);
+      if (end !== -1) message = `${message}\n\n${original.slice(end).trim()}`;
+    }
+    fs.writeFileSync(messageFile(index), `${message}\n`);
+  }
+  const todo = rebaseTodo(steps, messageFile);
+  fs.writeFileSync(file('todo'), todo);
+  const op = rebaseInteractiveOp(base, file('todo'), todo, state.branch, autostash);
+  // If the rebase stops half way the files are still needed, so they are only removed after a clean finish.
+  op.onSuccess = () => fs.rmSync(dir, { recursive: true, force: true });
   return op;
 }
 

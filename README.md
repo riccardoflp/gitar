@@ -66,7 +66,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | On | Operations |
 | --- | --- |
 | Uncommitted changes | Stash, stash the staged changes, stage all, unstage all, discard all, staged changes and untracked files included |
-| Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
+| Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, edit its message, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
 | Local branch | Check out (also by double-click), open in a worktree made for it, or, when another worktree has it, open, rename or remove that worktree (see [Worktrees](#worktrees)), fast-forward to its upstream, merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
 | Remote branch | Check out (also by double-click) as a local tracking branch, or in the local branch of its name when there is one, brought up to it: fast-forwarded, or with its own commits rebased onto it if you choose; when another worktree has that branch, that worktree opens instead; open in a worktree on a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
@@ -97,7 +97,11 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 
 ### Interactive rebase
 
-**Interactive rebase…** on a commit opens an editor with the commits from there up to `HEAD`. Reorder them by dragging, and pick, reword, squash, fixup or drop each one. It is offered when those commits form a single line without merges.
+**Interactive rebase…** on a commit opens an editor with the commits from there up to `HEAD`. Reorder them by dragging, and pick, reword, squash, fixup or drop each one. It is offered when those commits form a single line without merges. A reworded commit gets the subject typed there and keeps the rest of its message.
+
+### Edit a commit message
+
+The pencil beside the message in the details, or **Edit message…** in the context menu of a commit, opens its whole message in a box: **Save** or `Ctrl`+`Enter` gives the commit the new one, **Cancel** or `Escape` leaves it as it was. The last commit is amended with `git commit --amend --only`, which leaves out what is staged. An older one is reworded by an interactive rebase that makes the commits after it again, with new hashes, after asking; the changes that are not committed are set aside and put back with `--autostash`. It is offered on the last commit, merge or not, and on the older ones down to the first merge, while no merge, rebase or bisect is under way. When the commit is on a remote branch already, Gitardo says so first: the branch will have to be force pushed. The commit with its new message is selected after.
 
 ### Fixup
 

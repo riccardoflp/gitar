@@ -5,7 +5,7 @@ import { changesText, upstreamHint, worktreeOf, worktreeStatus } from '../src/sh
 // The menus post what is chosen to the extension; here they are only read.
 const posted = vi.hoisted(() => [] as unknown[]);
 vi.mock('../src/webview/vscode', () => ({ post: (message: unknown) => posted.push(message) }));
-const { branchMenu, changesMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, worktreeMenu } = await import('../src/webview/menus');
+const { branchMenu, canReword, changesMenu, commitMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, worktreeMenu } = await import('../src/webview/menus');
 
 const worktree = (overrides: Partial<Worktree>): Worktree => ({
   path: 'C:/prj/app',
@@ -227,5 +227,21 @@ describe('menu of the changes that are not committed', () => {
       'Stash staged changes…',
       'Unstage all changes',
     ]);
+  });
+});
+
+describe('changing the message of a commit', () => {
+  const row = (hash: string, parents: string[]): Row => ({ hash, parents, author: '', email: '', date: 0, subject: hash, graph: [] as never });
+  const rows = [row('d', ['c']), row('c', ['b']), row('b', ['a', 'x']), row('a', [])];
+  const repo = (more: Partial<RepoState> = {}) => ({ ...state([], []), head: 'd', rows, working: { staged: [], unstaged: [], conflicts: [] }, bisect: null, ...more }) as RepoState;
+  const tools = { selected: null, onInteractiveRebase: () => {}, onCompare: () => {}, onEditMessage: () => {} };
+
+  it('is offered on the commits down to the first merge, and not while something else is going on', () => {
+    expect(['d', 'c', 'b', 'a'].map((hash) => canReword(hash, repo()))).toEqual([true, true, false, false]);
+    expect(canReword('d', repo({ operation: 'merge' }))).toBe(false);
+    // The last commit is amended, merge or not.
+    expect(canReword('b', repo({ head: 'b', rows: rows.slice(2) }))).toBe(true);
+    expect(labels(commitMenu(rows[1], repo(), tools))).toContain('Edit message…');
+    expect(labels(commitMenu(rows[2], repo(), tools))).not.toContain('Edit message…');
   });
 });

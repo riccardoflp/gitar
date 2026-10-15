@@ -11,7 +11,7 @@ import { type DiffDescriptor, describeDiff } from '../../src/flow/sides';
 import { git } from '../../src/git/exec';
 import { samePath } from '../../src/git/parse';
 import { Repo } from '../../src/git/repo';
-import type { Filter, HostMessage, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
+import type { Filter, HostMessage, RebaseStep, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
 
 /** The parts of the controller that are private to everyone but these tests. */
 interface Internals {
@@ -2112,6 +2112,69 @@ export async function run(): Promise<void> {
       await controller.refresh();
     }
     assert.deepEqual(state().submodules, []);
+  });
+
+  await step('changes the message of the last commit, of an older one after asking, and warns when it is pushed', async () => {
+    const home = state().branch!;
+    const message = async (ref: string) => (await git(app, ['log', '-1', '--format=%B', ref])).stdout.trimEnd();
+    await git(app, ['checkout', '-b', 'reword']);
+    for (const [file, text] of [['one', 'Reword one\n\nIts body.'], ['two', 'Reword two\n\nKept under the new subject.'], ['three', 'Reword three']]) {
+      fs.writeFileSync(path.join(app, `${file}.txt`), `${file}\n`);
+      await git(app, ['add', `${file}.txt`]);
+      await git(app, ['commit', '-m', text]);
+    }
+    await controller.refresh();
+    try {
+      // The last one is amended, without a question, and what is staged stays out of it.
+      fs.writeFileSync(path.join(app, 'three.txt'), 'staged\n');
+      await git(app, ['add', 'three.txt']);
+      asked.length = 0;
+      answer = run;
+      await controller.action({ kind: 'reword', hash: state().head!, message: 'Reword three, new\n\nWith a body now.' });
+      assert.equal(asked.length, 0, JSON.stringify(asked));
+      assert.equal(await message('HEAD'), 'Reword three, new\n\nWith a body now.');
+      assert.deepEqual(state().working.staged, [{ status: 'M', path: 'three.txt' }]);
+
+      // An older one is asked first, and the changes not committed come back after.
+      const one = (await git(app, ['rev-parse', 'HEAD~2'])).stdout.trim();
+      await controller.action({ kind: 'reword', hash: one, message: 'Reword one, new\n\nIts body.' });
+      assert.deepEqual(
+        asked.map((question) => question.message),
+        [`Edit the message of ${one.slice(0, 7)}?`],
+      );
+      assert.ok(asked[0].detail.includes('the 2 commits after it are made again'), asked[0].detail);
+      assert.equal(await message('HEAD~2'), 'Reword one, new\n\nIts body.');
+      assert.equal(await message('HEAD'), 'Reword three, new\n\nWith a body now.');
+      assert.equal(fs.readFileSync(path.join(app, 'three.txt'), 'utf8'), 'staged\n');
+      assert.equal(state().operation, null);
+
+      // From the interactive rebase a new subject keeps the body.
+      const two = (await git(app, ['rev-parse', 'HEAD~1'])).stdout.trim();
+      const steps: RebaseStep[] = [
+        { action: 'reword', hash: two, message: 'Reword two, new', keepBody: true },
+        { action: 'pick', hash: state().head! },
+      ];
+      // The interactive rebase does not set the changes aside on its own.
+      await git(app, ['stash', 'push', '--quiet']);
+      await controller.action({ kind: 'rebaseInteractive', base: (await git(app, ['rev-parse', `${two}~1`])).stdout.trim(), steps });
+      assert.equal(await message('HEAD~1'), 'Reword two, new\n\nKept under the new subject.');
+
+      // Once pushed, the force push it takes is said, and asked.
+      await git(app, ['push', '--quiet', 'origin', 'reword']);
+      await controller.refresh();
+      asked.length = 0;
+      await controller.action({ kind: 'reword', hash: state().head!, message: 'Reword three, again' });
+      assert.equal(asked.length, 1);
+      assert.ok(asked[0].detail.includes('is pushed already, on origin/reword'), asked[0].detail);
+      assert.equal(await message('HEAD'), 'Reword three, again');
+    } finally {
+      answer = () => undefined;
+      await git(app, ['checkout', '--force', home]);
+      await git(app, ['stash', 'drop', '--quiet']).catch(() => undefined);
+      await git(app, ['branch', '-D', 'reword']);
+      await git(app, ['push', '--quiet', 'origin', '--delete', 'reword']).catch(() => undefined);
+      await controller.refresh();
+    }
   });
 
   await step('logged no unexpected errors', async () => {

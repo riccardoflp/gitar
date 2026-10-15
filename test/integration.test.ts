@@ -29,6 +29,7 @@ import {
   mergeOp,
   pullAction,
   rebaseInteractiveOp,
+  rewordHeadOp,
   rebaseOp,
   rebaseTodo,
   remoteAddOp,
@@ -407,6 +408,48 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await state()).stashes).toEqual([]);
     await run(restoreStashOp(stash.message, stash.hash));
     expect((await state()).stashes).toMatchObject([{ hash: stash.hash, message: 'On main: keep me' }]);
+  });
+
+  it('changes the message of the last commit and leaves what is staged, or of an older one with what is not committed set aside', async () => {
+    const hashes: Record<string, string> = {};
+    for (const name of ['base', 'b', 'c']) {
+      write(`${name}.txt`, `${name}\n`);
+      hashes[name] = await commitAll(`Add ${name}`);
+    }
+    write('c.txt', 'staged\n');
+    await run(stageOp(['c.txt']));
+    await run(rewordHeadOp('Add c, reworded\n\n# Not a comment.\n'));
+    expect(await repo.commitMessage((await state()).head!)).toBe('Add c, reworded\n\n# Not a comment.');
+    expect((await state()).working.staged).toEqual([{ status: 'M', path: 'c.txt' }]);
+
+    // The line after b, which a rebase makes again, and nothing for a commit that is not before HEAD.
+    const head = (await state()).head!;
+    expect(await repo.lineAfter(hashes.base)).toEqual([head, hashes.b]);
+    expect(await repo.lineAfter(head)).toEqual([]);
+    await git(root, ['commit', '--allow-empty', '-m', 'Elsewhere', '--quiet']);
+    const elsewhere = (await state()).head!;
+    await git(root, ['reset', '--soft', 'HEAD~1']);
+    expect(await repo.lineAfter(elsewhere)).toBeNull();
+    expect(await repo.remoteBranchesWith(hashes.b)).toEqual([]);
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-todo-'));
+    const file = (name: string) => path.join(dir, name).replace(/\\/g, '/');
+    fs.writeFileSync(file('message-0.txt'), 'Add b, reworded\n\nWith a body.\n');
+    const todo = rebaseTodo(
+      [
+        { action: 'reword', hash: hashes.b, message: 'Add b, reworded\n\nWith a body.' },
+        { action: 'pick', hash: head },
+      ],
+      (index) => file(`message-${index}.txt`),
+    );
+    fs.writeFileSync(file('todo'), todo);
+    const op = rebaseInteractiveOp(hashes.base, file('todo'), todo, 'main', true);
+    expect(op.commands[0]).toContain('--autostash');
+    await run(op);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(await subjects()).toEqual(['Uncommitted changes (1)', 'Add c, reworded', 'Add b, reworded', 'Add base']);
+    expect(await repo.commitMessage((await state()).rows[2].hash)).toBe('Add b, reworded\n\nWith a body.');
+    expect(fs.readFileSync(path.join(root, 'c.txt'), 'utf8')).toBe('staged\n');
   });
 
   it('reorders, rewords, melds and drops commits in an interactive rebase', async () => {

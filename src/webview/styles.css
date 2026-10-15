@@ -1468,7 +1468,23 @@ input:focus-visible,
   padding: 8px 12px;
 }
 
-.commit-box textarea {
+/* The message of a commit being changed in the details: as wide as they are, the buttons under it. */
+.message-editor {
+  clear: both;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.commit-box textarea,
+.message-editor textarea {
   box-sizing: border-box;
   width: 100%;
   min-height: 52px;

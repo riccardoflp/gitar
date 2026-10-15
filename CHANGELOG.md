@@ -27,6 +27,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - A **Submodules** section among the references, beside the graph and in the Branches view, when the repository has submodules, theirs included. An icon says where each stands against the commit recorded for it: a green check on it, a yellow arrow up or down with the number of commits it is ahead or behind, and its branch and files not committed are beside it. Its context menu opens it in a new window, a terminal or the views of this window, initializes it, updates it to the recorded commit or to the latest of its branch, stages the commit it is on as the recorded one, deinitializes and removes it, its clone in `.git/modules` included. The **+** of the section and **Gitardo: Add Submodule…** add one, and offer to allow cloning from a folder on disk when git refuses it.
 - The submodules are updated to the commits recorded for them after a checkout, with `git submodule update --init --recursive`, which clones the ones the commit adds. The checkout asks first when that would leave commits in a submodule that no branch has. The setting `gitardo.submodules.updateOnCheckout` turns it off.
 - The row of the uncommitted changes in the graph has a context menu: stash them, or the staged ones, stage or unstage them all, and discard them all, staged changes and untracked files included, after a warning. In the details it opens, each file can be stashed or have all its changes discarded, and files ticked are stashed or discarded together.
+- **Edit message…** on a commit, and a pencil beside its message in the details: the whole message is edited in place, and saved with `Ctrl`+`Enter`. The last commit is amended without what is staged, an older one reworded by an interactive rebase that sets the changes not committed aside, after asking; a commit pushed already is said first.
 - **Fast-forward to `<upstream>`** in the context menu of a local branch that is not checked out: it fetches the upstream and moves the branch up to it, without leaving the branch you are on. Git only does it when the branch has no commits of its own.
 
 ### Changed
@@ -37,6 +38,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Fixed
 
+- A commit reworded in the interactive rebase lost the body of its message: what is typed there is its new subject, and the body stays.
 - The blame of a file beside its lines with word wrap on: the first part of a long line went past the edge of the editor, which folded the line without counting what is beside it. The room for it is now kept by an inlay hint, which the editor counts. With inlay hints switched off, in a font of their own or cut shorter than the room, it is drawn before the line as before.
 
 ## 0.1.0 - 2026-10-13

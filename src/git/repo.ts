@@ -141,6 +141,36 @@ export class Repo {
     return (await this.query(['cat-file', '-e', `${revision}:.gitmodules`])).code === 0;
   }
 
+  /**
+   * The commits after `hash` up to HEAD, newest first, when they make one line without merges: what rewriting `hash`
+   * by an interactive rebase rewrites too. Null when `hash` is not before HEAD that way.
+   */
+  async lineAfter(hash: string): Promise<string[] | null> {
+    if (!isHash(hash) || (await this.query(['merge-base', '--is-ancestor', hash, 'HEAD'])).code !== 0) return null;
+    const lines = (await this.read(['rev-list', '--topo-order', '--parents', `${hash}..HEAD`])).split('\n').filter(Boolean);
+    const commits = lines.map((line) => line.split(' '));
+    if (commits.some((commit) => commit.length > 2)) return null;
+    // Each is the parent of the one before it, down to `hash`.
+    const chain = [...commits.map((commit) => commit[0]), hash];
+    if (commits.some((commit, index) => commit[1] !== chain[index + 1])) return null;
+    // Nor can a merge be made again by a rebase that picks it.
+    if ((await this.read(['rev-list', '--parents', '-n', '1', hash])).trim().split(' ').length > 2) return null;
+    return commits.map((commit) => commit[0]);
+  }
+
+  /** The remote branches that have a commit: where it was pushed. */
+  async remoteBranchesWith(hash: string): Promise<string[]> {
+    if (!isHash(hash)) return [];
+    const out = await this.read(['for-each-ref', '--contains', hash, '--format=%(refname:short)', 'refs/remotes'], true);
+    return out.split('\n').filter((name) => name && !name.endsWith('/HEAD') && name.includes('/'));
+  }
+
+  /** The message of a commit, as it was written: its subject and its body. */
+  async commitMessage(hash: string): Promise<string> {
+    if (!isHash(hash)) throw new Error(`"${hash}" is not a commit.`);
+    return (await this.read(['log', '-1', '--format=%B', hash])).trimEnd();
+  }
+
   async working(): Promise<WorkingState> {
     return parseStatus(await this.read(['status', '--porcelain=v1', '-z', '--untracked-files=all']));
   }

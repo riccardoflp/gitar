@@ -71,6 +71,8 @@ export function RebaseEditor({ range, branch, onClose }: Props) {
         action: step.action,
         hash: step.row.hash,
         message: step.action === 'reword' ? step.message : undefined,
+        // The box is a line: what is typed in it is the subject, and the body stays.
+        keepBody: step.action === 'reword' || undefined,
       })),
     });
     onClose();
@@ -123,7 +125,7 @@ export function RebaseEditor({ range, branch, onClose }: Props) {
                 className="grow"
                 type="text"
                 value={step.message}
-                aria-label="New message"
+                aria-label="New subject"
                 onChange={(event) => update(index, { message: event.target.value })}
               />
             ) : (

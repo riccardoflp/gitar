@@ -339,6 +339,8 @@ export interface RebaseStep {
   hash: string;
   /** The new message of a reworded commit. */
   message?: string;
+  /** Set when `message` is only a new subject: the body the commit has stays under it. */
+  keepBody?: boolean;
 }
 
 /** Which two versions of a file a diff compares. */
@@ -370,6 +372,11 @@ export type Action =
   | { kind: 'rebase'; onto: string; branch?: string }
   /** `steps` are oldest first; `base` is the commit they sit on, or null when they start at the root. */
   | { kind: 'rebaseInteractive'; base: string | null; steps: RebaseStep[] }
+  /**
+   * Gives a commit a new message: the last one by amending it, an older one by an interactive rebase that makes the
+   * commits after it again.
+   */
+  | { kind: 'reword'; hash: string; message: string }
   | { kind: 'undo' }
   /** On an existing branch or at a commit, or, without `ref`, on a new branch from a base asked for. */
   | { kind: 'worktreeAdd'; ref?: string; isBranch?: boolean }
