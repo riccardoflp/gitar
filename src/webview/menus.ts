@@ -229,10 +229,19 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
   const checkedOut = state.worktrees.some((worktree) => worktree.branch === name);
   const worktree = worktreeOf(name, state);
   const removable = worktree && !worktree.main;
+  // What a double click does comes first.
+  const here: MenuEntry[] =
+    branch.current || worktree
+      ? []
+      : [
+          { label: `Check out ${name}`, run: () => act({ kind: 'checkout', target: 'branch', ref: name }) },
+          { label: 'Open in worktree', run: () => act({ kind: 'openInWorktree', name }) },
+        ];
+  if (state.openBranches === 'worktree') here.reverse();
   return [
     ...(worktree ? worktreeOpenEntries(worktree, state, true) : []),
     'separator',
-    !branch.current && !worktree && { label: `Check out ${name}`, run: () => act({ kind: 'checkout', target: 'branch', ref: name }) },
+    ...here,
     canFastForward(branch, state) && {
       label: `Fast-forward to ${branch.upstream?.name}`,
       run: () => act({ kind: 'fastForward', name }),
@@ -265,6 +274,7 @@ export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (co
   const { name } = ref;
   return [
     { label: 'Check out as local branch', run: () => act({ kind: 'checkout', target: 'remote', ref: refArg('remote', name, state) }) },
+    { label: 'Open in worktree', run: () => act({ kind: 'openInWorktree', name, remote: true }) },
     ...integrate(refArg('remote', name, state), ref.hash, state),
     'separator',
     compareWithHead(name, ref.hash, state, onCompare),

@@ -23,6 +23,7 @@ import {
   worktreeMoveOp,
   worktreePruneOp,
   worktreeRemoveOp,
+  worktreeTrackOp,
   checkoutOp,
   cherryPickManyOp,
   cherryPickOp,
@@ -201,6 +202,8 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     case 'worktreeOpen':
       await openWorktree(action.path, action.where ?? openIn(state));
       return;
+    case 'openInWorktree':
+      return openInWorktree(action.name, action.remote ?? false, state);
     case 'worktreeTerminal':
       vscode.window.createTerminal({ name: path.basename(action.path), cwd: action.path }).show();
       return;
@@ -349,6 +352,31 @@ export async function openWorktree(dir: string, where: 'window' | 'agents'): Pro
     }
   }
   await vscode.commands.executeCommand('vscode.openFolder', folder, { forceNewWindow: true });
+}
+
+/**
+ * Opens the worktree of a branch where the settings say, and makes it first when there is none: in the folder of the
+ * worktrees, named after the branch, with nothing asked. A remote branch is worked on in a local branch by its name,
+ * made to track it unless there is one already.
+ */
+async function openInWorktree(name: string, remote: boolean, state: RepoState): Promise<GitOp | undefined> {
+  const branch = remote ? withoutRemote(name, state.remotes) : name;
+  const where = openIn(state);
+  const existing = state.worktrees.find((worktree) => worktree.branch === branch);
+  if (existing) {
+    if (existing.current) throw new Error(`${branch} is checked out in this window.`);
+    if (existing.prunable) throw new Error(`The worktree of ${branch} is missing from ${existing.path}: prune the worktrees to free the branch.`);
+    await openWorktree(existing.path, where);
+    return;
+  }
+  const { main, folder } = worktreesHome(state);
+  const dir = worktreeDir(main, folder, branch);
+  if (fs.existsSync(dir)) throw new Error(`${dir} already exists.`);
+  // The branch by its bare name: given as `refs/heads/…`, git would check out its commit on a detached HEAD.
+  const local = state.branches.some((candidate) => candidate.name === branch);
+  const op = remote && !local ? worktreeTrackOp(dir, branch, refArg('remote', name, state)) : worktreeAddOp(dir, branch, null, false);
+  op.onSuccess = () => void openWorktree(dir, where);
+  return op;
 }
 
 function findWorktree(dir: string, state: RepoState): Worktree {

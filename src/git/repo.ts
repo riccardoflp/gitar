@@ -319,6 +319,7 @@ export class Repo {
       pulls: {},
       agentsWindow: false,
       worktreesRoot: null,
+      openBranches: 'checkout',
     };
   }
 

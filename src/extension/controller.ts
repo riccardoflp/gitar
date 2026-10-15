@@ -26,6 +26,7 @@ import {
 } from '../git/ops';
 import { Repo, isHash } from '../git/repo';
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
+import { worktreeLabel } from '../shared/refs';
 import type {
   Action,
   ComparedRef,
@@ -164,7 +165,7 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidRenameFiles(schedule),
       vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
       vscode.workspace.onDidChangeConfiguration(
-        (event) => ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees'].some((section) => event.affectsConfiguration(section)) && schedule(),
+        (event) => ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches'].some((section) => event.affectsConfiguration(section)) && schedule(),
       ),
     ];
   }
@@ -232,6 +233,7 @@ export class Controller implements vscode.Disposable {
           pulls: this.pulls,
           agentsWindow: await (this.agentsWindow ??= hasCommand(AGENTS_WINDOW)),
           worktreesRoot: worktreesFolder(state),
+          openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
         });
       }
     } catch (error) {
@@ -595,9 +597,36 @@ export class Controller implements vscode.Disposable {
       if (command === 'switchIdentity') return await this.switchIdentity();
       if (command === 'selectRepository') return await this.pickRepo();
       if (command === 'remotes') return await this.manageRemotes();
+      if (command === 'switchWorktree') return await this.switchWorktree();
     } catch (error) {
       void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
+  }
+
+  /** Lists the worktrees, to open one where the settings say, or to create another. */
+  private async switchWorktree(): Promise<void> {
+    const state = await this.requireState();
+    if (!state) return;
+    const create = { label: '$(add) Create worktree…', path: '', current: false };
+    const worktrees = state.worktrees
+      .filter((worktree) => !worktree.prunable)
+      .map((worktree) => ({
+        label: `$(${worktree.main ? 'home' : 'worktree'}) ${worktreeLabel(worktree.path, state.worktreesRoot)}`,
+        description: [worktree.branch ?? `detached at ${worktree.hash.slice(0, 7)}`, worktree.current && 'this window'].filter(Boolean).join(' · '),
+        detail: worktree.path,
+        path: worktree.path,
+        current: worktree.current,
+      }));
+    // The one open here is listed last: it is where the user already is.
+    worktrees.sort((a, b) => Number(a.current) - Number(b.current));
+    const picked = await vscode.window.showQuickPick([...worktrees, { label: '', kind: vscode.QuickPickItemKind.Separator, path: '', current: false }, create], {
+      title: 'Switch Worktree',
+      placeHolder: 'The worktree to open',
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+    if (!picked || picked.current) return;
+    await this.action(picked === create ? { kind: 'worktreeAdd' } : { kind: 'worktreeOpen', path: picked.path });
   }
 
   /** Lists where HEAD has been, and offers what can be done with the chosen position, even if no branch reaches it any more. */

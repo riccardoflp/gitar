@@ -466,6 +466,11 @@ export function worktreeAddOp(dir: string, ref: string, newBranch: string | null
   return { title: `Create worktree for ${newBranch ?? short(ref)}`, commands: [command] };
 }
 
+/** A worktree on a new local branch that tracks the remote branch `remote`, to work on it and push it back. */
+export function worktreeTrackOp(dir: string, branch: string, remote: string): GitOp {
+  return { title: `Create worktree for ${branch}`, commands: [['worktree', 'add', '--track', '-b', arg(branch), arg(dir), arg(remote)]] };
+}
+
 /**
  * Git refuses to remove a worktree with uncommitted changes; the forced variant is offered when that happens.
  * `branch` is deleted after it, and only when merged: `git branch -d` keeps one whose commits are on no other branch.

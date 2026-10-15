@@ -348,6 +348,11 @@
         "category": "Gitardo"
       },
       {
+        "command": "gitardo.switchWorktree",
+        "title": "Switch Worktree…",
+        "category": "Gitardo"
+      },
+      {
         "command": "gitardo.openCommits",
         "title": "Show Commits in the Side Bar",
         "category": "Gitardo"
@@ -546,6 +551,11 @@
           "command": "gitardo.createWorktree",
           "when": "view == gitardo.branches",
           "group": "0_create@1"
+        },
+        {
+          "command": "gitardo.switchWorktree",
+          "when": "view == gitardo.branches",
+          "group": "0_create@2"
         },
         {
           "command": "gitardo.cleanupBranches",
@@ -755,6 +765,19 @@
           "default": true,
           "markdownDescription": "Whether the **Pull** button puts your commits that are not pushed on top of what comes in, instead of merging the two: `git pull --rebase`. With `#gitardo.pull.autostash#` it runs `git pull --rebase --autostash`. Switched off, the button leaves the choice to the configuration of Git, which merges unless told otherwise. The menu beside the button has every way to pull, whatever is set here."
         },
+        "gitardo.branches.openIn": {
+          "type": "string",
+          "enum": [
+            "checkout",
+            "worktree"
+          ],
+          "enumDescriptions": [
+            "Check the branch out in this window.",
+            "Open the worktree of the branch, made for it first, named after it, when it has none. This window stays on its branch."
+          ],
+          "default": "checkout",
+          "description": "What a double click on a local branch does. A branch that another worktree has always opens that worktree, and the context menu of a branch has both, whatever is set here."
+        },
         "gitardo.worktrees.openIn": {
           "type": "string",
           "enum": [
@@ -766,7 +789,7 @@
             "The Agents window of VS Code, for agent sessions that work in the worktree. Where VS Code has no Agents window, a new window."
           ],
           "default": "window",
-          "description": "Where a worktree opens on a double click, on it or on its branch. Their context menus have both, whatever is set here."
+          "description": "Where a worktree opens on a double click, on it or on its branch, and by Open in worktree and Switch Worktree. The context menus of worktrees and their branches have both, whatever is set here."
         },
         "gitardo.worktrees.folder": {
           "type": "string",

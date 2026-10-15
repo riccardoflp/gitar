@@ -149,7 +149,7 @@ async function main() {
     const github = parseGitHubRemote(await repo.remoteUrl('origin'));
     const read = await repo.state(limit, filter, scope, true);
     scope = read.scope;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null } }];
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout' } }];
   }
 
   async function handle(message: WebviewMessage): Promise<HostMessage[]> {

@@ -415,6 +415,80 @@ export async function run(): Promise<void> {
     assert.equal(state().worktrees.length, 1);
   });
 
+  await step('opens a branch in its worktree, made for it with nothing asked, and switches between worktrees', async () => {
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    const branches = state().branches.length;
+    // The windows that would open are only noted.
+    const commands = vscode.commands as unknown as Record<string, (...args: unknown[]) => Thenable<unknown>>;
+    const executeCommand = commands.executeCommand;
+    const opened: string[] = [];
+    commands.executeCommand = (id: unknown, ...args: unknown[]) => {
+      if (id !== 'vscode.openFolder') return executeCommand(id, ...args);
+      opened.push((args[0] as vscode.Uri).fsPath.replace(/\\/g, '/').toLowerCase());
+      return Promise.resolve();
+    };
+    const head = state().head!;
+    try {
+      await git(app, ['push', 'origin', `${head}:refs/heads/remote/only`]);
+      await vscode.commands.executeCommand('gitardo.refresh');
+      assert.ok(state().remoteBranches.some((ref) => ref.name === 'origin/remote/only'));
+
+      // A local branch: its worktree is made, named after it, and opened.
+      asked.length = 0;
+      await controller.action({ kind: 'openInWorktree', name: 'merged' });
+      const merged = state().worktrees.find((worktree) => worktree.branch === 'merged');
+      assert.ok(merged, JSON.stringify(state().worktrees));
+      assert.equal(merged.path.toLowerCase(), `${home}/merged`.toLowerCase());
+      await until('the worktree to open', () => opened.includes(`${home}/merged`.toLowerCase()));
+      assert.equal(asked.length, 0, JSON.stringify(asked));
+
+      // Again: it is there, so it only opens.
+      opened.length = 0;
+      await controller.action({ kind: 'openInWorktree', name: 'merged' });
+      assert.deepEqual(opened, [`${home}/merged`.toLowerCase()]);
+      assert.equal(state().worktrees.length, 2);
+
+      // A remote branch: a local branch by its name tracks it there.
+      await controller.action({ kind: 'openInWorktree', name: 'origin/remote/only', remote: true });
+      const remote = state().worktrees.find((worktree) => worktree.branch === 'remote/only');
+      assert.ok(remote, JSON.stringify(state().worktrees));
+      assert.equal(remote.path.toLowerCase(), `${home}/remote/only`.toLowerCase());
+      assert.equal(state().branches.find((branch) => branch.name === 'remote/only')?.upstream?.name, 'origin/remote/only');
+
+      // The branch checked out here has no worktree to open.
+      errors.length = 0;
+      await controller.action({ kind: 'openInWorktree', name: state().branch! });
+      assert.ok(errors.some((text) => /checked out in this window/.test(text)), JSON.stringify(errors));
+      errors.length = 0;
+
+      // Switch Worktree lists them all, the one of this window last, and creates another from there.
+      opened.length = 0;
+      let listed: string[] = [];
+      choose = (items) => {
+        listed = items.map((item) => item.label);
+        return byLabel(/ merged$/)(items);
+      };
+      await vscode.commands.executeCommand('gitardo.switchWorktree');
+      assert.deepEqual(listed, ['$(worktree) merged', '$(worktree) remote/only', '$(home) app', '', '$(add) Create worktree…']);
+      assert.deepEqual(opened, [`${home}/merged`.toLowerCase()]);
+      opened.length = 0;
+      choose = byLabel(/ app$/);
+      await vscode.commands.executeCommand('gitardo.switchWorktree');
+      assert.deepEqual(opened, []);
+    } finally {
+      commands.executeCommand = executeCommand;
+      choose = () => undefined;
+      for (const worktree of state().worktrees.filter((each) => !each.main)) await git(app, ['worktree', 'remove', '--force', worktree.path]);
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+      await git(app, ['branch', '-D', 'remote/only']).catch(() => undefined);
+      await git(app, ['push', 'origin', '--delete', 'remote/only']);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+    assert.equal(state().branches.length, branches);
+    assert.equal(state().worktrees.length, 1);
+  });
+
   await step('serves file contents at a commit and in the index, and opens diffs', async () => {
     const head = state().head!;
     const at = async (ref: string) => (await vscode.workspace.openTextDocument(contentUri(state().root, ref, 'a.txt'))).getText();

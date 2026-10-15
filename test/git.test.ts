@@ -33,6 +33,7 @@ import {
   worktreeFolderName,
   worktreeMoveOp,
   worktreeRemoveOp,
+  worktreeTrackOp,
   resetOp,
   revertOp,
   skipOp,
@@ -535,6 +536,7 @@ describe('operations', () => {
     expect(worktreeAddOp('../wt', 'feature', null, false).commands).toEqual([['worktree', 'add', '../wt', 'feature']]);
     expect(worktreeAddOp('../wt', hash, 'fix', true).commands).toEqual([['worktree', 'add', '--no-track', '-b', 'fix', '../wt', hash]]);
     expect(worktreeAddOp('../wt', hash, null, true).commands).toEqual([['worktree', 'add', '--detach', '../wt', hash]]);
+    expect(worktreeTrackOp('../wt', 'feature', 'origin/feature').commands).toEqual([['worktree', 'add', '--track', '-b', 'feature', '../wt', 'origin/feature']]);
   });
 
   it('names branches from a format, with inputs, the base without its remote, the repository and the date', () => {

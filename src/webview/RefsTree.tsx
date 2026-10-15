@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState } from '../shared/protocol';
-import { worktreeOf } from '../shared/refs';
+import { worktreeLabel, worktreeOf } from '../shared/refs';
 import { scopeLabel, scopeRefs } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
@@ -45,12 +45,6 @@ interface SectionAction {
   icon: string;
   title: string;
   run(): void;
-}
-
-/** A worktree where new ones go by its path from there, slashes and all; any other by the name of its folder. */
-function worktreeLabel(dir: string, root: string | null): string {
-  if (root && dir.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return dir.slice(root.length + 1);
-  return dir.split('/').pop() ?? dir;
 }
 
 const CHECKS = { success: 'checks passed', failure: 'checks failed', pending: 'checks running' };
@@ -169,14 +163,16 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         current: branch.current,
         favorite: favorites.has(`refs/heads/${branch.name}`),
         menu: () => branchMenu(branch, state, onCompare),
-        // Git checks it out nowhere but in its worktree, which opens instead.
+        // Git checks it out nowhere but in its worktree, which opens instead; working only in worktrees, one is made for it.
         open: branch.current
           ? undefined
           : worktree
             ? worktree.prunable
               ? undefined
               : () => act({ kind: 'worktreeOpen', path: worktree.path })
-            : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
+            : state.openBranches === 'worktree'
+              ? () => act({ kind: 'openInWorktree', name: branch.name })
+              : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
         drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
       };
     });

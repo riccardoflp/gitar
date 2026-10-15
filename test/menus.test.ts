@@ -17,7 +17,7 @@ const worktree = (overrides: Partial<Worktree>): Worktree => ({
   ...overrides,
 });
 
-const state = (worktrees: Worktree[], branches: Branch[], agentsWindow = true) =>
+const state = (worktrees: Worktree[], branches: Branch[], agentsWindow = true, openBranches: RepoState['openBranches'] = 'checkout') =>
   ({
     head: 'aaa',
     branch: 'main',
@@ -32,6 +32,7 @@ const state = (worktrees: Worktree[], branches: Branch[], agentsWindow = true) =
     scope: null,
     operation: null,
     agentsWindow,
+    openBranches,
   }) as Partial<RepoState> as RepoState;
 
 const labels = (entries: ReturnType<typeof branchMenu>) =>
@@ -68,11 +69,20 @@ describe('menus of branches that a worktree has', () => {
     ]);
   });
 
-  it('leaves the menu of a branch without a worktree as it was', () => {
+  it('checks out a branch without a worktree, or opens it in one made for it, first as a double click does', () => {
     const menu = labels(branchMenu(plain, repo, () => {}));
-    expect(menu[0]).toBe('Check out plain');
+    expect(menu.slice(0, 2)).toEqual(['Check out plain', 'Open in worktree']);
     expect(menu).toEqual(expect.arrayContaining(['Create worktree…', 'Rename…', 'Delete']));
     expect(menu.some((label) => /worktree in|Remove worktree/.test(label))).toBe(false);
+
+    const worktrees = state([here, there], [main, login, plain], true, 'worktree');
+    expect(labels(branchMenu(plain, worktrees, () => {})).slice(0, 2)).toEqual(['Open in worktree', 'Check out plain']);
+    posted.length = 0;
+    const open = branchMenu(plain, worktrees, () => {}).find((entry) => entry && entry !== 'separator' && entry.label === 'Open in worktree');
+    if (open && open !== 'separator') open.run();
+    expect(posted).toEqual([{ type: 'action', action: { kind: 'openInWorktree', name: 'plain' } }]);
+    // The branch checked out here has no worktree to open.
+    expect(labels(branchMenu(main, worktrees, () => {}))).not.toContain('Open in worktree');
   });
 
   it('opens the main worktree from another one, which cannot be removed', () => {

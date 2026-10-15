@@ -189,6 +189,8 @@ export interface RepoState {
   agentsWindow: boolean;
   /** Where new worktrees go, as the settings say: the ones in it are named by their path from there. */
   worktreesRoot: string | null;
+  /** What a double click on a branch does, as the settings say: check it out here, or open its worktree. */
+  openBranches: 'checkout' | 'worktree';
 }
 
 /** The commits of what is checked out, for the view that lists them apart from the graph. */
@@ -331,6 +333,8 @@ export type Action =
    * `gitardo.worktrees.openIn` says.
    */
   | { kind: 'worktreeOpen'; path: string; where?: 'window' | 'agents' }
+  /** Opens the worktree of a branch, made for it first in the folder of the worktrees when it has none. */
+  | { kind: 'openInWorktree'; name: string; remote?: boolean }
   /** Asks whether to delete its branch too, unless `deleteBranch` says. */
   | { kind: 'worktreeRemove'; path: string; deleteBranch?: boolean }
   | { kind: 'worktreeRename' | 'worktreeTerminal' | 'worktreeReveal'; path: string }
@@ -398,7 +402,8 @@ export type UiCommand =
   | 'switchIdentity'
   | 'selectRepository'
   | 'remotes'
-  | 'goToCommit';
+  | 'goToCommit'
+  | 'switchWorktree';
 
 export type WebviewMessage =
   | { type: 'ready' }

@@ -12,6 +12,12 @@ export function refArg(kind: keyof typeof KINDS, name: string, state: RepoState)
   return namesakes > 1 ? `${KINDS[kind]}${name}` : name;
 }
 
+/** A worktree where new ones go by its path from there, slashes and all; any other by the name of its folder. */
+export function worktreeLabel(dir: string, root: string | null): string {
+  if (root && dir.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return dir.slice(root.length + 1);
+  return dir.split('/').pop() ?? dir;
+}
+
 /** The other worktree that has a branch checked out, where it is to be worked on: git checks it out nowhere else. */
 export function worktreeOf(branch: string, state: RepoState): Worktree | undefined {
   return state.worktrees.find((worktree) => worktree.branch === branch && !worktree.current);

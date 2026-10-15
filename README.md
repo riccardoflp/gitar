@@ -66,8 +66,8 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | On | Operations |
 | --- | --- |
 | Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
-| Local branch | Check out (also by double-click), or, when another worktree has it, open, rename or remove that worktree (see [Worktrees](#worktrees)), fast-forward to its upstream, merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
-| Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
+| Local branch | Check out (also by double-click), open in a worktree made for it, or, when another worktree has it, open, rename or remove that worktree (see [Worktrees](#worktrees)), fast-forward to its upstream, merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
+| Remote branch | Check out as a local tracking branch, open in a worktree on a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
 | Stash | Apply, pop, create branch, drop |
 | Worktree | Open in the Agents window, open in a new window (also by double-click), open a terminal in it, reveal it in the file manager, rename, copy its path, remove (with its branch, if you want), prune missing ones |
@@ -308,6 +308,14 @@ Git checks a branch out in one worktree at a time, so a branch that another work
 - Dragged onto a commit of the graph, it offers no rebase: that would have to happen in its worktree.
 
 The branch of the main worktree, seen from another worktree, is the same, except that the main worktree can be neither renamed nor removed.
+
+#### Working in worktrees only
+
+**Open in worktree**, in the context menu of a branch that no worktree has, opens it in a worktree of its own, with nothing asked: the worktree is made in the folder of the worktrees, named after the branch, if it is not there yet, and opens where `gitardo.worktrees.openIn` says. On a remote branch, the worktree has the local branch of the same name, made to track the remote one if there is none.
+
+With `gitardo.branches.openIn` set to `worktree`, that is what a double click on a branch does, and **Open in worktree** comes first in its menu: every branch is worked on in its own worktree, and the folder open in this window stays on its branch. `checkout`, the default, checks the branch out here.
+
+**Gitardo: Switch Worktree…**, also in the **…** menu of the Branches view, lists the worktrees with their branches, the one of this window last, and opens the one you pick where `gitardo.worktrees.openIn` says. Its last entry creates a worktree.
 
 ### Remotes
 
