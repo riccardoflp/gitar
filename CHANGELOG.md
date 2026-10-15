@@ -15,6 +15,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Changed
 
+- The format for the names of new branches is offered by **Create branch…** too, not only by **Create Worktree**, and its settings are now `gitardo.branches.format` and `gitardo.branches.inputs`. `${base}` is the branch or the tag the branch is created at, the branch checked out from the toolbar, and at a commit the commit or a branch that has it. `gitardo.worktrees.branchFormat` and `gitardo.worktrees.inputs` are still read where the new settings are not set.
 - Deleting a tag asks first, and so does deleting a branch whose commits are merged, into its upstream or into the current branch: it says that none is lost and that **Undo** brings it back. One that is not merged still warns that its commits would be lost.
 
 ### Fixed

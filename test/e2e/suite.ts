@@ -323,6 +323,80 @@ export async function run(): Promise<void> {
     }
   });
 
+  await step('names a new branch from the format, at the branch checked out, a tag or a commit, or as it is typed', async () => {
+    const config = vscode.workspace.getConfiguration('gitardo');
+    const global = vscode.ConfigurationTarget.Global;
+    // Answers to the input boxes, where KEEP takes what the box proposes, and the labels to pick in turn.
+    const KEEP = Symbol('keep');
+    let typed: (string | typeof KEEP)[] = [];
+    const showInputBox = ui.showInputBox;
+    ui.showInputBox = ((options: vscode.InputBoxOptions = {}) => {
+      const next = typed.shift();
+      return Promise.resolve(next === KEEP ? options.value : next);
+    }) as never;
+    let picks: (string | RegExp)[] = [];
+    choose = (items) => byLabel(picks.shift()!)(items);
+    const made: string[] = [];
+    const created = (name: string) => {
+      made.push(name);
+      assert.ok(
+        state().branches.some((branch) => branch.name === name && !branch.current),
+        JSON.stringify(state().branches.map((branch) => branch.name)),
+      );
+    };
+    await config.update('branches.format', '${input:kind}/${base}-${input:ticket}', global);
+    await config.update(
+      'branches.inputs',
+      [
+        { id: 'ticket', type: 'promptString', description: 'Ticket number', pattern: '^\\d+$' },
+        { id: 'kind', type: 'pickString', description: 'Type of change', options: ['feat', 'fix'] },
+      ],
+      global,
+    );
+    try {
+      // From the toolbar, ${base} is the branch checked out.
+      picks = ['Use the format', 'feat', 'Create only'];
+      typed = ['1', KEEP];
+      await controller.action({ kind: 'createBranch', at: 'HEAD' });
+      created('feat/main-1');
+
+      // On a tag, the tag; the ticket used last is proposed.
+      picks = ['Use the format', 'fix', 'Create only'];
+      typed = [KEEP, KEEP];
+      await controller.action({ kind: 'createBranch', at: 'v1' });
+      created('fix/v1-1');
+
+      // At a commit, the commit or one of the branches that have it.
+      const short = state().head!.slice(0, 7);
+      picks = ['Use the format', short, 'feat', 'Create only'];
+      typed = ['2', KEEP];
+      await controller.action({ kind: 'createBranch', at: state().head! });
+      created(`feat/${short}-2`);
+
+      // Or the name is typed, as without a format.
+      picks = ['Type a branch name', 'Create only'];
+      typed = ['typed-branch'];
+      await controller.action({ kind: 'createBranch', at: 'HEAD' });
+      created('typed-branch');
+
+      // The settings the format had before, among the worktrees, are still read where the new ones are not set.
+      await config.update('branches.format', undefined, global);
+      await config.update('branches.inputs', undefined, global);
+      await config.update('worktrees.branchFormat', 'old-${input:ticket}', global);
+      await config.update('worktrees.inputs', [{ id: 'ticket', type: 'promptString' }], global);
+      picks = ['Use the format', 'Create only'];
+      typed = ['3', KEEP];
+      await controller.action({ kind: 'createBranch', at: 'HEAD' });
+      created('old-3');
+    } finally {
+      ui.showInputBox = showInputBox;
+      choose = () => undefined;
+      for (const key of ['branches.format', 'branches.inputs', 'worktrees.branchFormat', 'worktrees.inputs']) await config.update(key, undefined, global);
+      if (made.length) await git(app, ['branch', '-D', ...made]);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+  });
+
   await step('names the branch of a new worktree from the format, asking for its inputs, or as it is typed', async () => {
     const config = vscode.workspace.getConfiguration('gitardo');
     const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
@@ -343,9 +417,9 @@ export async function run(): Promise<void> {
       titles.push(options.title ?? '');
       return byLabel(picks.shift()!)(items);
     };
-    await config.update('worktrees.branchFormat', 'PRJ-${input:ticket}-${input:kind}-rfi-${base}', vscode.ConfigurationTarget.Global);
+    await config.update('branches.format', 'PRJ-${input:ticket}-${input:kind}-rfi-${base}', vscode.ConfigurationTarget.Global);
     await config.update(
-      'worktrees.inputs',
+      'branches.inputs',
       [
         { id: 'ticket', type: 'promptString', description: 'Ticket number', pattern: '^\\d+$' },
         { id: 'kind', type: 'pickString', description: 'Type of change', options: ['feat', 'fix'], allowCustom: true },
@@ -413,8 +487,8 @@ export async function run(): Promise<void> {
     } finally {
       ui.showInputBox = showInputBox;
       choose = () => undefined;
-      await config.update('worktrees.branchFormat', undefined, vscode.ConfigurationTarget.Global);
-      await config.update('worktrees.inputs', undefined, vscode.ConfigurationTarget.Global);
+      await config.update('branches.format', undefined, vscode.ConfigurationTarget.Global);
+      await config.update('branches.inputs', undefined, vscode.ConfigurationTarget.Global);
       // Windows can hold a folder that was just made for a moment: it is deleted with retries, and git forgets it after.
       fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
       await git(app, ['worktree', 'prune']);

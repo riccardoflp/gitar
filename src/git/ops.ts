@@ -543,7 +543,7 @@ export function worktreeFolderName(name: string): string {
   return parts.join('/') || 'worktree';
 }
 
-/** What a format of worktree names may say besides the inputs: `${base}`, `${repo}` and `${date}`. */
+/** What a format of branch names may say besides the inputs: `${base}`, `${repo}` and `${date}`. */
 export interface WorktreeNameValues {
   base: string;
   repo: string;
@@ -564,14 +564,14 @@ export function formatProblem(format: string, defined: string[]): string | undef
   for (const [whole, name] of format.matchAll(VARIABLE)) {
     if (name.startsWith('input:') ? !defined.includes(name.slice(6)) : !['base', 'repo', 'date'].includes(name)) {
       return name.startsWith('input:')
-        ? `The format uses ${whole}, which gitardo.worktrees.inputs does not define.`
+        ? `The format uses ${whole}, which gitardo.branches.inputs does not define.`
         : `The format uses ${whole}, which is not one of \${base}, \${repo}, \${date} or \${input:<id>}.`;
     }
   }
   return undefined;
 }
 
-/** Fills a format of worktree names in. */
+/** Fills a format of branch names in. */
 export function expandFormat(format: string, values: WorktreeNameValues): string {
   return format.replace(VARIABLE, (_, name: string) =>
     name.startsWith('input:') ? (values.inputs[name.slice(6)] ?? '') : (values[name as 'base' | 'repo' | 'date'] ?? ''),

@@ -264,6 +264,24 @@ The button with a person at the top right of an editor shows it for the whole fi
 
 **Gitardo: Browse Reflog** lists the last 200 positions of `HEAD`. Pick one to show it in the graph, create a branch there, reset the current branch to it, check it out or cherry-pick it. This is how to get back commits that no branch reaches any more, for example after a reset or a rebase.
 
+### A format for branch names
+
+When branches are named after a convention, `gitardo.branches.format` writes it down, and Gitardo asks for its parts:
+
+```json
+"gitardo.branches.format": "PRJ-${input:ticket}-${input:kind}-rfi-${base}",
+"gitardo.branches.inputs": [
+  { "id": "ticket", "type": "promptString", "description": "Ticket number", "pattern": "^\\d+$" },
+  { "id": "kind", "type": "pickString", "description": "Type of change", "options": ["feat", "fix", "chore"], "allowCustom": true }
+]
+```
+
+- `${input:<id>}` is asked for as `gitardo.branches.inputs` says, in the order the format has them. A `promptString` is typed, and when it has a `pattern`, a regular expression, what is typed has to match it. A `pickString` is picked from its `options`, and with `allowCustom` the last entry, **Type another value…**, lets you type one. The value used last is proposed first the next time, or `default` before any was used.
+- `${base}` is the branch it starts from, without its remote: `origin/feature/login` gives `feature/login`. From the toolbar, the branch checked out; on a tag, the tag. At a commit you choose what it is: the commit, as its short hash, or one of the branches that have it, the ones at the commit first.
+- `${repo}` is the name of the repository's folder, and `${date}` today, as `2026-10-15`.
+
+With a format set, **Create branch…**, in the toolbar and on a branch, a tag or a commit, first asks whether to use it, which is where the picker starts, or to type a branch name. The name the format makes is shown, and can be changed, before the branch is created. Creating a worktree asks the same (see [Worktrees](#worktrees)). The format and the inputs can be set for one repository in its `.vscode/settings.json`, for everyone who works on it. The settings were `gitardo.worktrees.branchFormat` and `gitardo.worktrees.inputs` before, and are still read where the new ones are not set.
+
 ### Branch cleanup
 
 **Gitardo: Clean Up Branches** lists the local branches that are merged into the current one, or whose upstream branch was deleted from the remote. Merged branches are ticked and deleted with `git branch -d`, which refuses to lose commits. Branches that are not merged are left unticked; if you tick them they are deleted with `git branch -D`, after a warning. The current branch is never listed, nor the branch of the main worktree when this window is another worktree.
@@ -302,21 +320,7 @@ On Windows, git deletes what is inside a junction when it removes a worktree: th
 
 #### A format for the names
 
-When branches are named after a convention, `gitardo.worktrees.branchFormat` writes it down, and Gitardo asks for its parts:
-
-```json
-"gitardo.worktrees.branchFormat": "PRJ-${input:ticket}-${input:kind}-rfi-${base}",
-"gitardo.worktrees.inputs": [
-  { "id": "ticket", "type": "promptString", "description": "Ticket number", "pattern": "^\\d+$" },
-  { "id": "kind", "type": "pickString", "description": "Type of change", "options": ["feat", "fix", "chore"], "allowCustom": true }
-]
-```
-
-- `${input:<id>}` is asked for as `gitardo.worktrees.inputs` says, in the order the format has them. A `promptString` is typed, and when it has a `pattern`, a regular expression, what is typed has to match it. A `pickString` is picked from its `options`, and with `allowCustom` the last entry, **Type another value…**, lets you type one. The value used last is proposed first the next time, or `default` before any was used.
-- `${base}` is the branch it starts from, without its remote: `origin/feature/login` gives `feature/login`. At a commit you choose what it is: the commit, as its short hash, or one of the branches that have it, the ones at the commit first.
-- `${repo}` is the name of the repository's folder, and `${date}` today, as `2026-10-15`.
-
-With a format set, creating a worktree first asks whether to use it, which is where the picker starts, or to type a branch name; on a branch, whether to use the format for a new branch from it or to put the branch itself in the worktree. The name the format makes is shown, and can be changed, before the worktree is created. The format and the inputs can be set for one repository in its `.vscode/settings.json`, for everyone who works on it.
+With a format for branch names set (see [A format for branch names](#a-format-for-branch-names)), creating a worktree first asks whether to use it, which is where the picker starts, or to type a branch name; on a branch, whether to use the format for a new branch from it or to put the branch itself in the worktree. The name the format makes is that of the branch and of the worktree's folder, and is shown, and can be changed, before the worktree is created.
 
 Once it is created, Gitardo offers to open it:
 

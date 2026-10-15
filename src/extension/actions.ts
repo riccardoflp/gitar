@@ -78,13 +78,18 @@ import type { Action, RebaseStep, RepoState, Submodule, Worktree } from '../shar
 import { isHome, refArg, worktreeOf } from '../shared/refs';
 import { submoduleFolder } from '../shared/submodules';
 
-function askName(title: string, state: RepoState, kind: 'branch' | 'tag', value = ''): Thenable<string | undefined> {
+/** What is wrong with a name for a new branch or tag, as the input box says it. */
+function nameProblem(state: RepoState, kind: 'branch' | 'tag'): (name: string) => string | undefined {
   const taken = new Set((kind === 'branch' ? state.branches : state.tags).map((ref) => ref.name));
+  return (name) => refNameProblem(name) ?? (taken.has(name) ? `A ${kind} with that name already exists` : undefined);
+}
+
+function askName(title: string, state: RepoState, kind: 'branch' | 'tag', value = ''): Thenable<string | undefined> {
   return vscode.window.showInputBox({
     title,
     value,
     placeHolder: kind === 'branch' ? 'feature/my-change' : 'v1.0.0',
-    validateInput: (name) => refNameProblem(name) ?? (taken.has(name) ? `A ${kind} with that name already exists` : undefined),
+    validateInput: nameProblem(state, kind),
   });
 }
 
@@ -152,7 +157,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     }
 
     case 'createBranch': {
-      const name = await askName('Create branch', state, 'branch');
+      const name = await newBranchName(action.at, state, repo, memory);
       if (!name) return;
       const checkout = await pick(`Create branch ${name}`, [
         { label: 'Create and check out', value: true },
@@ -738,8 +743,8 @@ function folderMessage(dir: string): vscode.InputBoxValidationMessage {
     : { message: `In ${dir}`, severity: vscode.InputBoxValidationSeverity.Info };
 }
 
-/** Something `${input:<id>}` in the format of branch names asks for, as `gitardo.worktrees.inputs` defines it. */
-interface WorktreeInput {
+/** Something `${input:<id>}` in the format of branch names asks for, as `gitardo.branches.inputs` defines it. */
+interface BranchInput {
   id: string;
   type: 'promptString' | 'pickString';
   description?: string;
@@ -751,6 +756,17 @@ interface WorktreeInput {
 
 /** Where the values typed or picked for the inputs last are kept, by their ids, to be proposed the next time. */
 const LAST_INPUTS = 'worktreeInputs';
+
+/**
+ * The format of branch names and its inputs, from `gitardo.branches.format` and `gitardo.branches.inputs`, or, where
+ * they are not set, from `gitardo.worktrees.branchFormat` and `gitardo.worktrees.inputs`, as they were before.
+ */
+function branchFormat(): { format: string; inputs: BranchInput[] } {
+  const config = vscode.workspace.getConfiguration('gitardo');
+  const format = config.get<string>('branches.format', '').trim() || config.get<string>('worktrees.branchFormat', '').trim();
+  const inputs = config.get<BranchInput[]>('branches.inputs', []);
+  return { format, inputs: inputs.length ? inputs : config.get<BranchInput[]>('worktrees.inputs', []) };
+}
 
 /** Where new worktrees go, as `gitardo.worktrees.folder` says, with `~` for the home folder. */
 function worktreesHome(state: RepoState): { main: string; folder: string } {
@@ -899,7 +915,7 @@ async function removeFolder(dir: string): Promise<boolean> {
 }
 
 /** Asks for one input of the format. Undefined when the user backs out. */
-async function askInput(input: WorktreeInput, title: string, last: string | undefined): Promise<string | undefined> {
+async function askInput(input: BranchInput, title: string, last: string | undefined): Promise<string | undefined> {
   const prompt = input.description || input.id;
   const proposed = last ?? input.default ?? '';
   if (input.type === 'pickString') {
@@ -923,7 +939,7 @@ async function askInput(input: WorktreeInput, title: string, last: string | unde
   try {
     pattern = input.pattern ? new RegExp(input.pattern) : undefined;
   } catch {
-    throw new Error(`The pattern of the input ${input.id} in gitardo.worktrees.inputs is not a valid regular expression.`);
+    throw new Error(`The pattern of the input ${input.id} in gitardo.branches.inputs is not a valid regular expression.`);
   }
   const problem = (value: string) =>
     !value.trim() ? 'Enter a value' : pattern && !pattern.test(value.trim()) ? `It has to match ${input.pattern}` : undefined;
@@ -935,18 +951,19 @@ async function askInput(input: WorktreeInput, title: string, last: string | unde
 }
 
 /**
- * The name of a new branch made from the format of `gitardo.worktrees.branchFormat`: each input is asked for, and the
- * name it makes can be changed before it is used.
+ * The name of a new branch made from the format of `gitardo.branches.format`: each input is asked for, and the name it
+ * makes can be changed before it is used.
  */
 async function nameFromFormat(
   format: string,
   base: string,
   title: string,
+  prompt: string,
   state: RepoState,
   memory: vscode.Memento,
   validate: (name: string) => string | vscode.InputBoxValidationMessage | undefined,
 ): Promise<string | undefined> {
-  const inputs = vscode.workspace.getConfiguration('gitardo').get<WorktreeInput[]>('worktrees.inputs', []);
+  const { inputs } = branchFormat();
   const problem = formatProblem(format, inputs.map((input) => input.id));
   if (problem) throw new Error(`${problem} Change it in the settings.`);
   const last = memory.get<Record<string, string>>(LAST_INPUTS, {});
@@ -964,7 +981,41 @@ async function nameFromFormat(
     date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
     inputs: values,
   });
-  return (await vscode.window.showInputBox({ title, prompt: 'Name of the new branch, and of the folder of the worktree', value: name, validateInput: validate }))?.trim();
+  return (await vscode.window.showInputBox({ title, prompt, value: name, validateInput: validate }))?.trim();
+}
+
+/**
+ * The name of a branch created at `at`: from the format, when the settings have one and the user keeps it, or typed.
+ * `${base}` is the branch or the tag it is created at, without its remote, the branch checked out for `HEAD`, or at a
+ * commit the commit or a branch that has it.
+ */
+async function newBranchName(at: string, state: RepoState, repo: Repo, memory: vscode.Memento): Promise<string | undefined> {
+  const title = 'Create branch';
+  const { format } = branchFormat();
+  if (!format) return askName(title, state, 'branch');
+  const useFormat = await pick(title, [
+    { label: 'Use the format', description: format, value: true },
+    { label: 'Type a branch name', value: false },
+  ]);
+  if (useFormat === undefined) return;
+  if (!useFormat) return askName(title, state, 'branch');
+
+  let base = '';
+  if (/\$\{base\}/.test(format)) {
+    const ref = at === 'HEAD' ? (state.branches.find((branch) => branch.current)?.name ?? state.head ?? at) : at;
+    // A ref git is given in full, when something else has its name, is matched by its short name.
+    const named = (prefix: string, list: { name: string }[]) => {
+      const name = ref.startsWith(prefix) ? ref.slice(prefix.length) : ref;
+      return list.some((other) => other.name === name) ? name : undefined;
+    };
+    const remote = named('refs/remotes/', state.remoteBranches);
+    const found =
+      named('refs/heads/', state.branches) ?? (remote && withoutRemote(remote, state.remotes)) ?? named('refs/tags/', state.tags);
+    const chosen = found ?? (await commitBase(ref, title, state, repo));
+    if (chosen === undefined) return;
+    base = chosen;
+  }
+  return nameFromFormat(format, base, title, 'Name of the new branch', state, memory, nameProblem(state, 'branch'));
 }
 
 /** What `${base}` is for a worktree made at a commit: the commit, or one of the branches that have it. */
@@ -1016,7 +1067,7 @@ async function addWorktree(
   const title = `Create worktree${!ref ? '' : isBranch ? ` for ${ref}` : ` at ${commit}`}`;
 
   // The format is the first choice, where the picker starts.
-  const format = vscode.workspace.getConfiguration('gitardo').get<string>('worktrees.branchFormat', '').trim();
+  const { format } = branchFormat();
   let useFormat = false;
   if (format) {
     const how = await pick(title, [
@@ -1061,7 +1112,7 @@ async function addWorktree(
   let newBranch: string | null = null;
   let dir: string;
   if (useFormat) {
-    const name = await nameFromFormat(format, baseName, title, state, memory, branchName);
+    const name = await nameFromFormat(format, baseName, title, 'Name of the new branch, and of the folder of the worktree', state, memory, branchName);
     if (!name) return;
     newBranch = name;
     dir = dirOf(name);
