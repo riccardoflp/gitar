@@ -1,11 +1,11 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState } from '../shared/protocol';
-import { worktreeLabel, worktreeOf } from '../shared/refs';
+import { changesText, pullOf, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { scopeLabel, scopeRefs } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { endDrag, startDrag, type DragSource } from './drag';
-import { act, branchMenu, pullOf, pushedName, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
+import { act, branchMenu, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
 import { loadUiState, post, saveUiState } from './vscode';
 
 export type SectionId = 'favorites' | 'recent' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
@@ -38,6 +38,8 @@ interface Item {
   pull?: PullRequest;
   /** The folder of the other worktree that has the branch checked out. */
   worktree?: string;
+  /** How many files are not committed in the worktree, when there are any. */
+  changes?: number;
 }
 
 /** A button beside the title of a section, for what adds to it. */
@@ -121,6 +123,12 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
               {item.favorite && id !== 'favorites' && <Icon name="star-full" />}
               {item.worktree && <Icon name="worktree" />}
               {item.hint && <span className="hint">{item.hint}</span>}
+              {item.changes !== undefined && (
+                <span className="changes">
+                  <Icon name="edit" />
+                  {item.changes}
+                </span>
+              )}
               {item.pull && (
                 <span className={`pull ${item.pull.checks ?? ''}`}>
                   <Icon name={item.pull.draft ? 'git-pull-request-draft' : 'git-pull-request'} />
@@ -143,23 +151,21 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     .filter((branch) => within(`refs/heads/${branch.name}`))
     .map((branch): Item => {
       const upstream = branch.upstream;
-      const hint = upstream
-        ? upstream.gone
-          ? 'gone'
-          : [upstream.ahead && `↑${upstream.ahead}`, upstream.behind && `↓${upstream.behind}`].filter(Boolean).join(' ')
-        : undefined;
       const pull = pullOf(pushedName(branch, state), state);
       const tracking = upstream ? `${branch.name} → ${upstream.name}` : `${branch.name} (no upstream)`;
       const worktree = worktreeOf(branch.name, state);
-      const about = [tracking, worktree && `In the worktree ${worktree.path}`, pull && pullTitle(pull)].filter(Boolean).join('\n');
+      const about = [tracking, worktree && `In the worktree ${worktree.path}`, worktree && changesText(worktree.changes), pull && pullTitle(pull)]
+        .filter(Boolean)
+        .join('\n');
       return {
         key: branch.name,
         hash: branch.hash,
         label: branch.name,
-        hint,
+        hint: upstreamHint(branch),
         pull,
         title: about,
         worktree: worktree?.path,
+        changes: worktree?.changes || undefined,
         current: branch.current,
         favorite: favorites.has(`refs/heads/${branch.name}`),
         menu: () => branchMenu(branch, state, onCompare),
@@ -272,16 +278,23 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         'worktrees',
         'Worktrees',
         'worktree',
-        state.worktrees.map((worktree) => ({
-          key: worktree.path,
-          hash: worktree.hash,
-          label: worktreeLabel(worktree.path, state.worktreesRoot),
-          hint: worktree.prunable ? 'missing' : (worktree.branch ?? 'detached'),
-          title: worktree.path,
-          current: worktree.current,
-          menu: () => worktreeMenu(worktree, state),
-          open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path }),
-        })),
+        state.worktrees.map((worktree): Item => {
+          // Its branch as it stands against its upstream, what is not committed in it and its pull request.
+          const { branch, ahead, pull } = worktreeStatus(worktree, state);
+          const tracking = branch?.upstream && `${branch.name} → ${branch.upstream.name}`;
+          return {
+            key: worktree.path,
+            hash: worktree.hash,
+            label: worktreeLabel(worktree.path, state.worktreesRoot),
+            hint: worktree.prunable ? 'missing' : [worktree.branch ?? 'detached', ahead].filter(Boolean).join(' '),
+            title: [worktree.path, tracking, changesText(worktree.changes), pull && pullTitle(pull)].filter(Boolean).join('\n'),
+            changes: worktree.changes || undefined,
+            pull,
+            current: worktree.current,
+            menu: () => worktreeMenu(worktree, state),
+            open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path }),
+          };
+        }),
         false,
         { icon: 'add', title: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },
       )}

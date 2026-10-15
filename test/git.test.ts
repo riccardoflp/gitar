@@ -136,9 +136,9 @@ describe('parsers', () => {
   it('parses worktrees and marks the current one', () => {
     const out = 'worktree C:/prj/app\nHEAD aaa\nbranch refs/heads/main\n\nworktree C:/prj/app-fix\nHEAD bbb\ndetached\n\n';
     expect(parseWorktrees(`${out}worktree C:/prj/gone\nHEAD ccc\nbranch refs/heads/x\nprunable gitdir file points to non-existent location\n\n`, 'c:/prj/app')).toEqual([
-      { path: 'C:/prj/app', hash: 'aaa', branch: 'main', current: true, main: true, prunable: false },
-      { path: 'C:/prj/app-fix', hash: 'bbb', branch: null, current: false, main: false, prunable: false },
-      { path: 'C:/prj/gone', hash: 'ccc', branch: 'x', current: false, main: false, prunable: true },
+      { path: 'C:/prj/app', hash: 'aaa', branch: 'main', current: true, main: true, prunable: false, changes: null },
+      { path: 'C:/prj/app-fix', hash: 'bbb', branch: null, current: false, main: false, prunable: false, changes: null },
+      { path: 'C:/prj/gone', hash: 'ccc', branch: 'x', current: false, main: false, prunable: true, changes: null },
     ]);
     // A bare repository is listed first, and has no main worktree.
     expect(parseWorktrees(`worktree C:/prj/app.git\nbare\n\n${out}`, 'c:/prj/app-fix').map((worktree) => worktree.main)).toEqual([false, false]);

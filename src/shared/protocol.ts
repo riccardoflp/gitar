@@ -65,6 +65,8 @@ export interface Worktree {
   main: boolean;
   /** Its directory is gone, so `git worktree prune` would forget it. */
   prunable: boolean;
+  /** How many of its files are not committed: staged, not staged or untracked. Null when they could not be read. */
+  changes: number | null;
 }
 
 export interface FileChange {

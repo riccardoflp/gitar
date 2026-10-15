@@ -5,13 +5,14 @@ import {
   type Commit,
   type Comparing,
   type NamedRef,
-  type PullRequest,
   type RepoState,
   type Row,
   type Stash,
   type Worktree,
 } from '../shared/protocol';
-import { canFastForward, refArg, worktreeOf } from '../shared/refs';
+import { canFastForward, nameOnRemote, pullOf, pushedName, refArg, worktreeOf } from '../shared/refs';
+
+export { pullOf, pushedName };
 import { scopeRefs, toggleScopeRef } from '../shared/scope';
 import type { MenuEntry } from './ContextMenu';
 import type { DragSource } from './drag';
@@ -192,23 +193,6 @@ export function selectionMenu(rows: Row[], state: RepoState, onCompare: (compari
     'separator',
     { label: 'Copy hashes', run: () => copy(rows.map((row) => row.hash).join('\n')) },
   ];
-}
-
-/** `feature/x` for `origin/feature/x`: the name a remote-tracking branch has on its remote. */
-function nameOnRemote(ref: string, state: RepoState): string | null {
-  const remote = state.remotes.find((name) => ref.startsWith(`${name}/`));
-  return remote ? ref.slice(remote.length + 1) : null;
-}
-
-/** The name a local branch was pushed under, when it has been pushed to a repository on GitHub. */
-export function pushedName(branch: Branch, state: RepoState): string | null {
-  const upstream = branch.upstream;
-  return state.github && upstream && !upstream.gone ? nameOnRemote(upstream.name, state) : null;
-}
-
-/** The open pull request of a branch on GitHub, by the name the branch has there. */
-export function pullOf(name: string | null, state: RepoState): PullRequest | undefined {
-  return name !== null && Object.hasOwn(state.pulls, name) ? state.pulls[name] : undefined;
 }
 
 function pullEntry(name: string | null, state: RepoState, offerNew: boolean): MenuEntry {

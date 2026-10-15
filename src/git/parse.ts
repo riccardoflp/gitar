@@ -105,6 +105,7 @@ export function parseWorktrees(out: string, root: string): Worktree[] {
       // Git lists the main worktree first. In a bare repository that is the repository itself, skipped above.
       main: index === 0,
       prunable: fields.has('prunable'),
+      changes: null,
     });
   }
   return worktrees;

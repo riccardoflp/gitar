@@ -707,6 +707,15 @@ input:focus-visible,
   color: var(--vscode-descriptionForeground);
 }
 
+.changes {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.9em;
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-descriptionForeground));
+}
+
 .pull {
   flex: none;
   display: flex;

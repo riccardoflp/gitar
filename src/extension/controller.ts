@@ -26,7 +26,7 @@ import {
 } from '../git/ops';
 import { Repo, isHash } from '../git/repo';
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
-import { worktreeLabel } from '../shared/refs';
+import { worktreeLabel, worktreeStatus } from '../shared/refs';
 import type {
   Action,
   ComparedRef,
@@ -603,20 +603,32 @@ export class Controller implements vscode.Disposable {
     }
   }
 
-  /** Lists the worktrees, to open one where the settings say, or to create another. */
+  /**
+   * Lists the worktrees with how they stand: the branch against its upstream, the files not committed, the pull request.
+   * The one picked opens where the settings say; the last entry creates another.
+   */
   private async switchWorktree(): Promise<void> {
     const state = await this.requireState();
     if (!state) return;
     const create = { label: '$(add) Create worktree…', path: '', current: false };
     const worktrees = state.worktrees
       .filter((worktree) => !worktree.prunable)
-      .map((worktree) => ({
-        label: `$(${worktree.main ? 'home' : 'worktree'}) ${worktreeLabel(worktree.path, state.worktreesRoot)}`,
-        description: [worktree.branch ?? `detached at ${worktree.hash.slice(0, 7)}`, worktree.current && 'this window'].filter(Boolean).join(' · '),
-        detail: worktree.path,
-        path: worktree.path,
-        current: worktree.current,
-      }));
+      .map((worktree) => {
+        const { ahead, pull } = worktreeStatus(worktree, state);
+        const description = [
+          [worktree.branch ?? `detached at ${worktree.hash.slice(0, 7)}`, ahead].filter(Boolean).join(' '),
+          worktree.changes ? `$(edit) ${worktree.changes}` : undefined,
+          pull && `$(git-pull-request) #${pull.number}`,
+          worktree.current && 'this window',
+        ];
+        return {
+          label: `$(${worktree.main ? 'home' : 'worktree'}) ${worktreeLabel(worktree.path, state.worktreesRoot)}`,
+          description: description.filter(Boolean).join(' · '),
+          detail: worktree.path,
+          path: worktree.path,
+          current: worktree.current,
+        };
+      });
     // The one open here is listed last: it is where the user already is.
     worktrees.sort((a, b) => Number(a.current) - Number(b.current));
     const picked = await vscode.window.showQuickPick([...worktrees, { label: '', kind: vscode.QuickPickItemKind.Separator, path: '', current: false }, create], {

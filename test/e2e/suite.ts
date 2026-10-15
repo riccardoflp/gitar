@@ -461,15 +461,24 @@ export async function run(): Promise<void> {
       assert.ok(errors.some((text) => /checked out in this window/.test(text)), JSON.stringify(errors));
       errors.length = 0;
 
-      // Switch Worktree lists them all, the one of this window last, and creates another from there.
+      // What is not committed in a worktree is counted.
+      fs.writeFileSync(path.join(merged.path, 'new.txt'), 'new\n');
+      await vscode.commands.executeCommand('gitardo.refresh');
+      assert.equal(state().worktrees.find((worktree) => worktree.branch === 'merged')?.changes, 1);
+
+      // Switch Worktree lists them all with how they stand, the one of this window last, and creates another from there.
       opened.length = 0;
       let listed: string[] = [];
+      let described: string[] = [];
       choose = (items) => {
         listed = items.map((item) => item.label);
+        described = items.map((item) => item.description ?? '');
         return byLabel(/ merged$/)(items);
       };
       await vscode.commands.executeCommand('gitardo.switchWorktree');
       assert.deepEqual(listed, ['$(worktree) merged', '$(worktree) remote/only', '$(home) app', '', '$(add) Create worktree…']);
+      assert.equal(described[0], 'merged · $(edit) 1');
+      assert.match(described[2], / · this window$/);
       assert.deepEqual(opened, [`${home}/merged`.toLowerCase()]);
       opened.length = 0;
       choose = byLabel(/ app$/);

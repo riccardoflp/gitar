@@ -1,4 +1,4 @@
-import type { Branch, RepoState, Worktree } from './protocol';
+import type { Branch, PullRequest, RepoState, Worktree } from './protocol';
 
 const KINDS = { branch: 'refs/heads/', remote: 'refs/remotes/', tag: 'refs/tags/' } as const;
 
@@ -32,4 +32,43 @@ export function canFastForward(branch: Branch, state: RepoState): boolean {
   if (branch.current || !upstream || upstream.gone || upstream.ahead > 0) return false;
   // Git refuses to move a branch that another worktree has checked out, as its files would no longer match.
   return !state.worktrees.some((worktree) => worktree.branch === branch.name);
+}
+
+/** `feature/x` for `origin/feature/x`: the name a remote-tracking branch has on its remote. */
+export function nameOnRemote(ref: string, state: RepoState): string | null {
+  const remote = state.remotes.find((name) => ref.startsWith(`${name}/`));
+  return remote ? ref.slice(remote.length + 1) : null;
+}
+
+/** The name a local branch was pushed under, when it has been pushed to a repository on GitHub. */
+export function pushedName(branch: Branch, state: RepoState): string | null {
+  const upstream = branch.upstream;
+  return state.github && upstream && !upstream.gone ? nameOnRemote(upstream.name, state) : null;
+}
+
+/** The open pull request of a branch on GitHub, by the name the branch has there. */
+export function pullOf(name: string | null, state: RepoState): PullRequest | undefined {
+  return name !== null && Object.hasOwn(state.pulls, name) ? state.pulls[name] : undefined;
+}
+
+/** `↑1 ↓2` for the commits a branch and its upstream have that the other has not, or `gone` when the upstream was deleted. */
+export function upstreamHint(branch: Branch): string | undefined {
+  const upstream = branch.upstream;
+  if (!upstream) return undefined;
+  if (upstream.gone) return 'gone';
+  return [upstream.ahead && `↑${upstream.ahead}`, upstream.behind && `↓${upstream.behind}`].filter(Boolean).join(' ') || undefined;
+}
+
+/** What a worktree has that is not committed, said in words. */
+export function changesText(changes: number | null): string | undefined {
+  if (changes === null) return undefined;
+  if (!changes) return 'Nothing to commit';
+  return `${changes} ${changes === 1 ? 'file' : 'files'} not committed`;
+}
+
+/** What is known of a worktree beyond its folder: its branch and how it stands against its upstream, and its pull request. */
+export function worktreeStatus(worktree: Worktree, state: RepoState): { branch?: Branch; ahead?: string; pull?: PullRequest } {
+  const branch = worktree.branch === null ? undefined : state.branches.find((candidate) => candidate.name === worktree.branch);
+  if (!branch) return {};
+  return { branch, ahead: upstreamHint(branch), pull: pullOf(pushedName(branch, state), state) };
 }

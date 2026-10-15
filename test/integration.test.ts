@@ -396,11 +396,18 @@ describe('against a real repository', { timeout: 60_000 }, () => {
 
     await run(worktreeAddOp(dir, 'feature', null, false));
     expect((await state()).worktrees).toMatchObject([
-      { current: true, branch: 'main' },
-      { current: false, branch: 'feature', prunable: false },
+      { current: true, branch: 'main', changes: 0 },
+      { current: false, branch: 'feature', prunable: false, changes: 0 },
     ]);
 
+    // What is not committed is counted in each worktree, untracked files in new folders one by one.
     fs.writeFileSync(path.join(dir, 'dirty.txt'), 'uncommitted\n');
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'changed\n');
+    fs.mkdirSync(path.join(dir, 'new'));
+    fs.writeFileSync(path.join(dir, 'new', 'one.txt'), '1\n');
+    fs.writeFileSync(path.join(dir, 'new', 'two.txt'), '2\n');
+    write('here.txt', 'here\n');
+    expect((await state()).worktrees.map((worktree) => worktree.changes)).toEqual([1, 4]);
     const remove = worktreeRemoveOp(dir);
     const refusal = await run(remove).then(
       () => '',

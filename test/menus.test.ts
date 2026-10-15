@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Branch, RepoState, Row, Worktree } from '../src/shared/protocol';
-import { worktreeOf } from '../src/shared/refs';
+import { changesText, upstreamHint, worktreeOf, worktreeStatus } from '../src/shared/refs';
 
 // The menus post what is chosen to the extension; here they are only read.
 const posted = vi.hoisted(() => [] as unknown[]);
@@ -14,6 +14,7 @@ const worktree = (overrides: Partial<Worktree>): Worktree => ({
   current: true,
   main: true,
   prunable: false,
+  changes: 0,
   ...overrides,
 });
 
@@ -100,5 +101,31 @@ describe('menus of branches that a worktree has', () => {
 
   it('says what a worktree menu opens without naming the worktree', () => {
     expect(labels(worktreeMenu(there, repo)).slice(0, 3)).toEqual(['Open in Agents Window', 'Open in new window', 'Open in terminal']);
+  });
+});
+
+describe('the status of a worktree', () => {
+  const upstream = { name: 'origin/feature/login', remote: 'origin', branch: 'feature/login', ahead: 2, behind: 1, gone: false };
+  const login: Branch = { name: 'feature/login', hash: 'bbb', current: false, upstream };
+  const there = worktree({ path: 'C:/prj/app.worktrees/feature/login', hash: 'bbb', branch: 'feature/login', current: false, main: false, changes: 3 });
+  const pull = { number: 12, title: 'Login', url: '', draft: false, checks: null };
+
+  it('says how its branch stands against its upstream and what is not committed', () => {
+    expect(upstreamHint(login)).toBe('↑2 ↓1');
+    expect(upstreamHint({ ...login, upstream: { ...upstream, ahead: 0, behind: 0 } })).toBeUndefined();
+    expect(upstreamHint({ ...login, upstream: { ...upstream, gone: true } })).toBe('gone');
+    expect(upstreamHint({ ...login, upstream: undefined })).toBeUndefined();
+    expect([changesText(null), changesText(0), changesText(1), changesText(3)]).toEqual([
+      undefined,
+      'Nothing to commit',
+      '1 file not committed',
+      '3 files not committed',
+    ]);
+  });
+
+  it('finds its branch and the pull request of the branch', () => {
+    const repo = { ...state([worktree({}), there], [login]), remotes: ['origin'], github: { owner: 'me', repo: 'app' }, pulls: { 'feature/login': pull } } as RepoState;
+    expect(worktreeStatus(there, repo)).toEqual({ branch: login, ahead: '↑2 ↓1', pull });
+    expect(worktreeStatus({ ...there, branch: null }, repo)).toEqual({});
   });
 });

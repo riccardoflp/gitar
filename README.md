@@ -291,6 +291,8 @@ Once it is created, Gitardo offers to open it:
 - **Open in Agents Window** opens the Agents window of VS Code on the worktree, so that the agent sessions started there work in it, on its branch. It is offered when this VS Code has the Agents window, which works only with its chat agents turned on. Gitardo opens it with a command of VS Code that is not part of its documented API: if it is missing or fails, the worktree opens in a new window instead, and Gitardo says why.
 - **Open in New Window** opens it as the folder of a VS Code window of its own.
 
+Each worktree in the Worktrees section says how it stands: its branch, with ↑ and ↓ for the commits it has that its upstream has not and the other way round, a pencil with the number of files not committed in it, and its open pull request. Its tooltip says the same in words. The files are counted with `git status` in each worktree, without taking the lock of its index, when the views are read again: what changes in a worktree that is open elsewhere shows here at the next refresh. A branch that another worktree has shows the same count.
+
 A double click on a worktree opens it where `gitardo.worktrees.openIn` says: a new window (`window`, the default) or the Agents window (`agents`).
 
 The same are in the context menu of a worktree, with **Open in terminal**, **Reveal in File Explorer** (**Reveal in Finder** on macOS), and:
@@ -315,7 +317,7 @@ The branch of the main worktree, seen from another worktree, is the same, except
 
 With `gitardo.branches.openIn` set to `worktree`, that is what a double click on a branch does, and **Open in worktree** comes first in its menu: every branch is worked on in its own worktree, and the folder open in this window stays on its branch. `checkout`, the default, checks the branch out here.
 
-**Gitardo: Switch Worktree…**, also in the **…** menu of the Branches view, lists the worktrees with their branches, the one of this window last, and opens the one you pick where `gitardo.worktrees.openIn` says. Its last entry creates a worktree.
+**Gitardo: Switch Worktree…**, also in the **…** menu of the Branches view, lists the worktrees with their branches and how they stand, as the Worktrees section shows them, the one of this window last, and opens the one you pick where `gitardo.worktrees.openIn` says. Its last entry creates a worktree.
 
 ### Remotes
 

@@ -16,6 +16,7 @@ import {
   type Scope,
   type Search,
   type WorkingState,
+  type Worktree,
 } from '../shared/protocol';
 import { subjectAndBody } from '../shared/message';
 import { SCOPE_PREFIXES, pruneScope } from '../shared/scope';
@@ -230,6 +231,25 @@ export class Repo {
     return { from, to, files: parseNameStatus(await this.read(['diff', '--name-status', '-z', '-M', from, to], true)) };
   }
 
+  /**
+   * Counts what is not committed in each worktree: in this one it is known already, in the others `git status` is run in
+   * their folders, all at once and without taking the lock of their index.
+   */
+  private async worktreeChanges(worktrees: Worktree[], here: number): Promise<Worktree[]> {
+    return Promise.all(
+      worktrees.map(async (worktree) => {
+        if (worktree.current) return { ...worktree, changes: here };
+        if (worktree.prunable) return worktree;
+        try {
+          const { stdout } = await git(worktree.path, ['status', '--porcelain', '--untracked-files=all'], { readOnly: true });
+          return { ...worktree, changes: stdout.split('\n').filter(Boolean).length };
+        } catch {
+          return worktree;
+        }
+      }),
+    );
+  }
+
   /** With `resolve`, the files with conflicts are read to say which of the conflicts need no choice between the two sides. */
   async state(limit: number, filter: Filter | null = null, scope: Scope | null = null, resolve = false): Promise<RepoState> {
     const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, movesOut, working, operation, bisect] = await Promise.all([
@@ -291,7 +311,7 @@ export class Repo {
       branch,
       ...refs,
       stashes: parseStashes(stashOut),
-      worktrees: parseWorktrees(worktreeOut, this.root),
+      worktrees: await this.worktreeChanges(parseWorktrees(worktreeOut, this.root), changes.length),
       remotes: remoteOut.split('\n').filter(Boolean),
       rows,
       hasMore,
