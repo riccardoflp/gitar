@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { WORKTREE, type CommitDetail, type Comparison, type RepoState, type Row, type Search } from '../shared/protocol';
+import { worktreeOf } from '../shared/refs';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, type Label, type SelectMode } from './CommitList';
 import { Compare } from './Compare';
@@ -47,7 +48,9 @@ export function buildLabels(state: RepoState): Map<string, Label[]> {
     else labels.set(hash, [label]);
   };
   if (state.head && !state.branch) add(state.head, { kind: 'head', name: 'HEAD', current: true });
-  for (const branch of state.branches) add(branch.hash, { kind: 'branch', name: branch.name, current: branch.current });
+  for (const branch of state.branches) {
+    add(branch.hash, { kind: 'branch', name: branch.name, current: branch.current, worktree: worktreeOf(branch.name, state)?.path });
+  }
   for (const remote of state.remoteBranches) add(remote.hash, { kind: 'remote', name: remote.name });
   for (const tag of state.tags) add(tag.hash, { kind: 'tag', name: tag.name });
   if (state.bisect) {

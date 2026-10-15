@@ -11,7 +11,7 @@ import {
   type Stash,
   type Worktree,
 } from '../shared/protocol';
-import { canFastForward, refArg } from '../shared/refs';
+import { canFastForward, refArg, worktreeOf } from '../shared/refs';
 import { scopeRefs, toggleScopeRef } from '../shared/scope';
 import type { MenuEntry } from './ContextMenu';
 import type { DragSource } from './drag';
@@ -220,11 +220,19 @@ function pullEntry(name: string | null, state: RepoState, offerNew: boolean): Me
   };
 }
 
+/**
+ * A branch that another worktree has checked out is worked on there: its menu opens that worktree first, and git
+ * neither checks it out here nor deletes it while the worktree has it.
+ */
 export function branchMenu(branch: Branch, state: RepoState, onCompare: (comparing: Comparing) => void): MenuEntry[] {
   const { name } = branch;
   const checkedOut = state.worktrees.some((worktree) => worktree.branch === name);
+  const worktree = worktreeOf(name, state);
+  const removable = worktree && !worktree.main;
   return [
-    !branch.current && { label: `Check out ${name}`, run: () => act({ kind: 'checkout', target: 'branch', ref: name }) },
+    ...(worktree ? worktreeOpenEntries(worktree, state, true) : []),
+    'separator',
+    !branch.current && !worktree && { label: `Check out ${name}`, run: () => act({ kind: 'checkout', target: 'branch', ref: name }) },
     canFastForward(branch, state) && {
       label: `Fast-forward to ${branch.upstream?.name}`,
       run: () => act({ kind: 'fastForward', name }),
@@ -239,8 +247,15 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
     'separator',
     { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: refArg('branch', name, state) }) },
     !checkedOut && { label: 'Create worktree…', run: () => act({ kind: 'worktreeAdd', ref: name, isBranch: true }) },
-    { label: 'Rename…', run: () => act({ kind: 'renameBranch', name }) },
-    !branch.current && { label: 'Delete', danger: true, run: () => act({ kind: 'deleteBranch', name }) },
+    { label: worktree ? 'Rename branch…' : 'Rename…', run: () => act({ kind: 'renameBranch', name }) },
+    removable && !worktree.prunable && { label: 'Rename worktree…', run: () => act({ kind: 'worktreeRename', path: worktree.path }) },
+    !branch.current && !worktree && { label: 'Delete', danger: true, run: () => act({ kind: 'deleteBranch', name }) },
+    removable && { label: 'Remove worktree…', danger: true, run: () => act({ kind: 'worktreeRemove', path: worktree.path, deleteBranch: false }) },
+    removable && {
+      label: 'Remove worktree and delete branch…',
+      danger: true,
+      run: () => act({ kind: 'worktreeRemove', path: worktree.path, deleteBranch: true }),
+    },
     'separator',
     { label: 'Copy name', run: () => copy(name) },
   ];
@@ -302,16 +317,28 @@ const REVEAL = /Windows/.test(navigator.userAgent)
     ? 'Reveal in Finder'
     : 'Open containing folder';
 
+/** What opens a worktree. In the menu of its branch they say that they are about the worktree. */
+function worktreeOpenEntries(worktree: Worktree, state: RepoState, ofBranch = false): MenuEntry[] {
+  const { path } = worktree;
+  if (worktree.prunable) return [];
+  const it = ofBranch ? ' worktree' : '';
+  return [
+    state.agentsWindow && { label: `Open${it} in Agents Window`, run: () => act({ kind: 'worktreeOpen', path, where: 'agents' }) },
+    !worktree.current && { label: `Open${it} in new window`, run: () => act({ kind: 'worktreeOpen', path, where: 'window' }) },
+    { label: ofBranch ? 'Open terminal in worktree' : 'Open in terminal', run: () => act({ kind: 'worktreeTerminal', path }) },
+    {
+      label: !ofBranch ? REVEAL : REVEAL.startsWith('Reveal') ? REVEAL.replace('Reveal', 'Reveal worktree') : 'Open folder of worktree',
+      run: () => act({ kind: 'worktreeReveal', path }),
+    },
+  ];
+}
+
 export function worktreeMenu(worktree: Worktree, state: RepoState): MenuEntry[] {
   const { path } = worktree;
-  const there = !worktree.prunable;
   return [
-    there && state.agentsWindow && { label: 'Open in Agents Window', run: () => act({ kind: 'worktreeOpen', path, where: 'agents' }) },
-    there && !worktree.current && { label: 'Open in new window', run: () => act({ kind: 'worktreeOpen', path, where: 'window' }) },
-    there && { label: 'Open in terminal', run: () => act({ kind: 'worktreeTerminal', path }) },
-    there && { label: REVEAL, run: () => act({ kind: 'worktreeReveal', path }) },
+    ...worktreeOpenEntries(worktree, state),
     'separator',
-    there && !worktree.main && !worktree.current && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
+    !worktree.prunable && !worktree.main && !worktree.current && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
     { label: 'Copy path', run: () => copy(path) },
     'separator',
     !worktree.current && !worktree.main && { label: 'Remove…', danger: true, run: () => act({ kind: 'worktreeRemove', path }) },
@@ -345,7 +372,8 @@ export function dropMenu(source: DragSource, target: Row, state: RepoState): Men
     ];
   }
 
-  if (!source.local || source.hash === target.hash) return [];
+  // A branch another worktree has checked out is rebased there, not from here.
+  if (!source.local || source.hash === target.hash || (!source.current && worktreeOf(name, state))) return [];
   const onto = target.hash;
   const short = shortHash(onto);
   if (!source.current) return [{ label: `Rebase ${name} onto ${short}`, run: () => act({ kind: 'rebase', onto, branch: name }) }];

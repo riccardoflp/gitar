@@ -387,6 +387,15 @@ export async function run(): Promise<void> {
       const side = state().worktrees.find((worktree) => worktree.branch === 'side/work');
       assert.ok(side, JSON.stringify(state().worktrees));
       assert.equal(side.path.toLowerCase(), `${home}/side/work`.toLowerCase());
+
+      // Removed from the menu of its branch, which says whether the branch goes too: here it stays, without a question.
+      answer = run;
+      picks = [];
+      await controller.action({ kind: 'worktreeRemove', path: side.path, deleteBranch: false });
+      assert.ok(!state().worktrees.some((worktree) => worktree.branch === 'side/work'));
+      assert.ok(state().branches.some((branch) => branch.name === 'side/work'));
+      assert.ok(!fs.existsSync(`${home}/side`), 'the folder that held only it went too');
+      answer = () => undefined;
     } finally {
       ui.showInputBox = showInputBox;
       choose = () => undefined;

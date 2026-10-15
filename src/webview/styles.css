@@ -673,8 +673,9 @@ input:focus-visible,
   background: none;
 }
 
-/* The mark of a favorite, beside its name where it is listed with the others. */
-.ref .codicon-star-full {
+/* The mark of a favorite, beside its name where it is listed with the others, and of a branch another worktree has. */
+.ref .codicon-star-full,
+.ref .codicon-worktree {
   flex: none;
   font-size: 12px;
   color: var(--vscode-descriptionForeground);

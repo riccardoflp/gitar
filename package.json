@@ -755,6 +755,19 @@
           "default": true,
           "markdownDescription": "Whether the **Pull** button puts your commits that are not pushed on top of what comes in, instead of merging the two: `git pull --rebase`. With `#gitardo.pull.autostash#` it runs `git pull --rebase --autostash`. Switched off, the button leaves the choice to the configuration of Git, which merges unless told otherwise. The menu beside the button has every way to pull, whatever is set here."
         },
+        "gitardo.worktrees.openIn": {
+          "type": "string",
+          "enum": [
+            "window",
+            "agents"
+          ],
+          "enumDescriptions": [
+            "A new VS Code window, with the worktree as its folder.",
+            "The Agents window of VS Code, for agent sessions that work in the worktree. Where VS Code has no Agents window, a new window."
+          ],
+          "default": "window",
+          "description": "Where a worktree opens on a double click, on it or on its branch. Their context menus have both, whatever is set here."
+        },
         "gitardo.worktrees.folder": {
           "type": "string",
           "default": "${repo}.worktrees",

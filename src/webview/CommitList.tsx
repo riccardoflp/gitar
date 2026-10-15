@@ -23,6 +23,8 @@ export interface Label {
   kind: 'head' | 'branch' | 'remote' | 'tag' | 'good' | 'bad' | 'skipped';
   name: string;
   current?: boolean;
+  /** For a branch: the folder of the other worktree that has it checked out. */
+  worktree?: string;
 }
 
 /** A plain click selects one commit; with Ctrl or Cmd it adds or removes one; with Shift it selects up to the clicked one. */
@@ -235,11 +237,11 @@ export function CommitList(props: Props) {
             <span
               key={`${label.kind}:${label.name}`}
               className={`label ${label.kind}${label.current ? ' current' : ''}`}
-              title={label.name}
+              title={label.worktree ? `${label.name}\nIn the worktree ${label.worktree}` : label.name}
               onContextMenu={(event) => onLabelMenu(event, label, row)}
               {...drag(label, row)}
             >
-              <Icon name={LABEL_ICONS[label.kind]} />
+              <Icon name={label.worktree ? 'worktree' : LABEL_ICONS[label.kind]} />
               <span className="text">{label.name}</span>
             </span>
           ));

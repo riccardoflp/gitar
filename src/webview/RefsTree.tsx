@@ -1,5 +1,6 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState } from '../shared/protocol';
+import { worktreeOf } from '../shared/refs';
 import { scopeLabel, scopeRefs } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
@@ -35,6 +36,8 @@ interface Item {
   drag?: DragSource;
   /** The branch's open pull request on GitHub. */
   pull?: PullRequest;
+  /** The folder of the other worktree that has the branch checked out. */
+  worktree?: string;
 }
 
 /** A button beside the title of a section, for what adds to it. */
@@ -122,6 +125,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
             >
               <span className="grow">{item.label}</span>
               {item.favorite && id !== 'favorites' && <Icon name="star-full" />}
+              {item.worktree && <Icon name="worktree" />}
               {item.hint && <span className="hint">{item.hint}</span>}
               {item.pull && (
                 <span className={`pull ${item.pull.checks ?? ''}`}>
@@ -152,17 +156,27 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         : undefined;
       const pull = pullOf(pushedName(branch, state), state);
       const tracking = upstream ? `${branch.name} → ${upstream.name}` : `${branch.name} (no upstream)`;
+      const worktree = worktreeOf(branch.name, state);
+      const about = [tracking, worktree && `In the worktree ${worktree.path}`, pull && pullTitle(pull)].filter(Boolean).join('\n');
       return {
         key: branch.name,
         hash: branch.hash,
         label: branch.name,
         hint,
         pull,
-        title: pull ? `${tracking}\n${pullTitle(pull)}` : tracking,
+        title: about,
+        worktree: worktree?.path,
         current: branch.current,
         favorite: favorites.has(`refs/heads/${branch.name}`),
         menu: () => branchMenu(branch, state, onCompare),
-        open: branch.current ? undefined : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
+        // Git checks it out nowhere but in its worktree, which opens instead.
+        open: branch.current
+          ? undefined
+          : worktree
+            ? worktree.prunable
+              ? undefined
+              : () => act({ kind: 'worktreeOpen', path: worktree.path })
+            : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
         drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
       };
     });
@@ -270,7 +284,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           title: worktree.path,
           current: worktree.current,
           menu: () => worktreeMenu(worktree, state),
-          open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path, where: 'window' }),
+          open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path }),
         })),
         false,
         { icon: 'add', title: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },

@@ -326,9 +326,14 @@ export type Action =
   | { kind: 'undo' }
   /** On an existing branch or at a commit, or, without `ref`, on a new branch from a base asked for. */
   | { kind: 'worktreeAdd'; ref?: string; isBranch?: boolean }
-  /** In a new window, or in the Agents window of VS Code, which starts agent sessions in it. */
-  | { kind: 'worktreeOpen'; path: string; where: 'window' | 'agents' }
-  | { kind: 'worktreeRemove' | 'worktreeRename' | 'worktreeTerminal' | 'worktreeReveal'; path: string }
+  /**
+   * In a new window, or in the Agents window of VS Code, which starts agent sessions in it. Without `where`, where
+   * `gitardo.worktrees.openIn` says.
+   */
+  | { kind: 'worktreeOpen'; path: string; where?: 'window' | 'agents' }
+  /** Asks whether to delete its branch too, unless `deleteBranch` says. */
+  | { kind: 'worktreeRemove'; path: string; deleteBranch?: boolean }
+  | { kind: 'worktreeRename' | 'worktreeTerminal' | 'worktreeReveal'; path: string }
   | { kind: 'worktreePrune' }
   | { kind: 'stageHunk' | 'unstageHunk' | 'discardHunk'; path: string; patch: string }
   | { kind: 'cherryPick'; hash: string; isMerge: boolean }

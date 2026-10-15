@@ -66,7 +66,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | On | Operations |
 | --- | --- |
 | Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
-| Local branch | Check out (also by double-click), fast-forward to its upstream, merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
+| Local branch | Check out (also by double-click), or, when another worktree has it, open, rename or remove that worktree (see [Worktrees](#worktrees)), fast-forward to its upstream, merge, rebase onto, compare with the current branch or with anything else, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
 | Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
 | Stash | Apply, pop, create branch, drop |
@@ -291,10 +291,23 @@ Once it is created, Gitardo offers to open it:
 - **Open in Agents Window** opens the Agents window of VS Code on the worktree, so that the agent sessions started there work in it, on its branch. It is offered when this VS Code has the Agents window, which works only with its chat agents turned on. Gitardo opens it with a command of VS Code that is not part of its documented API: if it is missing or fails, the worktree opens in a new window instead, and Gitardo says why.
 - **Open in New Window** opens it as the folder of a VS Code window of its own.
 
+A double click on a worktree opens it where `gitardo.worktrees.openIn` says: a new window (`window`, the default) or the Agents window (`agents`).
+
 The same are in the context menu of a worktree, with **Open in terminal**, **Reveal in File Explorer** (**Reveal in Finder** on macOS), and:
 
 - **Rename…** gives the folder another name, with `git worktree move`: inside the folder where the worktrees go, its name is its path from there, slashes and all; anywhere else, the name of its folder where it is. It offers to rename its branch along with it with `git branch -m`. Git cannot move the main worktree, the folder the repository was created in, nor, on Windows, a folder that another program has open, such as another VS Code window or a terminal: close them first. The worktree open in this window is renamed from another one.
 - **Remove…** asks whether to delete its branch too. The folder is removed with `git worktree remove`, which asks again with `--force` when it has changes that are not committed, and the branch with `git branch -d`, which keeps a branch that is not merged and says so.
+
+#### The branch of a worktree
+
+Git checks a branch out in one worktree at a time, so a branch that another worktree has is worked on there. Gitardo treats it that way:
+
+- It has the worktree's icon instead of the branch's, among the local branches and on its label in the graph, and its tooltip says which worktree has it.
+- A double click on it opens its worktree, where `gitardo.worktrees.openIn` says, instead of trying to check it out.
+- Its context menu starts with what opens the worktree: **Open worktree in Agents Window**, **Open worktree in new window**, **Open terminal in worktree** and **Reveal worktree in File Explorer**. **Check out** and **Delete**, which git refuses, are not there; **Rename worktree…**, **Remove worktree…** and **Remove worktree and delete branch…** are. What does not touch the branch's files, such as merging it into the current branch, comparing it or opening its pull request, is there as for any branch.
+- Dragged onto a commit of the graph, it offers no rebase: that would have to happen in its worktree.
+
+The branch of the main worktree, seen from another worktree, is the same, except that the main worktree can be neither renamed nor removed.
 
 ### Remotes
 

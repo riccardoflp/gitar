@@ -186,7 +186,8 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       };
       // Its branch can go with it, unless another worktree has it checked out too, which git does not allow anyway.
       const branch = worktree.branch;
-      if (!branch) return leaveNoEmptyFolders(worktreeRemoveOp(action.path));
+      if (!branch || action.deleteBranch === false) return leaveNoEmptyFolders(worktreeRemoveOp(action.path));
+      if (action.deleteBranch) return leaveNoEmptyFolders(worktreeRemoveOp(action.path, false, branch));
       const deleteBranch = await pick(`Remove worktree ${path.basename(action.path)}`, [
         { label: 'Remove the worktree', description: `Keep the branch ${branch}`, value: false },
         { label: `Remove the worktree and delete ${branch}`, description: 'Only if it is merged', value: true },
@@ -198,7 +199,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     case 'worktreePrune':
       return worktreePruneOp();
     case 'worktreeOpen':
-      await openWorktree(action.path, action.where);
+      await openWorktree(action.path, action.where ?? openIn(state));
       return;
     case 'worktreeTerminal':
       vscode.window.createTerminal({ name: path.basename(action.path), cwd: action.path }).show();
@@ -328,6 +329,12 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
 /** The command that opens the Agents window of VS Code. It is not part of the documented API, hence the fallback. */
 export const AGENTS_WINDOW = 'workbench.action.openAgentsWindow';
+
+/** Where a worktree opens when nothing says: as the settings choose, in the Agents window only where VS Code has one. */
+function openIn(state: RepoState): 'window' | 'agents' {
+  const setting = vscode.workspace.getConfiguration('gitardo').get<string>('worktrees.openIn', 'window');
+  return setting === 'agents' && state.agentsWindow ? 'agents' : 'window';
+}
 
 /** Opens a worktree in a window of its own, or in the Agents window for agent sessions in it. */
 export async function openWorktree(dir: string, where: 'window' | 'agents'): Promise<void> {

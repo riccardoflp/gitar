@@ -1,4 +1,4 @@
-import type { Branch, RepoState } from './protocol';
+import type { Branch, RepoState, Worktree } from './protocol';
 
 const KINDS = { branch: 'refs/heads/', remote: 'refs/remotes/', tag: 'refs/tags/' } as const;
 
@@ -10,6 +10,11 @@ export function refArg(kind: keyof typeof KINDS, name: string, state: RepoState)
   const lists = [state.branches, state.remoteBranches, state.tags];
   const namesakes = lists.filter((list) => list.some((ref) => ref.name === name)).length;
   return namesakes > 1 ? `${KINDS[kind]}${name}` : name;
+}
+
+/** The other worktree that has a branch checked out, where it is to be worked on: git checks it out nowhere else. */
+export function worktreeOf(branch: string, state: RepoState): Worktree | undefined {
+  return state.worktrees.find((worktree) => worktree.branch === branch && !worktree.current);
 }
 
 /**
