@@ -26,7 +26,7 @@ import {
 } from '../git/ops';
 import { Repo, isHash } from '../git/repo';
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
-import { worktreeLabel, worktreeStatus } from '../shared/refs';
+import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import type {
   Action,
   ComparedRef,
@@ -47,7 +47,7 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
-import { AGENTS_WINDOW, resolveAction, worktreesFolder } from './actions';
+import { AGENTS_WINDOW, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
 import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
@@ -676,27 +676,41 @@ export class Controller implements vscode.Disposable {
     const state = await this.requireState();
     if (!state || !this.repo) return;
     const merged = new Set(await this.repo.mergedBranches());
-    const inUse = new Set(state.worktrees.map((worktree) => worktree.branch));
+    // A branch that another worktree has goes with that worktree, except the main one, which git cannot remove.
     const candidates = state.branches.filter(
-      (branch) => !branch.current && !inUse.has(branch.name) && (merged.has(branch.name) || branch.upstream?.gone),
+      (branch) => !branch.current && !worktreeOf(branch.name, state)?.main && (merged.has(branch.name) || branch.upstream?.gone),
     );
     if (!candidates.length) {
       void vscode.window.showInformationMessage('Gitardo: no local branches are merged or have lost their upstream.');
       return;
     }
     const picked = await vscode.window.showQuickPick(
-      candidates.map((branch) => ({
-        label: branch.name,
-        description: merged.has(branch.name) ? `merged into ${state.branch ?? 'HEAD'}` : 'upstream is gone, not merged',
-        // Unmerged branches can lose commits, so they are left for the user to tick.
-        picked: merged.has(branch.name),
-        branch,
-      })),
-      { title: 'Clean up branches', placeHolder: 'Branches to delete', canPickMany: true },
+      candidates.map((branch) => {
+        const worktree = worktreeOf(branch.name, state);
+        const dirty = !!worktree?.changes;
+        const why = merged.has(branch.name) ? `merged into ${state.branch ?? 'HEAD'}` : 'upstream is gone, not merged';
+        const where =
+          worktree &&
+          (worktree.prunable
+            ? 'with its missing worktree'
+            : `with its worktree ${worktreeLabel(worktree.path, state.worktreesRoot)}${dirty ? `, ${changesText(worktree.changes)}` : ''}`);
+        return {
+          label: branch.name,
+          description: [why, where].filter(Boolean).join(' · '),
+          // Unmerged branches can lose commits, and worktrees their files not committed: those are left for the user to tick.
+          picked: merged.has(branch.name) && !dirty,
+          branch,
+          worktree,
+        };
+      }),
+      { title: 'Clean up branches', placeHolder: 'Branches to delete, with their worktrees', canPickMany: true },
     );
     if (!picked?.length) return;
     const names = (wanted: boolean) => picked.filter((item) => merged.has(item.branch.name) === wanted).map((item) => item.branch.name);
-    await this.run(cleanupBranchesOp(names(true), names(false)));
+    const worktrees = picked.flatMap(({ worktree }) => (worktree ? [{ path: worktree.path, dirty: !!worktree.changes, prunable: worktree.prunable }] : []));
+    const op = cleanupBranchesOp(names(true), names(false), worktrees);
+    if (worktrees.length) op.onSuccess = () => worktrees.forEach((worktree) => removeEmptyParents(worktree.path, state));
+    await this.run(op);
   }
 
   /** Asks the language model for a commit message and hands it to the Changes view. */

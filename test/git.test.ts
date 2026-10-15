@@ -609,6 +609,26 @@ describe('operations', () => {
     expect(() => cleanupBranchesOp(['--all'], [])).toThrow(/not a valid name/);
   });
 
+  it('removes the worktrees of the branches it cleans up first, forcing only the ones with files not committed', () => {
+    const op = cleanupBranchesOp(['done', 'gone'], ['wip'], [
+      { path: 'C:/wt/done', dirty: false, prunable: false },
+      { path: 'C:/wt/wip', dirty: true, prunable: false },
+      { path: 'C:/wt/gone', dirty: false, prunable: true },
+    ]);
+    expect(op.commands).toEqual([
+      ['worktree', 'prune'],
+      ['worktree', 'remove', 'C:/wt/done'],
+      ['worktree', 'remove', '--force', 'C:/wt/wip'],
+      ['branch', '-d', 'done', 'gone'],
+      ['branch', '-D', 'wip'],
+    ]);
+    expect(op.title).toBe('Delete 3 branches and 3 worktrees');
+    expect(op).toMatchObject({ danger: true, note: expect.stringContaining('files not committed, which are deleted with them: C:/wt/wip') });
+    const clean = cleanupBranchesOp(['done'], [], [{ path: 'C:/wt/done', dirty: false, prunable: false }]);
+    expect(clean).toMatchObject({ title: 'Delete 1 branch and 1 worktree', confirm: true });
+    expect(clean.danger).toBeUndefined();
+  });
+
   it('refuses names that git could read as options', () => {
     expect(() => checkoutOp('branch', '--force')).toThrow(/not a valid name/);
     expect(() => createBranchOp('-D', hash, false)).toThrow(/not a valid name/);

@@ -14,6 +14,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - A format for the names of the branches of new worktrees, `gitardo.worktrees.branchFormat`, such as `PRJ-${input:ticket}-${input:kind}-rfi-${base}`: the inputs that `gitardo.worktrees.inputs` defines are typed or picked from a list, `${base}` is the branch it starts from without its remote, or at a commit the commit or a branch that has it. Creating a worktree asks whether to use the format, which comes first, or a branch name.
 - **Open in Agents Window** for a worktree, once it is created and in its context menu: VS Code's Agents window opens on it, so that agent sessions work in it. Where VS Code has no Agents window it is not offered, and if it fails to open the worktree opens in a new window.
 - **Rename…**, **Open in terminal** and **Reveal in File Explorer** in the context menu of a worktree. Renaming moves its folder with `git worktree move` and can rename its branch too; **Remove…** can delete its branch along with it.
+- **Gitardo: Clean Up Branches** lists the merged branches and the ones whose upstream is gone that another worktree has, and removes the worktree with the branch. One with files not committed is left unticked, and if ticked is removed with `--force` after a warning.
 - **Fast-forward to `<upstream>`** in the context menu of a local branch that is not checked out: it fetches the upstream and moves the branch up to it, without leaving the branch you are on. Git only does it when the branch has no commits of its own.
 
 ### Changed

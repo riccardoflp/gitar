@@ -183,16 +183,35 @@ export function deleteBranchOp(name: string, force = false): GitOp {
 }
 
 /** Deletes several branches at once. `unmerged` ones have commits that are on no other branch, so they need the forced delete. */
-export function cleanupBranchesOp(merged: string[], unmerged: string[]): GitOp {
+/** The worktree of a branch being cleaned up, which goes first: `dirty` when it has files not committed. */
+export interface CleanupWorktree {
+  path: string;
+  dirty: boolean;
+  prunable: boolean;
+}
+
+export function cleanupBranchesOp(merged: string[], unmerged: string[], worktrees: CleanupWorktree[] = []): GitOp {
   const commands: string[][] = [];
+  // Git deletes no branch that a worktree has: the worktrees go first, the ones whose folder is gone by pruning.
+  if (worktrees.some((worktree) => worktree.prunable)) commands.push(['worktree', 'prune']);
+  for (const worktree of worktrees.filter((each) => !each.prunable)) {
+    commands.push(['worktree', 'remove', ...(worktree.dirty ? ['--force'] : []), arg(worktree.path)]);
+  }
   if (merged.length) commands.push(['branch', '-d', ...merged.map(arg)]);
   if (unmerged.length) commands.push(['branch', '-D', ...unmerged.map(arg)]);
-  if (!commands.length) throw new Error('No branches selected.');
+  if (!merged.length && !unmerged.length) throw new Error('No branches selected.');
   const count = merged.length + unmerged.length;
-  const op: GitOp = { title: count === 1 ? 'Delete 1 branch' : `Delete ${count} branches`, commands, confirm: true };
-  if (unmerged.length) {
+  const branches = count === 1 ? '1 branch' : `${count} branches`;
+  const also = worktrees.length === 1 ? ' and 1 worktree' : worktrees.length ? ` and ${worktrees.length} worktrees` : '';
+  const op: GitOp = { title: `Delete ${branches}${also}`, commands, confirm: true };
+  const dirty = worktrees.filter((worktree) => worktree.dirty && !worktree.prunable).map((worktree) => worktree.path);
+  const notes = [
+    unmerged.length && `Not merged into the current branch, so their commits may become unreachable: ${unmerged.join(', ')}`,
+    dirty.length && `These worktrees have files not committed, which are deleted with them: ${dirty.join(', ')}`,
+  ].filter((note): note is string => Boolean(note));
+  if (notes.length) {
     op.danger = true;
-    op.note = `Not merged into the current branch, so their commits may become unreachable: ${unmerged.join(', ')}`;
+    op.note = notes.join('\n\n');
   }
   return op;
 }

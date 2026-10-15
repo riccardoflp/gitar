@@ -585,6 +585,34 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await state()).branches.map((branch) => branch.name)).toEqual(['main']);
   });
 
+  it('cleans up branches together with their worktrees, with files not committed or missing', async () => {
+    write('a.txt', 'one\n');
+    await commitAll('base');
+    await run(createBranchOp('done', 'HEAD', false));
+    await run(createBranchOp('lost', 'HEAD', false));
+    const done = `${root}-done`;
+    const lost = `${root}-lost`;
+    await run(worktreeAddOp(done, 'done', null, false));
+    await run(worktreeAddOp(lost, 'lost', null, false));
+    fs.writeFileSync(path.join(done, 'dirty.txt'), 'not committed\n');
+    fs.rmSync(lost, { recursive: true, force: true });
+    const worktrees = (await state()).worktrees;
+    expect(worktrees.map((worktree) => [worktree.branch, worktree.changes, worktree.prunable])).toEqual([
+      ['main', 0, false],
+      ['done', 1, false],
+      ['lost', null, true],
+    ]);
+
+    await run(cleanupBranchesOp(['done', 'lost'], [], [
+      { path: worktrees[1].path, dirty: true, prunable: false },
+      { path: worktrees[2].path, dirty: false, prunable: true },
+    ]));
+    const after = await state();
+    expect(after.worktrees).toHaveLength(1);
+    expect(after.branches.map((branch) => branch.name)).toEqual(['main']);
+    expect(fs.existsSync(done)).toBe(false);
+  });
+
   it('stages, unstages and discards single lines of a hunk', async () => {
     write('a.txt', 'one\ntwo\nthree\nfour\n');
     await commitAll('base');

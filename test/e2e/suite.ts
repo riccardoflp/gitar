@@ -979,20 +979,32 @@ export async function run(): Promise<void> {
     assert.ok(state().branches.some((branch) => branch.name === 'feature'));
   });
 
-  await step('cleans up merged branches from a picker', async () => {
+  await step('cleans up merged branches from a picker, with their worktrees', async () => {
+    // `merged` has a worktree, which goes with it.
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    const dir = `${home}/merged`;
+    await git(app, ['worktree', 'add', dir, 'merged']);
+    await vscode.commands.executeCommand('gitardo.refresh');
     let offered: string[] = [];
     choose = (items) => {
-      offered = items.map((item) => `${item.label}${item.picked ? ' (ticked)' : ''}`);
+      offered = items.map((item) => `${item.label}${item.picked ? ' (ticked)' : ''}: ${item.description}`);
       return items.filter((item) => item.picked);
     };
     answer = run;
-    await vscode.commands.executeCommand('gitardo.cleanupBranches');
-    // `topic` points at the commit that was reworded since, so it is not merged and not offered.
-    assert.deepEqual(offered, ['merged (ticked)']);
-    assert.deepEqual(
-      state().branches.map((branch) => branch.name),
-      ['feature', 'main', 'topic'],
-    );
+    try {
+      await vscode.commands.executeCommand('gitardo.cleanupBranches');
+      // `topic` points at the commit that was reworded since, so it is not merged and not offered.
+      assert.deepEqual(offered, ['merged (ticked): merged into main · with its worktree merged']);
+      assert.deepEqual(
+        state().branches.map((branch) => branch.name),
+        ['feature', 'main', 'topic'],
+      );
+      assert.equal(state().worktrees.length, 1);
+      assert.ok(!fs.existsSync(dir));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+    }
   });
 
   await step('browses the reflog and shows the chosen commit in the graph', async () => {

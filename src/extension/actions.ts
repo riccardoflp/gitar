@@ -420,7 +420,7 @@ export function worktreesFolder(state: RepoState): string {
 }
 
 /** After a worktree is moved or removed, the folders that held only it go too, up to where the worktrees are. */
-function removeEmptyParents(dir: string, state: RepoState): void {
+export function removeEmptyParents(dir: string, state: RepoState): void {
   const { main, folder } = worktreesHome(state);
   const home = worktreesRoot(main, folder);
   for (let parent = path.posix.dirname(dir.replace(/\\/g, '/')); parent.startsWith(`${home}/`); parent = path.posix.dirname(parent)) {
