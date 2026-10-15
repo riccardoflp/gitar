@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { discoverRepos, repoName } from '../git/discover';
 import { GitError, formatCommand, git, writeFiles } from '../git/exec';
-import { compareUrl, parseGitHubRemote, type GitHubRepo } from '../git/github';
+import { compareRangeUrl, compareUrl, parseGitHubRemote, type GitHubRepo } from '../git/github';
 import {
   CONFLICT_SIDES,
   cleanupBranchesOp,
@@ -20,11 +20,12 @@ import {
   restoreConflictsOp,
   restoreStashOp,
   syncOp,
+  takeFileOp,
   undoOp,
   type GitOp,
   type IdentityProfile,
 } from '../git/ops';
-import { samePath } from '../git/parse';
+import { allChanges, samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
 import { previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSetup';
 import { WORKTREE, showsGraph } from '../shared/protocol';
@@ -82,6 +83,20 @@ const LOG_LIMIT = 10_000;
 const TITLE_LENGTH = 32;
 /** Pull requests change on GitHub's side, so they are re-read at most this often unless something asks for it. */
 const PULLS_MAX_AGE = 120_000;
+/** The comparisons opened last in each repository, by its folder. */
+const RECENT_KEY = 'gitardo.recentComparisons';
+/** How many of them are kept. */
+const RECENT_COMPARISONS = 8;
+
+/** The working tree, as a side of a comparison. */
+const WORKTREE_SIDE: ComparedRef = { name: 'Working tree', hash: WORKTREE };
+
+/** A comparison opened before, to open again: its sides by the names they had, and the file or folder it showed. */
+interface RecentComparison {
+  from: ComparedRef;
+  to: ComparedRef;
+  path?: string;
+}
 
 /** A comparison open in a tab: its two sides as they were chosen, and what the tab was sent last. */
 interface CompareTab {
@@ -90,8 +105,12 @@ interface CompareTab {
   from: CompareSide;
   to: CompareSide;
   mode: CompareMode;
+  /** The file or the folder the comparison is narrowed to. */
+  path: string | null;
   /** The commits and the mode the tab shows, to tell whether what it shows has to be read again. */
   shown?: string;
+  /** Where the changes the tab shows start from. */
+  since?: string;
 }
 
 interface RunResult {
@@ -103,7 +122,28 @@ interface RunResult {
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The title of the tab of a comparison. */
-const compareTitle = (from: CompareSide, to: CompareSide) => `${from.name} ↔ ${to.name}`;
+const compareTitle = (from: CompareSide, to: CompareSide, path: string | null) =>
+  `${from.name} ↔ ${to.name}${path ? ` · ${path.slice(path.lastIndexOf('/') + 1)}` : ''}`;
+
+/**
+ * How two sides are compared at first: two branches or tags from where they diverged, as a pull request shows them; a
+ * commit, or the working tree, directly, for how the files differ from it.
+ */
+const compareMode = (from: CompareSide, to: CompareSide): CompareMode =>
+  from.live && to.live && from.hash !== WORKTREE && to.hash !== WORKTREE ? 'diverged' : 'direct';
+
+/** What can be a side of a comparison: a commit, or the working tree. */
+const isSide = (hash: unknown): hash is string => typeof hash === 'string' && (hash === WORKTREE || isHash(hash));
+
+/** A file or a folder as git names it, from the top of the repository, or null for all of it. */
+const cleanPath = (path: unknown): string | null => {
+  if (typeof path !== 'string') return null;
+  const clean = path
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^(?:\.?\/)+|\/+$/g, '');
+  return clean && clean !== '.' ? clean : null;
+};
 
 const hasCommand = async (id: string) => (await vscode.commands.getCommands(true)).includes(id);
 
@@ -145,6 +185,8 @@ export class Controller implements vscode.Disposable {
   /** Which branches the graph shows: all of them when null. */
   private scope: Scope | null = null;
   private github: GitHubRepo | null = null;
+  /** The remote that `github` is. */
+  private githubRemote: string | null = null;
   private pulls: Record<string, PullRequest> = {};
   private pullsAt = 0;
   /** A commit to show as soon as a graph view is there to show it. */
@@ -582,17 +624,29 @@ export class Controller implements vscode.Disposable {
     }
   }
 
-  /** Compares two branches, tags or commits in a tab, asking which. With `from`, only the other side is asked. */
+  /**
+   * Compares two branches, tags or commits, or one with the working tree, in a tab, asking which. With `from`, only
+   * the other side is asked. The first question also offers the comparisons opened last.
+   */
   async compare(from?: ComparedRef): Promise<void> {
     const state = await this.requireState();
     const repo = this.repo;
     if (!state || !repo) return;
     try {
-      const given = from && isHash(from.hash) && typeof from.name === 'string' ? { name: from.name, hash: from.hash } : undefined;
-      const first = given ?? (await this.pickRevision(state, repo, 'Compare', 'The branch, tag or commit to start from'));
+      const given = from && isSide(from.hash) && typeof from.name === 'string' ? { name: from.name, hash: from.hash } : undefined;
+      const first =
+        given ??
+        (await this.pickRevision(state, repo, 'Compare', 'The branch, tag or commit to start from, or a comparison opened before', {
+          worktree: true,
+          recent: this.recentComparisons(repo),
+        }));
       if (!first) return;
-      const second = await this.pickRevision(state, repo, `Compare ${first.name} with`, 'The branch, tag or commit to compare it with', first);
-      if (!second) return;
+      if ('to' in first) return await this.openRecent(first, repo);
+      const second = await this.pickRevision(state, repo, `Compare ${first.name} with`, 'The branch, tag or commit to compare it with', {
+        other: first,
+        worktree: true,
+      });
+      if (!second || 'to' in second) return;
       await this.openCompare(first, second, repo);
     } catch (error) {
       void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
@@ -600,24 +654,57 @@ export class Controller implements vscode.Disposable {
   }
 
   /**
-   * Opens the comparison of two branches, tags or commits in a tab of its own, or shows the tab it has. Two branches
-   * are compared from where they diverged, as a pull request shows them; anything else directly.
+   * Compares a file or a folder as it is in the working tree with a branch, tag or commit, asking which: the given
+   * one, or the file in the active editor.
    */
-  async openCompare(from: ComparedRef, to: ComparedRef, repo = this.repo): Promise<void> {
-    if (!repo || !isHash(from?.hash) || !isHash(to?.hash)) return;
+  async compareWith(uri = vscode.window.activeTextEditor?.document.uri): Promise<void> {
+    if (!(await this.requireState())) return;
+    if (uri?.scheme === 'file') await this.showRepoOf(uri);
+    const { state, repo } = this;
+    if (!state || !repo) return;
+    const file = uri?.scheme === 'file' ? path.relative(repo.root, uri.fsPath).replace(/\\/g, '/') : '';
+    if (!uri || file.startsWith('..') || path.isAbsolute(file)) {
+      void vscode.window.showWarningMessage('Gitardo: choose a file or a folder of this repository to compare.');
+      return;
+    }
+    try {
+      const name = file || path.basename(repo.root);
+      const picked = await this.pickRevision(state, repo, `Compare ${name} with`, 'The branch, tag or commit to compare the working tree with');
+      if (!picked || 'to' in picked) return;
+      await this.openCompare(picked, WORKTREE_SIDE, repo, file || null);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
+    }
+  }
+
+  /** Opens a comparison opened before, its branches where they are now. */
+  private async openRecent(recent: RecentComparison, repo: Repo): Promise<void> {
+    const now = async (ref: ComparedRef): Promise<ComparedRef> =>
+      ref.hash === WORKTREE || ref.hash.startsWith(ref.name) ? ref : { name: ref.name, hash: (await repo.resolve(ref.name)) ?? ref.hash };
+    await this.openCompare(await now(recent.from), await now(recent.to), repo, recent.path ?? null);
+  }
+
+  /**
+   * Opens the comparison of two branches, tags or commits, or of one with the working tree, in a tab of its own, or
+   * shows the tab it has. With `path`, only that file or folder.
+   */
+  async openCompare(from: ComparedRef, to: ComparedRef, repo = this.repo, path: string | null = null): Promise<void> {
+    if (!repo || !isSide(from?.hash) || !isSide(to?.hash) || (from.hash === WORKTREE && to.hash === WORKTREE)) return;
+    const narrowed = cleanPath(path);
     const [first, second] = await Promise.all([this.compareSide(repo, from), this.compareSide(repo, to)]);
+    this.rememberComparison(repo, first, second, narrowed);
     const same = (a: CompareSide, b: CompareSide) => a.name === b.name && a.live === b.live && (a.live || a.hash === b.hash);
     for (const tab of this.compareTabs.values()) {
-      if (samePath(tab.repo.root, repo.root) && same(tab.from, first) && same(tab.to, second)) return tab.panel.reveal();
+      if (samePath(tab.repo.root, repo.root) && same(tab.from, first) && same(tab.to, second) && tab.path === narrowed) return tab.panel.reveal();
     }
 
-    const panel = vscode.window.createWebviewPanel('gitardo.compare', compareTitle(first, second), vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel('gitardo.compare', compareTitle(first, second, narrowed), vscode.ViewColumn.Active, {
       retainContextWhenHidden: true,
       // The search of VS Code, for a word among the changes.
       enableFindWidget: true,
     });
     const { webview } = panel;
-    const tab: CompareTab = { panel, repo, from: first, to: second, mode: first.live && second.live ? 'diverged' : 'direct' };
+    const tab: CompareTab = { panel, repo, from: first, to: second, mode: compareMode(first, second), path: narrowed };
     const attachment = this.attach(webview, 'compare', { root: repo.root, files: this.memento.get<FilesLayout>(FILES_KEY, 'tree') });
     this.pinned.set(webview, repo);
     this.compareTabs.set(webview, tab);
@@ -628,17 +715,38 @@ export class Controller implements vscode.Disposable {
     });
   }
 
-  /** A side of a comparison: followed when git gives its name the commit it was chosen at, fixed when it is a hash. */
+  /**
+   * A side of a comparison: followed when git gives its name the commit it was chosen at, fixed when it is a hash. The
+   * working tree is followed as it changes.
+   */
   private async compareSide(repo: Repo, ref: ComparedRef): Promise<CompareSide> {
+    if (ref.hash === WORKTREE) return { name: WORKTREE_SIDE.name, hash: WORKTREE, live: true };
     const name = typeof ref.name === 'string' && ref.name ? ref.name : ref.hash.slice(0, 7);
     // A name that git reads as another commit, a tag that has the name of a branch, stands for the one chosen.
     const live = !ref.hash.startsWith(name) && (await repo.resolve(name)) === ref.hash;
     return { name, hash: ref.hash, live };
   }
 
+  /** The comparisons opened last in a repository, the latest first. */
+  private recentComparisons(repo: Repo): RecentComparison[] {
+    return this.memento.get<Record<string, RecentComparison[]>>(RECENT_KEY, {})[repo.root] ?? [];
+  }
+
+  private rememberComparison(repo: Repo, from: CompareSide, to: CompareSide, path: string | null): void {
+    const all = this.memento.get<Record<string, RecentComparison[]>>(RECENT_KEY, {});
+    const entry: RecentComparison = { from: { name: from.name, hash: from.hash }, to: { name: to.name, hash: to.hash }, ...(path ? { path } : {}) };
+    // The two ways of a comparison are one: the last is kept.
+    const same = (other: RecentComparison) =>
+      (other.path ?? null) === path &&
+      ((other.from.name === from.name && other.to.name === to.name) || (other.from.name === to.name && other.to.name === from.name));
+    const list = [entry, ...(all[repo.root] ?? []).filter((other) => !same(other))].slice(0, RECENT_COMPARISONS);
+    void this.memento.update(RECENT_KEY, { ...all, [repo.root]: list });
+  }
+
   /**
    * Sends the tab of a comparison what it shows, once its sides are looked up again, and then the lines of its files.
-   * Nothing is sent when it shows that already, unless `again`.
+   * Nothing is sent when it shows that already, unless `again`; a comparison with the working tree is read again
+   * whenever the repository is.
    */
   private async sendCompare(tab: CompareTab, again = false): Promise<void> {
     const { panel, repo } = tab;
@@ -649,7 +757,7 @@ export class Controller implements vscode.Disposable {
     const open = () => this.compareTabs.get(webview) === tab;
     try {
       for (const side of [tab.from, tab.to]) {
-        if (!side.live) continue;
+        if (!side.live || side.hash === WORKTREE) continue;
         const hash = await repo.resolve(side.name);
         if (!hash) side.gone = true;
         else {
@@ -657,17 +765,19 @@ export class Controller implements vscode.Disposable {
           delete side.gone;
         }
       }
-      const { from, to, mode } = tab;
-      const key = `${from.hash} ${to.hash} ${mode} ${from.gone} ${to.gone}`;
-      if (!open() || (!again && tab.shown === key)) return;
+      const { from, to, mode, path } = tab;
+      const changing = from.hash === WORKTREE || to.hash === WORKTREE;
+      const key = `${from.hash} ${to.hash} ${mode} ${from.gone} ${to.gone} ${path}`;
+      if (!open() || (!again && !changing && tab.shown === key)) return;
       tab.shown = key;
-      panel.title = compareTitle(from, to);
-      const found = await repo.compareSides(from.hash, to.hash, mode);
+      panel.title = compareTitle(from, to, path);
+      const found = await repo.compareSides(from.hash, to.hash, mode, path);
       // The sides changed again meanwhile: the answer for them is the one to send.
       if (tab.shown !== key || !open()) return;
       if (!found) return this.post({ type: 'compareView', view: null, error: 'These are not commits of this repository.' }, webview);
+      tab.since = found.since;
       this.post({ type: 'compareView', view: { from: { ...from }, to: { ...to }, mode, ...found } }, webview);
-      const patch = await repo.comparePatch(found.files, found.since, to.hash, PATCH_LINES).catch(() => null);
+      const patch = await repo.comparePatch(found.files, found.since, to.hash, PATCH_LINES, path).catch(() => null);
       if (tab.shown === key && open()) this.post({ type: 'comparePatch', since: found.since, to: to.hash, patch }, webview);
     } catch (error) {
       tab.shown = undefined;
@@ -684,12 +794,66 @@ export class Controller implements vscode.Disposable {
     if (!state) return;
     const other = which === 'from' ? tab.to : tab.from;
     const title = which === 'from' ? `Compare with ${other.name}` : `Compare ${other.name} with`;
-    const picked = await this.pickRevision(state, tab.repo, title, `The branch, tag or commit to put in place of ${tab[which].name}`, other);
-    if (!picked) return;
+    const picked = await this.pickRevision(state, tab.repo, title, `The branch, tag or commit to put in place of ${tab[which].name}`, {
+      other,
+      worktree: other.hash !== WORKTREE,
+    });
+    if (!picked || 'to' in picked) return;
     tab[which] = await this.compareSide(tab.repo, picked);
-    // Two branches are compared from where they diverged, anything else directly, as when the tab opened.
-    tab.mode = tab.from.live && tab.to.live ? 'diverged' : 'direct';
+    // As when the tab opened.
+    tab.mode = compareMode(tab.from, tab.to);
+    this.rememberComparison(tab.repo, tab.from, tab.to, tab.path);
     await this.sendCompare(tab, true);
+  }
+
+  /**
+   * Makes a file in the working tree and the index what the second side of a comparison has: its version of the file,
+   * or no file when it has none.
+   */
+  private async takeCompareFile(tab: CompareTab, file: FileChange): Promise<void> {
+    const { to, repo } = tab;
+    if (to.hash === WORKTREE || typeof file?.path !== 'string' || !file.path) return;
+    // What is not committed in the file is lost: when that cannot be told, it is assumed.
+    const state = this.state && samePath(this.state.root, repo.root) ? this.state : null;
+    const changed = !state || allChanges(state.working).some((change) => change.path === file.path);
+    try {
+      await this.run(takeFileOp(file.path, to.name, to.hash, file.status === 'D', changed), { repo });
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
+    }
+  }
+
+  /** Copies the changes of a comparison as a patch that `git apply` takes. */
+  private async copyComparePatch(tab: CompareTab): Promise<void> {
+    if (!tab.since) return;
+    const text = await tab.repo.compareText(tab.since, tab.to.hash, tab.path).catch(() => '');
+    if (!text) {
+      void vscode.window.showInformationMessage('Gitardo: there are no changes to copy.');
+      return;
+    }
+    await vscode.env.clipboard.writeText(text);
+    const files = text.match(/^diff --git /gm)?.length ?? 0;
+    void vscode.window.showInformationMessage(`Gitardo: copied the changes of ${files} ${files === 1 ? 'file' : 'files'} as a patch.`);
+  }
+
+  /**
+   * Opens the comparison on GitHub, each side by the name it has there: a branch by its upstream there, a remote
+   * branch of that remote and a tag by their names, anything else by its commit, which GitHub knows once it is pushed.
+   */
+  private async openCompareOnGitHub(tab: CompareTab): Promise<void> {
+    const { state, github, githubRemote } = this;
+    const { from, to, mode } = tab;
+    if (!state || !github || !samePath(state.root, tab.repo.root) || from.hash === WORKTREE || to.hash === WORKTREE) return;
+    const there = (side: CompareSide) => {
+      if (!side.live || side.gone) return side.hash;
+      const branch = state.branches.find((candidate) => candidate.name === side.name);
+      if (branch) return branch.upstream && !branch.upstream.gone && branch.upstream.remote === githubRemote ? branch.upstream.branch : side.hash;
+      const prefix = `${githubRemote}/`;
+      if (side.name.startsWith(prefix) && state.remoteBranches.some((ref) => ref.name === side.name)) return side.name.slice(prefix.length);
+      if (state.tags.some((tag) => tag.name === side.name)) return side.name;
+      return side.hash;
+    };
+    await vscode.env.openExternal(vscode.Uri.parse(compareRangeUrl(github, there(from), there(to), mode === 'diverged' ? '...' : '..')));
   }
 
   /** Lets the user choose a branch or a tag, or type anything git can turn into a commit: a hash, `HEAD~3`, `v1.0^`. */
@@ -698,9 +862,17 @@ export class Controller implements vscode.Disposable {
     repo: Repo,
     title: string,
     placeHolder: string,
-    other?: ComparedRef,
-  ): Promise<ComparedRef | undefined> {
-    type Item = vscode.QuickPickItem & { ref?: ComparedRef };
+    options: {
+      /** The side chosen already, which is not offered again. */
+      other?: ComparedRef;
+      /** Offers the working tree too. */
+      worktree?: boolean;
+      /** Comparisons to open again, offered first. */
+      recent?: RecentComparison[];
+    } = {},
+  ): Promise<ComparedRef | RecentComparison | undefined> {
+    const { other, worktree, recent = [] } = options;
+    type Item = vscode.QuickPickItem & { ref?: ComparedRef; recent?: RecentComparison };
     const group = (label: string, refs: { name: string; hash: string }[], icon: string): Item[] =>
       refs.length
         ? [
@@ -708,10 +880,20 @@ export class Controller implements vscode.Disposable {
             ...refs.map((ref) => ({ label: `$(${icon}) ${ref.name}`, description: ref.hash.slice(0, 7), ref: { name: ref.name, hash: ref.hash } })),
           ]
         : [];
-    const items: Item[] = [{ label: '$(edit) Enter a hash or a revision…', description: 'such as 1a2b3c4 or HEAD~3', alwaysShow: true }];
+    const items: Item[] = recent.length
+      ? [
+          { label: 'Opened before', kind: vscode.QuickPickItemKind.Separator },
+          ...recent.map((entry) => ({ label: `$(history) ${entry.from.name} ↔ ${entry.to.name}`, description: entry.path, recent: entry })),
+          { label: '', kind: vscode.QuickPickItemKind.Separator },
+        ]
+      : [];
+    items.push({ label: '$(edit) Enter a hash or a revision…', description: 'such as 1a2b3c4 or HEAD~3', alwaysShow: true });
     if (state.head) {
       const name = state.branch ?? 'HEAD';
       items.push({ label: `$(target) ${name}`, description: `${state.head.slice(0, 7)} · checked out`, ref: { name, hash: state.head } });
+    }
+    if (worktree && other?.hash !== WORKTREE) {
+      items.push({ label: `$(files) ${WORKTREE_SIDE.name}`, description: 'with the changes not committed', ref: WORKTREE_SIDE });
     }
     items.push(
       ...group(
@@ -726,7 +908,7 @@ export class Controller implements vscode.Disposable {
     const offered = items.filter((item) => !item.ref || item.ref.name !== other?.name || item.ref.hash !== other.hash);
     const choice = await vscode.window.showQuickPick(offered, { title, placeHolder, matchOnDescription: true });
     if (!choice) return;
-    return choice.ref ?? this.askRevision(repo, title);
+    return choice.recent ?? choice.ref ?? this.askRevision(repo, title);
   }
 
   /** Lets the user type a hash, or anything else git can turn into a commit, and says which commit that is. */
@@ -1168,6 +1350,7 @@ export class Controller implements vscode.Disposable {
     const remotes = await repo.remotes();
     const main = remotes.find((remote) => remote.name === 'origin') ?? remotes[0];
     const github = main ? parseGitHubRemote(main.url) : null;
+    this.githubRemote = github ? main.name : null;
     if (JSON.stringify(github) === JSON.stringify(this.github)) return;
     this.github = github;
     this.pulls = {};
@@ -1507,11 +1690,23 @@ export class Controller implements vscode.Disposable {
       case 'swapCompare':
         if (!compareTab) return;
         [compareTab.from, compareTab.to] = [compareTab.to, compareTab.from];
+        this.rememberComparison(compareTab.repo, compareTab.from, compareTab.to, compareTab.path);
         return this.sendCompare(compareTab, true);
       case 'setCompareMode':
         if (!compareTab) return;
         compareTab.mode = message.mode === 'diverged' ? 'diverged' : 'direct';
         return this.sendCompare(compareTab, true);
+      case 'setComparePath':
+        if (!compareTab) return;
+        compareTab.path = cleanPath(message.path);
+        this.rememberComparison(compareTab.repo, compareTab.from, compareTab.to, compareTab.path);
+        return this.sendCompare(compareTab, true);
+      case 'takeCompareFile':
+        return compareTab ? this.takeCompareFile(compareTab, message.file) : undefined;
+      case 'copyComparePatch':
+        return compareTab ? this.copyComparePatch(compareTab) : undefined;
+      case 'openCompareOnGitHub':
+        return compareTab ? this.openCompareOnGitHub(compareTab) : undefined;
       case 'show':
         return this.show(message.hash);
       case 'getComparison': {
@@ -1653,10 +1848,13 @@ export class Controller implements vscode.Disposable {
 
     switch (source.kind) {
       case 'commit': {
+        // Either side of a comparison can be the working tree.
         const { hash, parent } = source;
-        if (!isHash(hash) || (parent !== null && !isHash(parent))) return null;
-        const label = `${parent ? parent.slice(0, 7) : 'empty'} ↔ ${hash.slice(0, 7)}`;
-        return { left: at(added || !parent ? '' : parent, before), right: at(deleted ? '' : hash), label };
+        if (!isSide(hash) || (parent !== null && !isSide(parent)) || hash === parent) return null;
+        const name = (ref: string | null) => (ref === WORKTREE ? 'Working Tree' : ref ? ref.slice(0, 7) : 'empty');
+        const left = added || !parent ? at('', before) : parent === WORKTREE ? vscode.Uri.file(path.join(repo.root, before)) : at(parent, before);
+        const right = deleted ? at('') : hash === WORKTREE ? onDisk : at(hash);
+        return { left, right, label: `${name(parent)} ↔ ${name(hash)}` };
       }
       case 'worktree':
         return { left: at(added ? '' : head, before), right: deleted ? at('') : onDisk, label: 'Working Tree' };

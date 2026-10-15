@@ -11,7 +11,7 @@ import { type DiffDescriptor, describeDiff } from '../../src/flow/sides';
 import { git } from '../../src/git/exec';
 import { samePath } from '../../src/git/parse';
 import { Repo } from '../../src/git/repo';
-import type { CompareMode, CompareSide, Filter, HostMessage, RebaseStep, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
+import { WORKTREE, type CompareMode, type CompareSide, type Filter, type HostMessage, type RebaseStep, type RepoState, type ViewKind, type WebviewMessage } from '../../src/shared/protocol';
 
 /** The parts of the controller that are private to everyone but these tests. */
 interface Internals {
@@ -21,6 +21,8 @@ interface Internals {
   filter: Filter | null;
   views: Map<unknown, ViewKind>;
   compareTabs: Map<unknown, CompareTab>;
+  github: { owner: string; repo: string } | null;
+  githubRemote: string | null;
   onMessage(webview: unknown, message: WebviewMessage): Promise<void>;
   post(message: HostMessage, to?: unknown): void;
 }
@@ -31,6 +33,7 @@ interface CompareTab {
   from: CompareSide;
   to: CompareSide;
   mode: CompareMode;
+  path: string | null;
 }
 
 interface Result {
@@ -926,31 +929,33 @@ export async function run(): Promise<void> {
     }
   });
 
+  // The comparisons open in tabs.
+  const tabs = () => [...internals.compareTabs.values()];
+  /** The sides of the comparison opened last, and how it compares them. */
+  const compared = () => {
+    const tab = tabs().at(-1);
+    return tab ? { from: tab.from, to: tab.to, mode: tab.mode } : null;
+  };
+  /** What the page of a comparison was told last, of what it shows or of its lines. */
+  const told = <T extends 'compareView' | 'comparePatch' = 'compareView'>(tab: CompareTab, type = 'compareView' as T) => {
+    for (let at = posted.length - 1; at >= 0; at--) {
+      const outgoing = posted[at];
+      if (outgoing.type === type && addressed[at] === tab.panel.webview) return outgoing as Extract<HostMessage, { type: T }>;
+    }
+  };
+  const closeAll = async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await until('the tabs to close', () => tabs().length === 0);
+  };
+  const forget = () => {
+    posted.length = 0;
+    addressed.length = 0;
+  };
+
   await step('compares branches, tags and typed revisions in a tab of their own, which follows the branches as they move', async () => {
     const head = state().head!;
     const hashOf = (name: string) => state().branches.find((branch) => branch.name === name)!.hash;
     const tag = state().tags[0];
-    const tabs = () => [...internals.compareTabs.values()];
-    /** The sides of the comparison opened last, and how it compares them. */
-    const compared = () => {
-      const tab = tabs().at(-1);
-      return tab ? { from: tab.from, to: tab.to, mode: tab.mode } : null;
-    };
-    /** What the page of a comparison was told last. */
-    const told = (tab: CompareTab) => {
-      for (let at = posted.length - 1; at >= 0; at--) {
-        const outgoing = posted[at];
-        if (outgoing.type === 'compareView' && addressed[at] === tab.panel.webview) return outgoing;
-      }
-    };
-    const closeAll = async () => {
-      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-      await until('the tabs to close', () => tabs().length === 0);
-    };
-    const forget = () => {
-      posted.length = 0;
-      addressed.length = 0;
-    };
     const revParse = async (revision: string) => (await git(app, ['rev-parse', revision])).stdout.trim();
 
     // The command: both sides are asked, and a tab shows how they compare.
@@ -968,6 +973,7 @@ export async function run(): Promise<void> {
     assert.deepEqual(offered, [
       '$(edit) Enter a hash or a revision…',
       '$(target) main',
+      '$(files) Working tree',
       'Branches',
       '$(git-branch) merged',
       '$(git-branch) topic',
@@ -1097,6 +1103,118 @@ export async function run(): Promise<void> {
       { type: 'reveal', hash: hashOf('feature') },
     ]);
     assert.deepEqual(addressed.map((webview) => internals.views.get(webview)).sort(), ['graph', 'sideGraph']);
+  });
+
+  await step('compares a file with the working tree from the Explorer, takes it from the other side, copies a patch, opens GitHub and the comparisons opened before', async () => {
+    const hashOf = (name: string) => state().branches.find((branch) => branch.name === name)!.hash;
+    const show = async (revision: string) => (await git(app, ['show', revision])).stdout;
+    const original = fs.readFileSync(path.join(app, 'a.txt'), 'utf8');
+
+    // From the Explorer: the file as it is now, with what is not committed, compared with a branch.
+    write('a.txt', `${original}local\n`);
+    await controller.refresh();
+    const titles: string[] = [];
+    let offered: string[] = [];
+    choose = (items, options) => {
+      titles.push(options.title ?? '');
+      offered = items.map((item) => item.label);
+      return byLabel('$(git-branch) feature')(items);
+    };
+    forget();
+    await vscode.commands.executeCommand('gitardo.compareWith', vscode.Uri.file(path.join(app, 'a.txt')));
+    assert.deepEqual(titles, ['Compare a.txt with']);
+    assert.ok(!offered.includes('$(files) Working tree'));
+    const tab = await until('the tab of the comparison', () => tabs()[0]);
+    assert.equal(tab.panel.title, 'feature ↔ Working tree · a.txt');
+    // How the files differ from it, not what the branch did since the two diverged.
+    assert.deepEqual([tab.from, tab.to, tab.mode, tab.path], [{ name: 'feature', hash: hashOf('feature'), live: true }, { name: 'Working tree', hash: WORKTREE, live: true }, 'direct', 'a.txt']);
+    const shown = await until('the comparison', () => told(tab));
+    assert.deepEqual([shown.view?.path, shown.view?.conflicts, shown.view?.files.map((file) => file.path)], ['a.txt', null, ['a.txt']]);
+    const added = (patch?: Extract<HostMessage, { type: 'comparePatch' }>) => patch?.patch?.[0]?.hunks?.flatMap((hunk) => hunk.lines).filter((line) => line.startsWith('+'));
+    assert.ok(added(await until('the lines', () => told(tab, 'comparePatch')))?.includes('+local'));
+    // Followed as the files change.
+    write('a.txt', `${original}local\nmore\n`);
+    await controller.refresh();
+    await until('the lines of the file as it is now', () => added(told(tab, 'comparePatch'))?.includes('+more'));
+
+    // Narrowed in the page: to nothing, which is all of it, and to a file however it is written.
+    await internals.onMessage(tab.panel.webview, { type: 'setComparePath', path: ' ./ ' });
+    assert.deepEqual([tab.path, told(tab)?.view?.path, tab.panel.title], [null, null, 'feature ↔ Working tree']);
+    await internals.onMessage(tab.panel.webview, { type: 'setComparePath', path: '.\\a.txt' });
+    assert.deepEqual([tab.path, told(tab)?.view?.files.map((file) => file.path)], ['a.txt', ['a.txt']]);
+
+    // The other way round, the file taken from the branch: what is not committed in it is lost, so it is asked first.
+    await internals.onMessage(tab.panel.webview, { type: 'swapCompare' });
+    asked.length = 0;
+    answer = run;
+    await internals.onMessage(tab.panel.webview, { type: 'takeCompareFile', file: { status: 'M', path: 'a.txt' } });
+    answer = () => undefined;
+    assert.deepEqual(
+      asked.map((question) => question.message),
+      ['Take a.txt from feature?'],
+    );
+    assert.match(asked[0].detail, /changes that are not committed are lost/);
+    assert.equal(fs.readFileSync(path.join(app, 'a.txt'), 'utf8'), await show('feature:a.txt'));
+    await until('the file to be the same', () => told(tab)?.view?.files.length === 0);
+    await git(app, ['checkout', 'HEAD', '--', 'a.txt']);
+    await controller.refresh();
+    // The working tree has no version to give.
+    await internals.onMessage(tab.panel.webview, { type: 'swapCompare' });
+    asked.length = 0;
+    await internals.onMessage(tab.panel.webview, { type: 'takeCompareFile', file: { status: 'M', path: 'a.txt' } });
+    assert.equal(asked.length, 0);
+    await closeAll();
+
+    // Two branches: the changes copied as a patch, and the comparison opened on GitHub, each side by its name there.
+    forget();
+    await internals.onMessage(view('branches'), { type: 'openCompare', from: { name: 'origin/main', hash: (await git(app, ['rev-parse', 'origin/main'])).stdout.trim() }, to: { name: 'topic', hash: hashOf('topic') } });
+    const branches = await until('the tab of the comparison', () => tabs()[0]);
+    await until('the comparison', () => told(branches));
+    asked.length = 0;
+    await internals.onMessage(branches.panel.webview, { type: 'copyComparePatch' });
+    const text = await vscode.env.clipboard.readText();
+    const files = text.match(/^diff --git /gm)?.length ?? 0;
+    assert.equal(files, told(branches)?.view?.files.length);
+    assert.deepEqual(
+      asked.map((question) => question.message),
+      [`Gitardo: copied the changes of ${files} ${files === 1 ? 'file' : 'files'} as a patch.`],
+    );
+    const opened: string[] = [];
+    const env = vscode.env as unknown as Record<string, unknown>;
+    const openExternal = env.openExternal;
+    env.openExternal = (uri: vscode.Uri) => {
+      opened.push(uri.toString(true));
+      return Promise.resolve(true);
+    };
+    const github = internals.github;
+    const githubRemote = internals.githubRemote;
+    internals.github = { owner: 'octo', repo: 'app' };
+    internals.githubRemote = 'origin';
+    try {
+      await internals.onMessage(branches.panel.webview, { type: 'openCompareOnGitHub' });
+      // A branch with no upstream there is not on GitHub by its name: its commit is, once pushed.
+      await internals.onMessage(branches.panel.webview, { type: 'swapCompare' });
+      await internals.onMessage(branches.panel.webview, { type: 'setCompareMode', mode: 'direct' });
+      await internals.onMessage(branches.panel.webview, { type: 'openCompareOnGitHub' });
+    } finally {
+      env.openExternal = openExternal;
+      internals.github = github;
+      internals.githubRemote = githubRemote;
+    }
+    assert.deepEqual(opened, [`https://github.com/octo/app/compare/main...${hashOf('topic')}`, `https://github.com/octo/app/compare/${hashOf('topic')}..main`]);
+    await closeAll();
+
+    // The comparisons opened last come first when one is asked for, the two ways of one as one, and open as they were.
+    let first: string[] = [];
+    choose = (items, options) => {
+      if (options.title === 'Compare') first = items.map((item) => `${item.label}${item.description ? ` · ${item.description}` : ''}`);
+      return byLabel('$(history) feature ↔ Working tree')(items);
+    };
+    await vscode.commands.executeCommand('gitardo.compare');
+    assert.deepEqual(first.slice(0, 4), ['Opened before', '$(history) topic ↔ origin/main', '$(history) feature ↔ Working tree · a.txt', '$(history) feature ↔ Working tree']);
+    const again = await until('the tab of the comparison', () => tabs()[0]);
+    assert.deepEqual([again.from.name, again.to.hash, again.path], ['feature', WORKTREE, 'a.txt']);
+    await closeAll();
   });
 
   await step('narrows the graph to the history of a file, switching repository if needed', async () => {

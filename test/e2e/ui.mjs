@@ -1009,6 +1009,7 @@ try {
         modes: [...document.querySelectorAll('.segmented .button')].map((button) => button.textContent + (button.classList.contains('on') ? ' (on)' : '')),
         files: [...document.querySelectorAll('.commit-files .file .name')].map((file) => file.textContent),
         diffs: document.querySelectorAll('.file-diff .diff-lines').length,
+        paths: [...document.querySelectorAll('.file-diff')].map((diff) => diff.getAttribute('aria-label')),
       })`);
     seen = await until('the comparison in its tab', async () => {
       const now = await inTab();
@@ -1030,6 +1031,18 @@ try {
       return now.modes[1].endsWith('(on)') && now.files.length && now.diffs ? now : null;
     });
     await shot('compare-tab-direct');
+    // Narrowed to one of the files, typed in the box of the page, and to all of them again.
+    const all = seen.paths;
+    await tab.click('.compare-path input');
+    await type(all[0]);
+    await key('Enter');
+    seen = await until('only that file', async () => {
+      const now = await inTab();
+      return now.paths.join() === all[0] ? now : null;
+    });
+    await shot('compare-tab-path');
+    await tab.click('.compare-path .clear');
+    await until('all the files again', async () => (await inTab()).paths.join() === all.join());
     await command('View: Close Editor');
 
     // The comparison in the view opens in a tab as well.

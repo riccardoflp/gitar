@@ -2,7 +2,7 @@ import { memo, useMemo, useState, type CSSProperties, type ReactNode } from 'rea
 import type { DiffSource, FileChange, FilePatch, FilesLayout, Hunk } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
-import { FileRow, Status, fileTitle } from './FileRow';
+import { ActionButtons, FileRow, Status, fileTitle, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
 import { post } from './vscode';
@@ -91,9 +91,10 @@ interface DiffProps {
   open: boolean;
   onToggle(): void;
   onOpen(): void;
+  actions?: FileAction[];
 }
 
-function FileDiff({ entry, open, onToggle, onOpen }: DiffProps) {
+function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
   const { file, patch } = entry;
   const inEditor = (
     <button className="link" onClick={onOpen}>
@@ -118,6 +119,7 @@ function FileDiff({ entry, open, onToggle, onOpen }: DiffProps) {
           {fileTitle(file)}
         </button>
         <Stat patch={patch} />
+        <ActionButtons actions={actions} />
         <button className="button icon" title="Open in the diff editor" aria-label={`Open ${file.path} in the diff editor`} onClick={onOpen}>
           <Icon name="diff" />
         </button>
@@ -141,13 +143,15 @@ interface Props {
   note?: ReactNode;
   /** Shown under the files, before their changes. */
   children?: ReactNode;
+  /** What else can be done with a file, besides opening it in the diff editor. */
+  fileActions?(file: FileChange): FileAction[];
 }
 
 /**
  * The files that changed, as a tree or as a list, and under them what changed in each, file after file: the page of
  * a commit, or of a comparison.
  */
-export function FileChanges({ files, patch, source, title, layout, onLayout, note, children }: Props) {
+export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions }: Props) {
   const [folded, setFolded] = useState(NONE);
   // The diffs unfolded or folded by hand: the others are as their length says.
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -187,7 +191,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
       depth={depth}
       onOpen={() => show(entry)}
       extra={<Stat patch={entry.patch} />}
-      actions={[{ icon: 'diff', title: 'Open in the diff editor', run: () => openDiff(entry) }]}
+      actions={[...(fileActions?.(entry.file) ?? []), { icon: 'diff', title: 'Open in the diff editor', run: () => openDiff(entry) }]}
     />
   );
 
@@ -251,6 +255,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
                 open={isOpen(entry)}
                 onToggle={() => setChosen((current) => new Map(current).set(entry.id, !isOpen(entry)))}
                 onOpen={() => openDiff(entry)}
+                actions={fileActions?.(entry.file)}
               />
             ))}
         </section>

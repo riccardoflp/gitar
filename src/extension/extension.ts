@@ -151,6 +151,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     command('gitardo.remotes', () => controller.command('remotes')),
     command('gitardo.bisectReset', () => controller.action({ kind: 'bisectReset' })),
     command('gitardo.compare', () => controller.compare()),
+    command('gitardo.compareWith', (uri) => controller.compareWith(uri instanceof vscode.Uri ? uri : undefined)),
     command('gitardo.goToCommit', () => controller.goToCommit()),
     command('gitardo.openCommit', (hash) => controller.openCommit(typeof hash === 'string' ? hash : undefined)),
     command('gitardo.resolveConflicts', () => controller.action({ kind: 'resolveConflicts' })),

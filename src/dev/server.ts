@@ -6,7 +6,7 @@ import { parseGitHubRemote } from '../git/github';
 import { samePath } from '../git/parse';
 import { Repo } from '../git/repo';
 import { previewSetup, scanIgnored } from '../git/worktreeSetup';
-import type { CompareMode, Filter, HostMessage, Scope, ViewKind, WebviewMessage } from '../shared/protocol';
+import { WORKTREE, type CompareMode, type Filter, type HostMessage, type Scope, type ViewKind, type WebviewMessage } from '../shared/protocol';
 import { cleanPatterns, type SetupLayer, type SetupSource } from '../shared/worktreeSetup';
 
 // Usage: node dist/dev-server.js [--port=5174] [folder...]   (every repository found in the folders can be chosen in the page)
@@ -153,19 +153,20 @@ async function main() {
   /** The settings of new worktrees, kept while the server runs, as the page saves them. */
   const setup: { user: SetupLayer; workspace: SetupLayer } = { user: {}, workspace: {} };
   /** The two sides of the tab of a comparison, as `from=` and `to=` name them, once the page of one was asked for. */
-  let compared: { from: string; to: string; mode: CompareMode } | null = null;
+  let compared: { from: string; to: string; mode: CompareMode; path: string | null } | null = null;
 
   async function comparison(): Promise<HostMessage[]> {
     if (!repo || !compared) return [];
     const side = async (name: string) => {
+      if (name === WORKTREE) return { name: 'Working tree', hash: WORKTREE, live: true };
       const hash = await repo!.resolve(name);
       return hash && { name: hash.startsWith(name) ? hash.slice(0, 7) : name, hash, live: !hash.startsWith(name) };
     };
     const [from, to] = await Promise.all([side(compared.from), side(compared.to)]);
     if (!from || !to) return [{ type: 'compareView', view: null, error: 'Git does not know these.' }];
-    const found = await repo.compareSides(from.hash, to.hash, compared.mode);
+    const found = await repo.compareSides(from.hash, to.hash, compared.mode, compared.path);
     if (!found) return [{ type: 'compareView', view: null }];
-    const patch = await repo.comparePatch(found.files, found.since, to.hash, 20_000);
+    const patch = await repo.comparePatch(found.files, found.since, to.hash, 20_000, compared.path);
     return [
       { type: 'compareView', view: { from, to, mode: compared.mode, ...found } },
       { type: 'comparePatch', since: found.since, to: to.hash, patch },
@@ -242,6 +243,9 @@ async function main() {
         return comparison();
       case 'setCompareMode':
         if (compared) compared = { ...compared, mode: message.mode };
+        return comparison();
+      case 'setComparePath':
+        if (compared) compared = { ...compared, path: message.path };
         return comparison();
       case 'getLog': {
         const log = await repo?.branchLog(message.limit);
@@ -326,7 +330,7 @@ async function main() {
           // The tab of a comparison: of `from=` and `to=`, the branch checked out and the one before it when not given.
           if (view === 'compare' && repo) {
             const mode = url.searchParams.get('mode') === 'direct' ? 'direct' : 'diverged';
-            compared = { from: url.searchParams.get('from') ?? 'HEAD~1', to: url.searchParams.get('to') ?? 'HEAD', mode };
+            compared = { from: url.searchParams.get('from') ?? 'HEAD~1', to: url.searchParams.get('to') ?? 'HEAD', mode, path: url.searchParams.get('path') };
             response.end(page(theme, { view, root: repo.root, files }));
           } else response.end(page(theme, commit && repo ? { view, commit, root: repo.root, files } : { view }));
         } else {

@@ -46,7 +46,7 @@ import {
   unstageAllOp,
   unstageOp,
 } from '../src/git/ops';
-import { compareUrl, mapPulls, parseGitHubRemote } from '../src/git/github';
+import { compareRangeUrl, compareUrl, mapPulls, parseGitHubRemote } from '../src/git/github';
 import { buildPrompt, cleanMessage } from '../src/shared/commitPrompt';
 import {
   allChanges,
@@ -874,6 +874,11 @@ describe('GitHub', () => {
 
   it('builds the page that opens a pull request for a branch', () => {
     expect(compareUrl({ owner: 'octo', repo: 'repo' }, 'feature/a#1')).toBe('https://github.com/octo/repo/compare/feature/a%231?expand=1');
+  });
+
+  it('builds the page that compares two branches, tags or commits', () => {
+    expect(compareRangeUrl({ owner: 'octo', repo: 'repo' }, 'main', 'feature/a#1', '...')).toBe('https://github.com/octo/repo/compare/main...feature/a%231');
+    expect(compareRangeUrl({ owner: 'octo', repo: 'repo' }, 'v1.0', '1a2b3c4', '..')).toBe('https://github.com/octo/repo/compare/v1.0..1a2b3c4');
   });
 
   it('maps open pull requests to branch names, skipping forks and older duplicates', () => {

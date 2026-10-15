@@ -2048,6 +2048,79 @@ input:focus-visible,
   margin: 12px 0 0;
 }
 
+/* What merging the second side into the first would do. */
+.compare-merge {
+  margin: 6px 0 0;
+}
+
+.compare-merge p {
+  margin: 0;
+}
+
+.compare-merge .codicon-check {
+  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+
+.compare-merge .codicon-warning {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.compare-merge ul {
+  margin: 4px 0 0;
+  padding-left: 22px;
+}
+
+/* The file or the folder the comparison is narrowed to. */
+.compare-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 480px;
+  height: 26px;
+  margin: 12px 0 0;
+  padding: 0 6px;
+  border-radius: 3px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+
+.compare-path:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.compare-path .codicon {
+  color: var(--vscode-descriptionForeground);
+}
+
+.compare-path input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  outline: 0;
+}
+
+.compare-path input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.compare-path .clear {
+  display: flex;
+  padding: 2px;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.compare-path .clear:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
 /* The commits each side has that the other has not. */
 .compare-group h3 {
   display: flex;

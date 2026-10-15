@@ -321,6 +321,11 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "gitardo.compareWith",
+        "title": "Compare with Branch, Tag or Commit…",
+        "category": "Gitardo"
+      },
+      {
         "command": "gitardo.goToCommit",
         "title": "Go to Commit…",
         "category": "Gitardo"
@@ -515,6 +520,11 @@
           "command": "gitardo.fileHistory",
           "when": "resourceScheme == file && !explorerResourceIsFolder",
           "group": "4_search@90"
+        },
+        {
+          "command": "gitardo.compareWith",
+          "when": "resourceScheme == file",
+          "group": "4_search@91"
         }
       ],
       "editor/context": [
@@ -549,6 +559,11 @@
           "command": "gitardo.fileHistory",
           "when": "resourceScheme == file",
           "group": "z_gitardo@1"
+        },
+        {
+          "command": "gitardo.compareWith",
+          "when": "resourceScheme == file",
+          "group": "z_gitardo@2"
         }
       ],
       "view/title": [

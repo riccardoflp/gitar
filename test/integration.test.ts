@@ -48,6 +48,7 @@ import {
   stashOp,
   stashPushOp,
   syncOp,
+  takeFileOp,
   takeSideOp,
   undoOp,
   unstageAllOp,
@@ -975,7 +976,8 @@ describe('against a real repository', { timeout: 60_000 }, () => {
 
     // What the other branch changed since it left main, as a pull request shows it.
     const { commits, ...diverged } = (await repo.compareSides(main, other, 'diverged'))!;
-    expect(diverged).toEqual({ base, since: base, ahead: 1, behind: 2, matched: true, files: [{ status: 'M', path: 'a.txt' }] });
+    // Both changed a.txt: merging the other branch into main would conflict there.
+    expect(diverged).toEqual({ base, since: base, ahead: 1, behind: 2, matched: true, conflicts: ['a.txt'], path: null, files: [{ status: 'M', path: 'a.txt' }] });
     expect(sides(commits)).toEqual(apart);
     const patch = await repo.comparePatch(diverged.files, base, other, 1000);
     expect(patch!.map((file) => [file.file.path, file.added, file.removed, file.hunks?.[0].lines])).toEqual([['a.txt', 1, 1, ['-base', '+other']]]);
@@ -992,8 +994,9 @@ describe('against a real repository', { timeout: 60_000 }, () => {
         { status: 'D', path: 'b.txt' },
       ],
     });
-    // A commit the other already has changed nothing since they diverged.
-    expect(await repo.compareSides(other, base, 'diverged')).toMatchObject({ base, since: base, ahead: 0, behind: 1, files: [] });
+    // A commit the other already has changed nothing since they diverged, and nothing is merged with a merge commit.
+    expect(await repo.compareSides(other, base, 'diverged')).toMatchObject({ base, since: base, ahead: 0, behind: 1, conflicts: null, files: [] });
+    expect(await repo.compareSides(base, other, 'diverged')).toMatchObject({ ahead: 1, behind: 0, conflicts: null });
 
     // Histories that never meet are compared directly.
     await git(root, ['checkout', '--orphan', 'alone']);
@@ -1041,6 +1044,91 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       ['to', 'Add b', true],
       ['to', 'Add c', false],
     ]);
+  });
+
+  it('compares a commit with the working tree, either way, narrowed to a folder, and copies the changes as a patch', async () => {
+    write('a.txt', 'base\n');
+    fs.mkdirSync(path.join(root, 'src'));
+    write('src/x.txt', 'x\n');
+    await commitAll('base');
+    await run(createBranchOp('other', 'HEAD', true));
+    write('src/x.txt', 'other\n');
+    write('src/y.txt', 'y\n');
+    const other = await commitAll('other change');
+    await run(checkoutOp('branch', 'main'));
+    write('notes.txt', 'notes\n');
+    const main = await commitAll('Add notes');
+    write('a.txt', 'local\n');
+
+    // How the files differ from the other branch, what is not committed with them; the commits are those of HEAD.
+    const theirs = (await repo.compareSides(other, WORKTREE, 'direct'))!;
+    expect(theirs).toMatchObject({ since: other, ahead: 1, behind: 1, conflicts: null, path: null });
+    expect(theirs.files).toEqual([
+      { status: 'M', path: 'a.txt' },
+      { status: 'A', path: 'notes.txt' },
+      { status: 'M', path: 'src/x.txt' },
+      { status: 'D', path: 'src/y.txt' },
+    ]);
+    expect(theirs.commits.map((commit) => [commit.side, commit.subject]).sort()).toEqual([
+      ['from', 'other change'],
+      ['to', 'Add notes'],
+    ]);
+    const lines = await repo.comparePatch(theirs.files, other, WORKTREE, 1000);
+    expect(lines![0].hunks?.[0].lines).toEqual(['-base', '+local']);
+    // The other way round, as the other branch has them.
+    const mine = (await repo.compareSides(WORKTREE, other, 'direct'))!;
+    expect(mine.files.map((file) => [file.status, file.path])).toEqual([
+      ['M', 'a.txt'],
+      ['D', 'notes.txt'],
+      ['M', 'src/x.txt'],
+      ['A', 'src/y.txt'],
+    ]);
+    expect((await repo.comparePatch(mine.files, WORKTREE, other, 1000))![0].hunks?.[0].lines).toEqual(['-local', '+base']);
+    // Since they diverged: what the working tree has that the commit they share has not.
+    expect((await repo.compareSides(other, WORKTREE, 'diverged'))!.files.map((file) => file.path)).toEqual(['a.txt', 'notes.txt']);
+
+    // Only the files and the commits of a folder.
+    const narrowed = (await repo.compareSides(main, other, 'direct', 'src'))!;
+    expect(narrowed).toMatchObject({ path: 'src', ahead: 1, behind: 1 });
+    expect(narrowed.files.map((file) => file.path)).toEqual(['src/x.txt', 'src/y.txt']);
+    expect(narrowed.commits.map((commit) => commit.subject)).toEqual(['other change']);
+    expect((await repo.compareSides(main, other, 'direct', 'notes.txt'))!.commits.map((commit) => commit.subject)).toEqual(['Add notes']);
+    // A name with a wildcard is the file it names.
+    expect((await repo.compareSides(main, other, 'direct', 'src/*'))!.files).toEqual([]);
+
+    // A patch that git applies: here, the changes not committed, put back after they are discarded.
+    const text = await repo.compareText(main, WORKTREE);
+    expect(text).toContain('+local');
+    await git(root, ['checkout', '--', 'a.txt']);
+    await git(root, ['apply'], { input: text });
+    expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('local\n');
+    expect(await repo.compareText(main, WORKTREE, 'src')).toBe('');
+
+    expect(await repo.compareSides(WORKTREE, WORKTREE, 'direct')).toBeNull();
+    expect(await repo.compareSides(WORKTREE, 'no-such', 'direct')).toBeNull();
+  });
+
+  it('takes the version of a file another commit has, or deletes it when that commit has none', async () => {
+    write('a.txt', 'base\n');
+    write('b.txt', 'b\n');
+    await commitAll('base');
+    await run(createBranchOp('other', 'HEAD', true));
+    write('a.txt', 'other\n');
+    fs.rmSync(path.join(root, 'b.txt'));
+    const other = await commitAll('other change');
+    await run(checkoutOp('branch', 'main'));
+    write('a.txt', 'mine\n');
+
+    const take = takeFileOp('a.txt', 'other', other, false, true);
+    expect(take).toMatchObject({ title: 'Take a.txt from other', commands: [['checkout', other, '--', 'a.txt']], confirm: true, danger: true });
+    await run(take);
+    expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('other\n');
+    const remove = takeFileOp('b.txt', 'other', other, true, false);
+    expect(remove).toMatchObject({ commands: [['rm', '-f', '--ignore-unmatch', '--', 'b.txt']], danger: false });
+    await run(remove);
+    expect(fs.existsSync(path.join(root, 'b.txt'))).toBe(false);
+    // Both are staged as well.
+    expect((await git(root, ['diff', '--cached', '--name-status'])).stdout.trim().split('\n')).toEqual(['M\ta.txt', 'D\tb.txt']);
   });
 
   it('lists the branches that were checked out last, without the one that is checked out', async () => {

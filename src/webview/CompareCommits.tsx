@@ -17,10 +17,12 @@ interface GroupProps {
   commits: CompareCommit[];
   /** How many there are, listed or not. */
   count: number;
+  /** The file or the folder the commits listed are those of. */
+  path: string | null;
 }
 
 /** The commits one side has that the other has not. */
-function Group({ side, other, commits, count }: GroupProps) {
+function Group({ side, other, commits, count, path }: GroupProps) {
   const [open, setOpen] = useState(true);
   const [listed, more] = useCapped(commits, COMMITS_LIMIT, 'commits');
   const equivalent = commits.filter((commit) => commit.equivalent).length;
@@ -35,7 +37,7 @@ function Group({ side, other, commits, count }: GroupProps) {
           Only in <strong>{side.name}</strong>
         </button>
         <span className="muted">
-          {counted(count)}
+          {path ? `${commits.length} of ${counted(count)} change ${path}` : counted(count)}
           {equivalent > 0 && `, ${equivalent} also in ${other.name}`}
         </span>
       </h3>
@@ -61,7 +63,7 @@ function Group({ side, other, commits, count }: GroupProps) {
             </button>
           ))}
           {more}
-          {count > commits.length && <p className="muted compare-note">The newest {commits.length} are listed.</p>}
+          {!path && count > commits.length && <p className="muted compare-note">The newest {commits.length} are listed.</p>}
         </div>
       )}
     </section>
@@ -73,7 +75,7 @@ function Group({ side, other, commits, count }: GroupProps) {
  * commit of its own marked.
  */
 export function CompareCommits({ view }: { view: CompareView }) {
-  const { from, to, ahead, behind, commits, matched } = view;
+  const { from, to, ahead, behind, commits, matched, path } = view;
   if (!ahead && !behind) return null;
   const of = (side: CompareCommit['side']) => commits.filter((commit) => commit.side === side);
   return (
@@ -82,8 +84,8 @@ export function CompareCommits({ view }: { view: CompareView }) {
         <span className="grow">Commits</span>
         {!matched && <span className="muted">Too many to look for the same changes on the other side</span>}
       </h2>
-      {ahead > 0 && <Group side={to} other={from} commits={of('to')} count={ahead} />}
-      {behind > 0 && <Group side={from} other={to} commits={of('from')} count={behind} />}
+      {ahead > 0 && <Group side={to} other={from} commits={of('to')} count={ahead} path={path} />}
+      {behind > 0 && <Group side={from} other={to} commits={of('from')} count={behind} path={path} />}
     </section>
   );
 }

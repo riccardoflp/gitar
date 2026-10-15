@@ -89,6 +89,19 @@ const COMPARE_COMMITS = 2000;
 /** Past this many commits on the two sides together they are not matched with each other: git reads every change. */
 const CHERRY_COMMITS = 2000;
 
+/** What a side of a comparison can be: a commit, or the working tree. */
+const isSide = (side: string) => side === WORKTREE || isHash(side);
+
+/** What `git diff` is given for the changes from `since` to `to`, either of which can be the working tree. */
+function diffSides(since: string, to: string): string[] {
+  if (to === WORKTREE) return [since];
+  if (since === WORKTREE) return ['-R', to];
+  return [since, to];
+}
+
+/** What narrows a comparison to a file or a folder, or nothing. */
+const within = (path: string | null) => (path ? ['--', `:(literal)${path}`] : ['--']);
+
 export interface BlameOptions {
   /** The text of the file when it has unsaved edits. */
   contents?: string;
@@ -319,31 +332,47 @@ export class Repo {
   }
 
   /**
-   * Two commits compared as the tab of a comparison shows them: the commits each has that the other has not, and the
-   * files that differ, from the commit the two have in common when `diverged`, or else from `from`.
+   * Two commits, or a commit and the working tree, compared as the tab of a comparison shows them: the commits each has
+   * that the other has not, those of the working tree being HEAD's, the files that differ, from the commit the two have
+   * in common when `diverged` or else from `from`, and whether merging `to` into `from` would conflict. With `path`,
+   * only the files and the commits of that file or folder.
    */
-  async compareSides(from: string, to: string, mode: CompareMode): Promise<Omit<CompareView, 'from' | 'to' | 'mode'> | null> {
-    if (!isHash(from) || !isHash(to)) return null;
-    const [base, { ahead, behind }] = await Promise.all([this.mergeBase(from, to), this.divergence(to, from)]);
+  async compareSides(from: string, to: string, mode: CompareMode, path: string | null = null): Promise<Omit<CompareView, 'from' | 'to' | 'mode'> | null> {
+    if (!isSide(from) || !isSide(to) || (from === WORKTREE && to === WORKTREE)) return null;
+    const head = from === WORKTREE || to === WORKTREE ? await this.resolve('HEAD') : null;
+    const ours = from === WORKTREE ? head : from;
+    const theirs = to === WORKTREE ? head : to;
+    if (!ours || !theirs) return null;
+    const [base, { ahead, behind }] = await Promise.all([this.mergeBase(ours, theirs), this.divergence(theirs, ours)]);
     const since = mode === 'diverged' && base ? base : from;
     const matched = ahead + behind <= CHERRY_COMMITS;
-    const range = `${from}...${to}`;
-    const [files, log, marks] = await Promise.all([
-      this.read(['diff', '--name-status', '-z', '-M', since, to]),
-      this.read(['log', '--left-right', `--max-count=${COMPARE_COMMITS}`, `--format=${COMPARE_FORMAT}`, range, '--']),
-      matched ? this.read(['rev-list', '--cherry-mark', range, '--']) : '',
+    const range = `${ours}...${theirs}`;
+    // Only two commits that each have commits of their own merge with a merge commit, and so can conflict.
+    const merging = !head && ahead > 0 && behind > 0;
+    const [files, log, marks, conflicts] = await Promise.all([
+      this.read(['diff', '--name-status', '-z', '-M', ...diffSides(since, to), ...within(path)]),
+      this.read(['log', '--left-right', `--max-count=${COMPARE_COMMITS}`, `--format=${COMPARE_FORMAT}`, range, ...within(path)]),
+      matched ? this.read(['rev-list', '--cherry-mark', range, ...within(path)]) : '',
+      merging ? this.conflictsWith(theirs, undefined, ours) : null,
     ]);
     const commits = parseCompareCommits(log, parseCherryMarks(marks));
-    return { base, since, ahead, behind, commits, matched, files: parseNameStatus(files) };
+    return { base, since, ahead, behind, commits, matched, conflicts, path, files: parseNameStatus(files) };
   }
 
   /**
-   * What changed in each of these files from one commit to another: the files `compare` or `compareSides` listed, in
-   * the same order, and no more than `limit` lines of them. Null when the two do not match.
+   * What changed in each of these files from one commit to another, either of which can be the working tree: the files
+   * `compare` or `compareSides` listed, in the same order, and no more than `limit` lines of them. Null when the two do
+   * not match.
    */
-  async comparePatch(files: FileChange[], since: string, to: string, limit: number): Promise<FilePatch[] | null> {
-    if (!isHash(since) || !isHash(to)) return null;
-    return parsePatch(files, await this.read(['diff', ...PLAIN_DIFF, '-M', since, to]), limit);
+  async comparePatch(files: FileChange[], since: string, to: string, limit: number, path: string | null = null): Promise<FilePatch[] | null> {
+    if (!isSide(since) || !isSide(to)) return null;
+    return parsePatch(files, await this.read(['diff', ...PLAIN_DIFF, '-M', ...diffSides(since, to), ...within(path)]), limit);
+  }
+
+  /** The changes from one commit to another, either of which can be the working tree, as a patch `git apply` takes. */
+  async compareText(since: string, to: string, path: string | null = null): Promise<string> {
+    if (!isSide(since) || !isSide(to)) return '';
+    return this.read(['diff', ...PLAIN_DIFF, '--binary', '-M', ...diffSides(since, to), ...within(path)]);
   }
 
   /**
@@ -762,10 +791,10 @@ export class Repo {
    * With `base`, the merge is computed from that commit instead of the common ancestor, which is what a cherry-pick does.
    * Returns null when git cannot tell (it is too old, or the histories are unrelated).
    */
-  async conflictsWith(theirs: string, base?: string): Promise<string[] | null> {
+  async conflictsWith(theirs: string, base?: string, ours = 'HEAD'): Promise<string[] | null> {
     const args = ['merge-tree', '--write-tree', '--no-messages', '--name-only', '-z'];
     if (base) args.push(`--merge-base=${base}`);
-    const result = await this.query([...args, 'HEAD', theirs]);
+    const result = await this.query([...args, ours, theirs]);
     if (result.code !== 0 && result.code !== 1) return null;
     // The first record is the resulting tree; conflicted paths follow.
     return [...new Set(result.stdout.split('\0').slice(1).filter(Boolean))];

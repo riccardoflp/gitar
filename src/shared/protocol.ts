@@ -285,7 +285,7 @@ export interface Comparing {
   toName: string;
 }
 
-/** One side of a comparison: a commit, and the branch, tag or short hash to call it by. */
+/** One side of a comparison: a commit, or the working tree (`WORKTREE`), and the branch, tag or short hash to call it by. */
 export interface ComparedRef {
   name: string;
   hash: string;
@@ -334,6 +334,13 @@ export interface CompareView {
   commits: CompareCommit[];
   /** Whether the commits were matched with those of the other side, which is not done when there are too many. */
   matched: boolean;
+  /**
+   * The files that would conflict if `to` were merged into `from`. Null when nothing would be merged with a merge
+   * commit, when a side is the working tree, or when git cannot tell.
+   */
+  conflicts: string[] | null;
+  /** The file or the folder the comparison is narrowed to, from the top of the repository. */
+  path: string | null;
   files: FileChange[];
 }
 
@@ -561,6 +568,14 @@ export type WebviewMessage =
   | { type: 'pickCompareSide'; side: 'from' | 'to' }
   | { type: 'swapCompare' }
   | { type: 'setCompareMode'; mode: CompareMode }
+  /** Narrows the comparison of the tab to a file or a folder, or no longer when null. */
+  | { type: 'setComparePath'; path: string | null }
+  /** Writes the version of a file that the second side of the comparison has in the working tree and the index. */
+  | { type: 'takeCompareFile'; file: FileChange }
+  /** Copies the changes of the comparison as a patch. */
+  | { type: 'copyComparePatch' }
+  /** Opens the comparison on GitHub. */
+  | { type: 'openCompareOnGitHub' }
   /** Selects a commit in the views that list commits and are open, without opening one. */
   | { type: 'show'; hash: string }
   | { type: 'selectRepo'; root: string }

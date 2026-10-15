@@ -16,6 +16,12 @@ export function compareUrl({ owner, repo }: GitHubRepo, branch: string): string 
   return `https://github.com/${owner}/${repo}/compare/${encoded}?expand=1`;
 }
 
+/** The page of GitHub that compares two branches, tags or commits: from where they diverged with `...`, directly with `..`. */
+export function compareRangeUrl({ owner, repo }: GitHubRepo, from: string, to: string, dots: '...' | '..'): string {
+  const encode = (ref: string) => ref.split('/').map(encodeURIComponent).join('/');
+  return `https://github.com/${owner}/${repo}/compare/${encode(from)}${dots}${encode(to)}`;
+}
+
 export const PULLS_QUERY = `query($owner: String!, $repo: String!) {
   repository(owner: $owner, name: $repo) {
     pullRequests(first: 100, states: OPEN, orderBy: { field: UPDATED_AT, direction: DESC }) {

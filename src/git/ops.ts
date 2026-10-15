@@ -808,6 +808,29 @@ export function restoreBranchOp(name: string, hash: string): GitOp {
   return { title: `Undo: restore branch ${name}`, commands: [['branch', arg(name), arg(hash)]], confirm: true };
 }
 
+/**
+ * Makes a file in the working tree and the index what a commit has: its version of the file, or no file when it has
+ * none. `changed` says the file has changes that are not committed, which are lost.
+ */
+export function takeFileOp(file: string, name: string, hash: string, deleted: boolean, changed: boolean): GitOp {
+  const lost = changed ? ' Its changes that are not committed are lost.' : '';
+  return deleted
+    ? {
+        title: `Delete ${file}, as in ${short(name)}`,
+        commands: [['rm', '-f', '--ignore-unmatch', '--', pathspec(file)]],
+        confirm: true,
+        danger: changed,
+        note: `${short(name)} has no such file, so it is deleted from the working tree and the index.${lost}`,
+      }
+    : {
+        title: `Take ${file} from ${short(name)}`,
+        commands: [['checkout', arg(hash), '--', pathspec(file)]],
+        confirm: true,
+        danger: changed,
+        note: `The file in the working tree and the index becomes the one of ${short(name)}.${lost}`,
+      };
+}
+
 /** Undoes a stash drop, while the stash commit has not been garbage collected. */
 export function restoreStashOp(message: string, hash: string): GitOp {
   return { title: 'Undo: restore dropped stash', commands: [['stash', 'store', '-m', message, arg(hash)]], confirm: true };
