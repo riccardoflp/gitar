@@ -194,6 +194,8 @@ To find the commit that broke something, right-click a commit you know is broken
 
 - **Merge and cherry-pick**: Gitardo computes the result first, without touching your files, and tells you which files will conflict before it starts.
 - **Force push**: the confirmation lists the commits on the remote branch that are not in yours and would be overwritten, as of the last fetch.
+- **Apply and pop a stash**: Gitardo asks first and says what the stash would stop on: the files that would be in conflict, computed the same way; the files not committed that it changes, for which git refuses it and changes nothing; or an untracked file it took along that is there again, which git leaves as it is while it applies the rest. A popped stash is dropped only when its changes went in without conflicts.
+- **Delete a branch or a tag**: a tag is deleted after asking, and a branch too, saying whether its commits are merged, into its upstream or into the current branch, so that none is lost, or would be lost with it; **Undo** brings the branch back. A remote that has the tag keeps it.
 
 ### Search
 
@@ -468,7 +470,7 @@ Set `gitardo.commandPreview` to `all` to see the exact commands before they run 
 
 | Value | Behavior |
 | --- | --- |
-| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, dropping a stash, force-deleting a branch, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically (when that is turned on) and taking one side of a file in conflict. |
+| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, applying, popping or dropping a stash, deleting a branch or a tag, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically (when that is turned on) and taking one side of a file in conflict. |
 | `all` | Shows the commands and asks before running anything that changes the repository or a remote, staging included. |
 
 The commands shown are the commands that run: Gitardo adds no hidden flags to them. Where a command would open an editor for a commit message, which cannot work from an extension, the flag that prevents it is part of the command you see (`--no-edit`, or `-c core.editor=true` when continuing an operation).

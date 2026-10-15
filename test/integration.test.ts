@@ -410,6 +410,29 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await state()).stashes).toMatchObject([{ hash: stash.hash, message: 'On main: keep me' }]);
   });
 
+  it('lists what a stash changes and took along, and knows which branches delete without forcing', async () => {
+    write('a.txt', 'one\n');
+    await commitAll('First commit');
+    write('a.txt', 'two\n');
+    write('new.txt', 'untracked\n');
+    await run(stashPushOp(''));
+    expect(await repo.stashFiles('stash@{0}')).toEqual({ changed: ['a.txt'], untracked: ['new.txt'] });
+    write('a.txt', 'three\n');
+    await git(root, ['stash', 'push', '--quiet']);
+    expect(await repo.stashFiles('stash@{0}')).toEqual({ changed: ['a.txt'], untracked: [] });
+    await expect(repo.stashFiles('--all')).rejects.toThrow();
+
+    await run(createBranchOp('merged', 'HEAD', false));
+    await run(createBranchOp('ahead', 'HEAD', true));
+    write('b.txt', 'b\n');
+    await commitAll('Only on ahead');
+    await run(checkoutOp('branch', 'main'));
+    expect(await repo.isMergedForDelete('merged', null)).toBe(true);
+    expect(await repo.isMergedForDelete('ahead', null)).toBe(false);
+    // Merged into its upstream is enough, wherever HEAD is.
+    expect(await repo.isMergedForDelete('ahead', 'refs/heads/ahead')).toBe(true);
+  });
+
   it('changes the message of the last commit and leaves what is staged, or of an older one with what is not committed set aside', async () => {
     const hashes: Record<string, string> = {};
     for (const name of ['base', 'b', 'c']) {

@@ -165,6 +165,25 @@ export class Repo {
     return out.split('\n').filter((name) => name && !name.endsWith('/HEAD') && name.includes('/'));
   }
 
+  /** The files a stash changes, and the untracked files it took along, if any. */
+  async stashFiles(ref: string): Promise<{ changed: string[]; untracked: string[] }> {
+    if (!/^stash@\{\d+\}$/.test(ref)) throw new Error(`"${ref}" is not a stash.`);
+    const list = (out: string) => out.split('\0').filter(Boolean);
+    const changed = list(await this.read(['diff', '--name-only', '-z', `${ref}^1`, ref]));
+    // A stash made without its untracked files has no third parent.
+    const untracked = list(await this.read(['ls-tree', '-r', '-z', '--name-only', `${ref}^3`], true));
+    return { changed, untracked };
+  }
+
+  /**
+   * Whether `git branch -d` deletes a branch without forcing: when its upstream has its commits, or HEAD when it has no
+   * upstream.
+   */
+  async isMergedForDelete(name: string, upstream: string | null): Promise<boolean> {
+    const into = upstream ?? 'HEAD';
+    return (await this.query(['merge-base', '--is-ancestor', `refs/heads/${name}`, into])).code === 0;
+  }
+
   /** The message of a commit, as it was written: its subject and its body. */
   async commitMessage(hash: string): Promise<string> {
     if (!isHash(hash)) throw new Error(`"${hash}" is not a commit.`);

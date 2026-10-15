@@ -1566,10 +1566,17 @@ export async function run(): Promise<void> {
     assert.deepEqual(state().working.unstaged, [{ status: '?', path: 'keep.txt' }]);
     assert.equal(fs.readFileSync(path.join(app, 'a.txt'), 'utf8'), 'one\ntwo\n');
 
+    // Asked first, with what it would stop on.
+    asked.length = 0;
+    answer = run;
     await controller.action({ kind: 'stashPop', ref: 'stash@{0}' });
+    assert.deepEqual(
+      asked.map((question) => question.message),
+      ['Pop stash@{0}?'],
+    );
+    assert.ok(asked[0].detail.includes('No conflicts expected.'), asked[0].detail);
     assert.equal(state().stashes.length, 0);
     assert.equal(state().changes, 2);
-    answer = run;
     await controller.action({ kind: 'discardAll' });
     assert.equal(state().changes, 0);
   });
@@ -1579,7 +1586,10 @@ export async function run(): Promise<void> {
     const file = (root: string, name: string) => ({ resourceUri: vscode.Uri.file(path.join(root, name)) });
     const stashed = () => logged.filter((line) => line.startsWith('> git stash push'));
     const before = errors.length;
-    const pop = () => controller.action({ kind: 'stashPop', ref: 'stash@{0}' });
+    const pop = () => {
+      answer = run;
+      return controller.action({ kind: 'stashPop', ref: 'stash@{0}' });
+    };
     write('a.txt', 'one\ntwo\nstash me\n');
     write('keep.txt', 'stays\n');
     await vscode.commands.executeCommand('gitardo.refresh');
@@ -2175,6 +2185,84 @@ export async function run(): Promise<void> {
       await git(app, ['push', '--quiet', 'origin', '--delete', 'reword']).catch(() => undefined);
       await controller.refresh();
     }
+  });
+
+  await step('asks before applying a stash, saying what it would stop on, and before deleting a tag or a merged branch', async () => {
+    const start = state().head!;
+    const apply = async () => {
+      asked.length = 0;
+      await controller.action({ kind: 'stashApply', ref: 'stash@{0}' });
+      assert.deepEqual(
+        asked.map((question) => question.message),
+        ['Apply stash@{0}?'],
+      );
+      return asked[0].detail;
+    };
+    write('preview.txt', 'one\n');
+    await git(app, ['add', 'preview.txt']);
+    await git(app, ['commit', '-m', 'Add preview']);
+    write('preview.txt', 'stashed\n');
+    write('along.txt', 'along\n');
+    await git(app, ['stash', 'push', '--include-untracked', '--quiet', '-m', 'preview']);
+    await controller.refresh();
+    try {
+      // Against a commit that changed the same line, cancelled.
+      write('preview.txt', 'committed\n');
+      await git(app, ['commit', '-am', 'Change preview']);
+      await controller.refresh();
+      answer = () => undefined;
+      let detail = await apply();
+      assert.ok(detail.includes('This will stop with conflicts in 1 file:\npreview.txt'), detail);
+      assert.equal(state().changes, 0);
+
+      // With the file changed and not committed, git would refuse.
+      await git(app, ['reset', '--hard', '--quiet', 'HEAD~1']);
+      write('preview.txt', 'dirty\n');
+      await controller.refresh();
+      detail = await apply();
+      assert.ok(detail.includes('Git will refuse it and change nothing, as 1 file it changes has changes that are not committed'), detail);
+
+      // Its untracked file there again is left alone.
+      await git(app, ['checkout', '--', 'preview.txt']);
+      write('along.txt', 'here\n');
+      await controller.refresh();
+      detail = await apply();
+      assert.ok(detail.includes('An untracked file it took along is there again') && detail.includes('along.txt'), detail);
+
+      // Nothing in the way: no conflicts, and it runs.
+      fs.rmSync(path.join(app, 'along.txt'));
+      await controller.refresh();
+      answer = run;
+      detail = await apply();
+      assert.ok(detail.includes('No conflicts expected.') && detail.includes('it stays in the list'), detail);
+      assert.equal(fs.readFileSync(path.join(app, 'preview.txt'), 'utf8'), 'stashed\n');
+      assert.equal(state().stashes.length, 1);
+
+      // A tag, and a branch whose commits are merged.
+      await git(app, ['tag', 'to-delete']);
+      await git(app, ['branch', 'merged-here']);
+      await controller.refresh();
+      asked.length = 0;
+      await controller.action({ kind: 'deleteTag', name: 'to-delete' });
+      await controller.action({ kind: 'deleteBranch', name: 'merged-here' });
+      assert.deepEqual(
+        asked.map((question) => question.message),
+        ['Delete tag to-delete?', 'Delete branch merged-here?'],
+      );
+      assert.ok(asked[0].detail.includes('A remote that has it keeps it.'), asked[0].detail);
+      assert.ok(asked[1].detail.includes('none is lost') && asked[1].detail.endsWith('git branch -d merged-here'), asked[1].detail);
+      assert.ok(!state().tags.some((tag) => tag.name === 'to-delete'));
+      assert.ok(!state().branches.some((branch) => branch.name === 'merged-here'));
+    } finally {
+      answer = () => undefined;
+      await git(app, ['reset', '--hard', '--quiet', start]);
+      fs.rmSync(path.join(app, 'along.txt'), { force: true });
+      await git(app, ['stash', 'drop', '--quiet']).catch(() => undefined);
+      await git(app, ['tag', '-d', 'to-delete']).catch(() => undefined);
+      await git(app, ['branch', '-D', 'merged-here']).catch(() => undefined);
+      await controller.refresh();
+    }
+    assert.equal(state().changes, 0);
   });
 
   await step('logged no unexpected errors', async () => {

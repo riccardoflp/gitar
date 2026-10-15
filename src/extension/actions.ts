@@ -107,6 +107,37 @@ function withConflictPreview(op: GitOp, conflicts: string[] | null): GitOp {
 }
 
 /**
+ * Says before a stash is applied what git would stop on: the conflicts its changes make with what is committed, the
+ * files it changes that have changes not committed, which git refuses to touch, and the untracked files it took along
+ * that are there again, which git leaves as they are.
+ */
+async function withStashPreview(op: GitOp, ref: string, state: RepoState, repo: Repo): Promise<GitOp> {
+  const list = (files: string[]) => {
+    const shown = files.slice(0, 15);
+    return `${shown.join('\n')}${files.length > shown.length ? `\n…and ${files.length - shown.length} more` : ''}`;
+  };
+  const count = (n: number) => (n === 1 ? '1 file' : `${n} files`);
+  const notes = [op.note];
+  const { changed, untracked } = await repo.stashFiles(ref);
+  const dirty = new Set([...state.working.staged, ...state.working.unstaged].filter((file) => file.status !== '?').map((file) => file.path));
+  const touched = changed.filter((file) => dirty.has(file));
+  if (touched.length) {
+    const have = touched.length === 1 ? '1 file it changes has' : `${touched.length} files it changes have`;
+    notes.push(`Git will refuse it and change nothing, as ${have} changes that are not committed: commit or stash them first.\n${list(touched)}`);
+  }
+  const there = untracked.filter((file) => fs.existsSync(path.join(state.root, file)));
+  if (there.length) {
+    const are = there.length === 1 ? 'An untracked file it took along is there again: git leaves it' : `${there.length} untracked files it took along are there again: git leaves them`;
+    notes.push(`${are} as it is and keeps the stash.\n${list(there)}`);
+  }
+  // Against what is committed, from the commit the stash was made on.
+  const conflicts = await repo.conflictsWith(ref, `${ref}^1`);
+  if (conflicts?.length) notes.push(`This will stop with conflicts in ${count(conflicts.length)}:\n${list(conflicts)}`);
+  else if (conflicts && !touched.length) notes.push('No conflicts expected.');
+  return { ...op, note: notes.filter(Boolean).join('\n\n') };
+}
+
+/**
  * Turns what the user asked for into git commands, asking for whatever is still missing.
  * Returns undefined when the user backs out of a prompt, or when the action needed no git command.
  */
@@ -136,8 +167,12 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       return name ? renameBranchOp(action.name, name) : undefined;
     }
 
-    case 'deleteBranch':
-      return deleteBranchOp(action.name);
+    case 'deleteBranch': {
+      // Git would refuse a branch that is not merged and want it forced: that is what is asked, once.
+      const upstream = state.branches.find((branch) => branch.name === action.name)?.upstream;
+      const merged = await repo.isMergedForDelete(action.name, upstream && !upstream.gone ? `refs/remotes/${upstream.name}` : null);
+      return deleteBranchOp(action.name, !merged);
+    }
 
     case 'fastForward':
       return fastForwardOp(action.name, state);
@@ -333,7 +368,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     }
 
     case 'deleteTag':
-      return deleteTagOp(action.name);
+      return deleteTagOp(action.name, state.tags.find((tag) => tag.name === action.name)?.hash);
 
     case 'pushTag':
       return pushTagOp(action.name, state);
@@ -353,9 +388,9 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     }
 
     case 'stashApply':
-      return stashOp('apply', action.ref);
+      return withStashPreview(stashOp('apply', action.ref), action.ref, state, repo);
     case 'stashPop':
-      return stashOp('pop', action.ref);
+      return withStashPreview(stashOp('pop', action.ref), action.ref, state, repo);
     case 'stashDrop':
       return stashOp('drop', action.ref);
 

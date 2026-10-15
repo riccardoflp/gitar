@@ -15,6 +15,7 @@ import {
   createBranchOp,
   createTagOp,
   deleteBranchOp,
+  deleteTagOp,
   deleteRemoteBranchOp,
   discardOp,
   fastForwardOp,
@@ -421,10 +422,15 @@ describe('operations', () => {
     expect(createTagOp('v1', hash, 'First release').commands).toEqual([['tag', '-a', 'v1', '-m', 'First release', hash]]);
   });
 
-  it('only treats the forced branch delete as dangerous', () => {
-    expect(deleteBranchOp('old', false)).toMatchObject({ commands: [['branch', '-d', 'old']] });
+  it('asks before deleting a branch, and only treats the forced delete as dangerous', () => {
+    expect(deleteBranchOp('old', false)).toMatchObject({ commands: [['branch', '-d', 'old']], confirm: true });
     expect(deleteBranchOp('old', false).danger).toBeFalsy();
     expect(deleteBranchOp('old', true)).toMatchObject({ commands: [['branch', '-D', 'old']], danger: true });
+  });
+
+  it('warns before deleting a tag that it stays on the remotes', () => {
+    expect(deleteTagOp('v1', hash)).toMatchObject({ commands: [['tag', '-d', 'v1']], danger: true });
+    expect(deleteTagOp('v1', hash).note).toContain('on aaaaaaa');
   });
 
   it('finds the remote of a remote branch even when names contain slashes', () => {
@@ -454,6 +460,9 @@ describe('operations', () => {
     expect(stashPushOp('wip').commands).toEqual([['stash', 'push', '--include-untracked', '-m', 'wip']]);
     expect(stashOp('pop', 'stash@{2}').commands).toEqual([['stash', 'pop', 'stash@{2}']]);
     expect(stashOp('drop', 'stash@{0}').danger).toBe(true);
+    // Applying is asked too, and popping says when the stash stays.
+    expect(stashOp('apply', 'stash@{0}')).toMatchObject({ confirm: true, note: expect.stringContaining('stays in the list') });
+    expect(stashOp('pop', 'stash@{0}')).toMatchObject({ confirm: true, note: expect.stringContaining('with conflicts it stays') });
     expect(() => stashOp('drop', '--all')).toThrow();
   });
 

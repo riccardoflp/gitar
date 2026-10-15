@@ -230,6 +230,8 @@ export function deleteBranchOp(name: string, force = false): GitOp {
   return {
     title: `Delete branch ${name}`,
     commands: [['branch', '-d', arg(name)]],
+    confirm: true,
+    note: 'Its commits are merged, so none is lost. Undo brings the branch back.',
     fallback: { when: /not fully merged/, op: deleteBranchOp(name, true) },
   };
 }
@@ -375,8 +377,15 @@ export function createTagOp(name: string, at: string, message: string): GitOp {
   return { title: `Create tag ${name}`, commands: [command] };
 }
 
-export function deleteTagOp(name: string): GitOp {
-  return { title: `Delete tag ${name}`, commands: [['tag', '-d', arg(name)]] };
+/** A tag deleted is gone from this repository only: the remotes that have it keep it. */
+export function deleteTagOp(name: string, hash?: string): GitOp {
+  const on = hash ? `, on ${short(hash)},` : '';
+  return {
+    title: `Delete tag ${name}`,
+    commands: [['tag', '-d', arg(name)]],
+    danger: true,
+    note: `The tag${on} is deleted from this repository, with its message if it has one. A remote that has it keeps it.`,
+  };
 }
 
 export function pushTagOp(name: string, state: RepoState): GitOp {
@@ -409,6 +418,13 @@ export function stashOp(verb: 'apply' | 'pop' | 'drop', ref: string): GitOp {
   if (verb === 'drop') {
     op.danger = true;
     op.note = 'The stashed changes will be deleted.';
+  } else {
+    // What it does to the files is said first, with what it would stop on.
+    op.confirm = true;
+    op.note =
+      verb === 'pop'
+        ? 'Its changes go into the files, and it is dropped once they are in without conflicts: with conflicts it stays.'
+        : 'Its changes go into the files, and it stays in the list.';
   }
   return op;
 }
