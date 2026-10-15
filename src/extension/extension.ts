@@ -6,22 +6,22 @@ import { GitContentProvider, SCHEME } from './content';
 import { Controller } from './controller';
 import { FileBlame } from './fileBlame';
 
-const GRAPH_VIEW = 'gitar.graph';
-const CHANGES_VIEW = 'gitar.changes';
-const COMMITS_VIEW = 'gitar.commits';
-const SIDE_GRAPH_VIEW = 'gitar.sideGraph';
-const BRANCHES_VIEW = 'gitar.branches';
-const STASHES_VIEW = 'gitar.stashes';
+const GRAPH_VIEW = 'gitardo.graph';
+const CHANGES_VIEW = 'gitardo.changes';
+const COMMITS_VIEW = 'gitardo.commits';
+const SIDE_GRAPH_VIEW = 'gitardo.sideGraph';
+const BRANCHES_VIEW = 'gitardo.branches';
+const STASHES_VIEW = 'gitardo.stashes';
 
 /** What the extension hands to whoever activates it: the end-to-end tests drive it through this. */
-export interface GitarApi {
+export interface GitardoApi {
   controller: Controller;
   log: vscode.LogOutputChannel;
   fileBlame: FileBlame;
 }
 
-export function activate(context: vscode.ExtensionContext): GitarApi {
-  const log = vscode.window.createOutputChannel('Gitar', { log: true });
+export function activate(context: vscode.ExtensionContext): GitardoApi {
+  const log = vscode.window.createOutputChannel('Gitardo', { log: true });
   const controller = new Controller(context.extensionUri, log, context.workspaceState);
   const blameSource = new BlameSource(log);
   const fileBlame = new FileBlame(blameSource, {
@@ -51,7 +51,7 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
   });
 
   const openInEditor = () => {
-    const panel = vscode.window.createWebviewPanel('gitar.graphEditor', 'Gitar', vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel('gitardo.graphEditor', 'Gitardo', vscode.ViewColumn.Active, {
       retainContextWhenHidden: true,
     });
     const attachment = controller.attach(panel.webview, 'graph');
@@ -60,23 +60,23 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
 
   /** Turns a setting that is on or off into the other, for the user wherever they work. */
   const toggleSetting = (name: string) => () => {
-    const config = vscode.workspace.getConfiguration('gitar');
+    const config = vscode.workspace.getConfiguration('gitardo');
     return config.update(name, !config.get<boolean>(name), vscode.ConfigurationTarget.Global);
   };
 
   // A way to the graph that is always in sight, as a tab of the editor: the one the panel opens from its own header.
-  const status = vscode.window.createStatusBarItem('gitar.graph', vscode.StatusBarAlignment.Left, 0);
-  status.name = 'Gitar Graph';
-  status.text = '$(git-commit) Gitar';
-  status.tooltip = 'Open the Gitar graph in an editor tab';
-  status.command = 'gitar.openInEditor';
+  const status = vscode.window.createStatusBarItem('gitardo.graph', vscode.StatusBarAlignment.Left, 0);
+  status.name = 'Gitardo Graph';
+  status.text = '$(git-commit) Gitardo';
+  status.tooltip = 'Open the Gitardo graph in an editor tab';
+  status.command = 'gitardo.openInEditor';
   // Only where there is a repository to show, as the button of the editors that shows the blame of a file: looked
   // for now, since no view may be open to read one, and again when the folders of the workspace change. A repository
   // made later shows them as soon as a view reads it.
   const hasRepository = (has: boolean) => {
     if (has) status.show();
     else status.hide();
-    void vscode.commands.executeCommand('setContext', 'gitar.hasRepository', has);
+    void vscode.commands.executeCommand('setContext', 'gitardo.hasRepository', has);
   };
   const lookForRepos = async () => {
     const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
@@ -120,38 +120,38 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
     shown,
     new BlameAnnotator(blameSource),
     fileBlame,
-    command('gitar.fileHistory', (uri) => controller.fileHistory(uri instanceof vscode.Uri ? uri : undefined)),
-    command('gitar.revealCommit', (hash) => typeof hash === 'string' && controller.reveal(hash)),
-    command('gitar.reflog', () => controller.command('reflog')),
-    command('gitar.cleanupBranches', () => controller.command('cleanupBranches')),
-    command('gitar.signInGitHub', () => controller.command('signInGitHub')),
-    command('gitar.toggleBlame', toggleSetting('blame.enabled')),
+    command('gitardo.fileHistory', (uri) => controller.fileHistory(uri instanceof vscode.Uri ? uri : undefined)),
+    command('gitardo.revealCommit', (hash) => typeof hash === 'string' && controller.reveal(hash)),
+    command('gitardo.reflog', () => controller.command('reflog')),
+    command('gitardo.cleanupBranches', () => controller.command('cleanupBranches')),
+    command('gitardo.signInGitHub', () => controller.command('signInGitHub')),
+    command('gitardo.toggleBlame', toggleSetting('blame.enabled')),
     // Each of the two has a command for the palette and two for the button of the editors, in its two states.
-    ...['gitar.toggleBlameWhitespace', 'gitar.blameIgnoreWhitespace', 'gitar.blameCountWhitespace'].map((id) =>
+    ...['gitardo.toggleBlameWhitespace', 'gitardo.blameIgnoreWhitespace', 'gitardo.blameCountWhitespace'].map((id) =>
       command(id, toggleSetting('blame.ignoreWhitespaceAndMoves')),
     ),
-    ...['gitar.toggleBlameEveryFile', 'gitar.blameEveryFile', 'gitar.blameChosenFiles'].map((id) =>
+    ...['gitardo.toggleBlameEveryFile', 'gitardo.blameEveryFile', 'gitardo.blameChosenFiles'].map((id) =>
       command(id, toggleSetting('fileBlame.everyFile')),
     ),
-    command('gitar.openLineCommit', () => fileBlame.openLine()),
-    command('gitar.revealLineCommit', () => fileBlame.revealLine()),
-    command('gitar.blamePrevious', (root, hash, file) => fileBlame.previous(root, hash, file)),
+    command('gitardo.openLineCommit', () => fileBlame.openLine()),
+    command('gitardo.revealLineCommit', () => fileBlame.revealLine()),
+    command('gitardo.blamePrevious', (root, hash, file) => fileBlame.previous(root, hash, file)),
     // The button of an editor names its file, which is not the active one when the button is of another group.
-    ...['gitar.toggleFileBlame', 'gitar.showFileBlame', 'gitar.hideFileBlame'].map((id) =>
+    ...['gitardo.toggleFileBlame', 'gitardo.showFileBlame', 'gitardo.hideFileBlame'].map((id) =>
       command(id, (uri) => fileBlame.toggle(uri instanceof vscode.Uri ? uri : undefined)),
     ),
-    command('gitar.switchIdentity', () => controller.command('switchIdentity')),
-    command('gitar.selectRepository', () => controller.command('selectRepository')),
-    command('gitar.remotes', () => controller.command('remotes')),
-    command('gitar.bisectReset', () => controller.action({ kind: 'bisectReset' })),
-    command('gitar.compare', () => controller.compare()),
-    command('gitar.goToCommit', () => controller.goToCommit()),
-    command('gitar.openCommit', (hash) => controller.openCommit(typeof hash === 'string' ? hash : undefined)),
-    command('gitar.resolveConflicts', () => controller.action({ kind: 'resolveConflicts' })),
+    command('gitardo.switchIdentity', () => controller.command('switchIdentity')),
+    command('gitardo.selectRepository', () => controller.command('selectRepository')),
+    command('gitardo.remotes', () => controller.command('remotes')),
+    command('gitardo.bisectReset', () => controller.action({ kind: 'bisectReset' })),
+    command('gitardo.compare', () => controller.compare()),
+    command('gitardo.goToCommit', () => controller.goToCommit()),
+    command('gitardo.openCommit', (hash) => controller.openCommit(typeof hash === 'string' ? hash : undefined)),
+    command('gitardo.resolveConflicts', () => controller.action({ kind: 'resolveConflicts' })),
     // The views that list commits put the cursor in their search box at Ctrl+F by themselves. While one of them has the
     // keyboard the key is bound to this, for VS Code to run something other than the search of the editor behind them.
-    command('gitar.find', () => {}),
-    command('gitar.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
+    command('gitardo.find', () => {}),
+    command('gitardo.createBranch', () => controller.action({ kind: 'createBranch', at: 'HEAD' })),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),
     // Hidden until it is asked for: VS Code has its own list of changes just above.
@@ -181,24 +181,24 @@ export function activate(context: vscode.ExtensionContext): GitarApi {
       sideView('stashes', (state) => (state.stashes.length ? String(state.stashes.length) : undefined)),
       webviewOptions,
     ),
-    command('gitar.openGraph', () => vscode.commands.executeCommand(`${GRAPH_VIEW}.focus`)),
-    command('gitar.openChanges', () => vscode.commands.executeCommand(`${CHANGES_VIEW}.focus`)),
-    command('gitar.openCommits', () => vscode.commands.executeCommand(`${COMMITS_VIEW}.focus`)),
-    command('gitar.openSideGraph', () => vscode.commands.executeCommand(`${SIDE_GRAPH_VIEW}.focus`)),
-    command('gitar.openBranches', () => vscode.commands.executeCommand(`${BRANCHES_VIEW}.focus`)),
-    command('gitar.openStashes', () => vscode.commands.executeCommand(`${STASHES_VIEW}.focus`)),
-    command('gitar.openInEditor', openInEditor),
-    command('gitar.refresh', () => controller.refresh()),
-    command('gitar.showLog', () => log.show()),
-    command('gitar.stash', () => controller.action({ kind: 'stashPush' })),
-    // The buttons Gitar adds to the list of changes of VS Code, in the repository of what they are on.
-    command('gitar.scmStashFile', (...files) => controller.stashFromScm(scmFiles(files), 'files')),
-    command('gitar.scmStashStaged', (...groups) => controller.stashFromScm(scmFiles(groups), 'staged')),
-    command('gitar.scmStashAll', (...groups) => controller.stashFromScm(scmFiles(groups), 'all')),
-    command('gitar.undo', () => controller.action({ kind: 'undo' })),
+    command('gitardo.openGraph', () => vscode.commands.executeCommand(`${GRAPH_VIEW}.focus`)),
+    command('gitardo.openChanges', () => vscode.commands.executeCommand(`${CHANGES_VIEW}.focus`)),
+    command('gitardo.openCommits', () => vscode.commands.executeCommand(`${COMMITS_VIEW}.focus`)),
+    command('gitardo.openSideGraph', () => vscode.commands.executeCommand(`${SIDE_GRAPH_VIEW}.focus`)),
+    command('gitardo.openBranches', () => vscode.commands.executeCommand(`${BRANCHES_VIEW}.focus`)),
+    command('gitardo.openStashes', () => vscode.commands.executeCommand(`${STASHES_VIEW}.focus`)),
+    command('gitardo.openInEditor', openInEditor),
+    command('gitardo.refresh', () => controller.refresh()),
+    command('gitardo.showLog', () => log.show()),
+    command('gitardo.stash', () => controller.action({ kind: 'stashPush' })),
+    // The buttons Gitardo adds to the list of changes of VS Code, in the repository of what they are on.
+    command('gitardo.scmStashFile', (...files) => controller.stashFromScm(scmFiles(files), 'files')),
+    command('gitardo.scmStashStaged', (...groups) => controller.stashFromScm(scmFiles(groups), 'staged')),
+    command('gitardo.scmStashAll', (...groups) => controller.stashFromScm(scmFiles(groups), 'all')),
+    command('gitardo.undo', () => controller.action({ kind: 'undo' })),
     // Pull is the button, which pulls the way the settings choose: the pull with no option has a command of its own.
-    ...syncActions.map((action) => command(`gitar.${action}`, () => (action === 'pull' ? controller.pull() : controller.sync(action)))),
-    command('gitar.pullPlain', () => controller.sync('pull')),
+    ...syncActions.map((action) => command(`gitardo.${action}`, () => (action === 'pull' ? controller.pull() : controller.sync(action)))),
+    command('gitardo.pullPlain', () => controller.sync('pull')),
   );
   return { controller, log, fileBlame };
 }

@@ -1,4 +1,4 @@
-// Makes a large repository to try Gitar on: node test/perf/big-repo.mjs <folder> [commits on main] [changed files]
+// Makes a large repository to try Gitardo on: node test/perf/big-repo.mjs <folder> [commits on main] [changed files]
 // A long main line with a side branch forked and merged back every few commits, a few hundred branches never merged,
 // thousands of tags, remote branches, and optionally a working tree with many changed and untracked files.
 
@@ -20,8 +20,8 @@ const root = path.resolve(folder);
 fs.mkdirSync(root, { recursive: true });
 const git = (...args) => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] }).toString();
 git('init', '--quiet', '--initial-branch=main');
-git('config', 'user.name', 'Gitar Test');
-git('config', 'user.email', 'test@gitar.invalid');
+git('config', 'user.name', 'Gitardo Test');
+git('config', 'user.email', 'test@gitardo.invalid');
 git('config', 'core.autocrlf', 'false');
 
 const importer = spawn('git', ['fast-import', '--quiet'], { cwd: root, stdio: ['pipe', 'inherit', 'inherit'] });
@@ -49,7 +49,7 @@ let total = 0;
 
 async function commit(ref, subject, parents, body = '') {
   const author = AUTHORS[random(AUTHORS.length)];
-  const email = `${author.split(' ')[0].toLowerCase()}@gitar.invalid`;
+  const email = `${author.split(' ')[0].toLowerCase()}@gitardo.invalid`;
   const message = body ? `${subject}\n\n${body}\n` : `${subject}\n`;
   const changed = random(FILES);
   const content = `${subject}\nline ${total}\n`;
@@ -107,7 +107,7 @@ await done;
 // The side branches that were merged only needed a name while they were being written.
 const scratch = git('for-each-ref', '--format=delete %(refname)', 'refs/scratch');
 if (scratch) execFileSync('git', ['update-ref', '--stdin'], { cwd: root, input: scratch });
-git('config', 'remote.origin.url', 'https://github.com/gitar-test/big.git');
+git('config', 'remote.origin.url', 'https://github.com/gitardo-test/big.git');
 git('config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*');
 git('config', 'branch.main.remote', 'origin');
 git('config', 'branch.main.merge', 'refs/heads/main');

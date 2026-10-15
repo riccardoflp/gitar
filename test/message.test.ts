@@ -7,7 +7,7 @@ describe('unwrap', () => {
   it('puts back together the lines of a paragraph that were cut at a width', () => {
     const body = lines(
       'The Pull button of the graph, the one in the header of the Commits view',
-      'and the command "Gitar: Pull" now run `git pull --rebase --autostash`.',
+      'and the command "Gitardo: Pull" now run `git pull --rebase --autostash`.',
       'Two settings, both on by default, choose it.',
       '',
       'The tooltip of the button says the command it runs. The menu beside it',
@@ -15,7 +15,7 @@ describe('unwrap', () => {
     );
     expect(unwrap(body)).toBe(
       lines(
-        'The Pull button of the graph, the one in the header of the Commits view and the command "Gitar: Pull" now run `git pull --rebase --autostash`. Two settings, both on by default, choose it.',
+        'The Pull button of the graph, the one in the header of the Commits view and the command "Gitardo: Pull" now run `git pull --rebase --autostash`. Two settings, both on by default, choose it.',
         '',
         'The tooltip of the button says the command it runs. The menu beside it keeps the four ways to pull.',
       ),

@@ -15,11 +15,11 @@ if (!repository) {
   process.exit(1);
 }
 const out = path.resolve(options.find((option) => option.startsWith('--out='))?.slice(6) ?? path.join(source, 'dist', 'perf'));
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-perf-'));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-perf-'));
 const window = await startWindow({ workspace: path.resolve(repository), temp, out, codePath });
 const { shot, command, webview, problems } = window;
 const timer = setTimeout(() => finish(new Error('Timed out.')), 240_000);
-const probe = path.join(path.resolve(repository), 'gitar-perf.txt');
+const probe = path.join(path.resolve(repository), 'gitardo-perf.txt');
 
 const report = (what, value) => console.log(`${String(value).padStart(10)}  ${what}`);
 
@@ -55,7 +55,7 @@ const TIMED = `(act) => new Promise((resolve) => {
 try {
   await window.ready();
   const started = Date.now();
-  await command('Gitar: Show Graph');
+  await command('Gitardo: Show Graph');
   const graph = await webview('graph');
   await until('the commits', () => graph.evaluate(`document.querySelectorAll('.row').length > 5`), 60_000);
   report('to open the graph from the command palette', `${Date.now() - started} ms`);
@@ -98,7 +98,7 @@ try {
   report('references matching "feature/00"', await count('.refs .ref'));
   await shot('filter');
 
-  await command('Gitar: Show Changes');
+  await command('Gitardo: Show Changes');
   const changes = await webview('changes');
   await until('the changed files', () => changes.evaluate(`document.querySelectorAll('.group .file').length > 0`), 30_000);
   report('changed files listed', `${await changes.evaluate(`document.querySelectorAll('.group .file').length`)} of ${await changes.evaluate(`[...document.querySelectorAll('.group .count')].reduce((sum, badge) => sum + Number(badge.textContent), 0)`)}`);

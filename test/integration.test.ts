@@ -94,10 +94,10 @@ async function divergent() {
 }
 
 beforeEach(async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-'));
   await git(dir, ['init', '--initial-branch=main']);
-  await git(dir, ['config', 'user.name', 'Gitar Test']);
-  await git(dir, ['config', 'user.email', 'test@gitar.invalid']);
+  await git(dir, ['config', 'user.name', 'Gitardo Test']);
+  await git(dir, ['config', 'user.email', 'test@gitardo.invalid']);
   await git(dir, ['config', 'commit.gpgsign', 'false']);
   root = (await Repo.discover(dir))!;
   repo = new Repo(root);
@@ -357,7 +357,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       hashes[name] = await commitAll(`Add ${name}`);
     }
 
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-todo-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-todo-'));
     const file = (name: string) => path.join(dir, name).replace(/\\/g, '/');
     fs.writeFileSync(file('message-1.txt'), 'Add b and d\n\nReworded.\n');
     const todo = rebaseTodo(
@@ -420,7 +420,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       parents: [first],
       subject: 'Second commit',
       body: 'With a body.',
-      author: 'Gitar Test',
+      author: 'Gitardo Test',
       files: [
         { status: 'M', path: 'a.txt' },
         { status: 'A', path: 'b.txt' },
@@ -492,7 +492,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
 
     const lines = await repo.blame('a.txt');
     expect(lines?.map((line) => line.hash)).toEqual([first, second, first]);
-    expect(lines?.[1]).toMatchObject({ author: 'Gitar Test', summary: 'Shout', committed: true });
+    expect(lines?.[1]).toMatchObject({ author: 'Gitardo Test', summary: 'Shout', committed: true });
     // What a commit changed was, before it, in the commit that comes before it for the file.
     expect(lines?.[1].previous).toEqual({ hash: first, file: 'a.txt' });
     expect(lines?.[0].previous).toBeUndefined();
@@ -523,7 +523,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     write('a.txt', 'one\nTWO\n');
     const second = await commitAll('Shout');
 
-    expect(await repo.blameLine('a.txt', 1)).toMatchObject({ hash: first, author: 'Gitar Test', summary: 'Add a', committed: true });
+    expect(await repo.blameLine('a.txt', 1)).toMatchObject({ hash: first, author: 'Gitardo Test', summary: 'Add a', committed: true });
     expect(await repo.blameLine('a.txt', 2)).toMatchObject({ hash: second, summary: 'Shout', committed: true });
     const unsaved = 'zero\none\nTWO\n';
     expect(await repo.blameLine('a.txt', 1, { contents: unsaved })).toMatchObject({ committed: false });
@@ -633,7 +633,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
   });
 
   it('switches the identity of the repository and back to the inherited one', async () => {
-    expect((await state()).identity).toEqual({ name: 'Gitar Test', email: 'test@gitar.invalid' });
+    expect((await state()).identity).toEqual({ name: 'Gitardo Test', email: 'test@gitardo.invalid' });
     expect((await repo.localIdentityKeys()).sort()).toEqual(['user.email', 'user.name']);
 
     await run(identityOp({ name: 'Work Me', email: 'me@work.example', signingKey: 'ABC123' }, await repo.localIdentityKeys()));
@@ -786,7 +786,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect(await repo.matches({ kind: 'message', query: 'change' }, null, 1)).toEqual({ hashes: [changes[0]], more: true });
     expect(await repo.matches({ kind: 'message', query: 'change' }, { kind: 'ref', ref: 'main' }, 10)).toEqual({ hashes: [main], more: false });
     expect(await repo.matches({ kind: 'pickaxe', query: 'milk' }, null, 10)).toEqual({ hashes: [notes], more: false });
-    expect(await repo.matches({ kind: 'author', query: 'gitar' }, { kind: 'path', path: 'notes.txt' }, 10)).toEqual({ hashes: [notes], more: false });
+    expect(await repo.matches({ kind: 'author', query: 'gitardo' }, { kind: 'path', path: 'notes.txt' }, 10)).toEqual({ hashes: [notes], more: false });
     expect(await repo.matches({ kind: 'author', query: 'nobody' }, null, 10)).toEqual({ hashes: [], more: false });
     await expect(repo.matches({ kind: 'regex', query: '[' }, null, 10)).rejects.toThrow();
   });
@@ -799,7 +799,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     const hashes = async (limit = 10) => (await repo.branchLog(limit)).commits.map((commit) => commit.hash);
     // With no remote there is nothing to say about what is pushed.
     expect(await repo.branchLog(10)).toEqual({ ...none, commits: [expect.objectContaining({ hash: base, subject: 'base' })] });
-    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-remote-'));
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
     try {
       await git(remote, ['init', '--bare', '--initial-branch=main']);
       await git(root, ['remote', 'add', 'origin', remote]);
@@ -837,7 +837,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
   it('pulls with a rebase', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');
-    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-remote-'));
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
     try {
       await git(remote, ['init', '--bare', '--initial-branch=main']);
       await git(root, ['remote', 'add', 'origin', remote]);
@@ -865,7 +865,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     write('a.txt', 'one\ntwo\n');
     write('b.txt', 'bee\n');
     await commitAll('base');
-    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-remote-'));
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
     try {
       await git(remote, ['init', '--bare', '--initial-branch=main']);
       await git(root, ['remote', 'add', 'origin', remote]);
@@ -913,7 +913,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
   it('finds the repositories of a workspace, nested ones and submodules included', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');
-    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-workspace-'));
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-workspace-'));
     try {
       // A folder that is not a repository itself but has two inside, plus a plain directory.
       for (const name of ['app', 'lib']) {
@@ -1081,7 +1081,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
   it('adds, repoints, renames, fetches and removes remotes', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');
-    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-remote-'));
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
     try {
       await git(bare, ['init', '--bare', '--initial-branch=main']);
       await run(remoteAddOp('origin', 'https://example.invalid/nowhere.git'));

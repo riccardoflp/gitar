@@ -60,13 +60,13 @@ const REFRESH_DELAY = 400;
 const WORKTREE_REFRESH_DELAY = 1000;
 const LOST_COMMITS_SHOWN = 10;
 const REFLOG_ENTRIES = 200;
-const REPO_KEY = 'gitar.repository';
+const REPO_KEY = 'gitardo.repository';
 /** The branches chosen for the graph of each repository, by its folder. */
-const SCOPE_KEY = 'gitar.scope';
+const SCOPE_KEY = 'gitardo.scope';
 /** How the files of a commit are laid out in its tab: as a tree until a list is asked for. */
-const FILES_KEY = 'gitar.commitFiles';
+const FILES_KEY = 'gitardo.commitFiles';
 /** The favorite branches of each repository of the workspace. */
-const FAVORITES_KEY = 'gitar.favorites';
+const FAVORITES_KEY = 'gitardo.favorites';
 /** How many lines of what a commit changed are sent to its tab. The diff editor shows a commit longer than that. */
 const PATCH_LINES = 20_000;
 /** The most commits the view of the commits of a branch is given, however many it asks for. */
@@ -97,7 +97,7 @@ function rowsKey(state: RepoState, filter: Filter | null): string {
   return hash.digest('hex');
 }
 
-/** Owns the repository state and serves every Gitar webview, wherever the user has placed it. */
+/** Owns the repository state and serves every Gitardo webview, wherever the user has placed it. */
 export class Controller implements vscode.Disposable {
   private repo?: Repo;
   private state: RepoState | null = null;
@@ -114,7 +114,7 @@ export class Controller implements vscode.Disposable {
   /** When `timer` fires. */
   private due = 0;
   private watcher?: vscode.Disposable;
-  /** The inverse of Gitar's last operation, valid for as long as HEAD's reflog has not moved since. */
+  /** The inverse of Gitardo's last operation, valid for as long as HEAD's reflog has not moved since. */
   private undoable?: { reflogTop: string; op: GitOp };
   /** Where the branch was before the cherry-pick of several commits that is under way, or just ended. */
   private series?: { before: string; branch: string | null; title: string };
@@ -160,7 +160,7 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidRenameFiles(schedule),
       vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
       vscode.workspace.onDidChangeConfiguration(
-        (event) => (event.affectsConfiguration('gitar.conflicts') || event.affectsConfiguration('gitar.pull')) && schedule(),
+        (event) => (event.affectsConfiguration('gitardo.conflicts') || event.affectsConfiguration('gitardo.pull')) && schedule(),
       ),
     ];
   }
@@ -193,7 +193,7 @@ export class Controller implements vscode.Disposable {
     const before = this.focused.size;
     if (focused) this.focused.add(webview);
     else this.focused.delete(webview);
-    if (!before !== !this.focused.size) void vscode.commands.executeCommand('setContext', 'gitar.searchFocus', this.focused.size > 0);
+    if (!before !== !this.focused.size) void vscode.commands.executeCommand('setContext', 'gitardo.searchFocus', this.focused.size > 0);
   }
 
   async refresh(): Promise<void> {
@@ -241,7 +241,7 @@ export class Controller implements vscode.Disposable {
 
   /** Resolving conflicts without choosing a side is experimental: nothing of it is offered, or run, until it is switched on. */
   private autoResolve(): boolean {
-    return vscode.workspace.getConfiguration('gitar').get<boolean>('conflicts.autoResolve') === true;
+    return vscode.workspace.getConfiguration('gitardo').get<boolean>('conflicts.autoResolve') === true;
   }
 
   /** A search git cannot run, such as an invalid regular expression, is reported and dropped rather than taking the graph down. */
@@ -254,7 +254,7 @@ export class Controller implements vscode.Disposable {
       this.filter = null;
       const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
       this.log.error(text);
-      void vscode.window.showErrorMessage(`Gitar: the search failed. ${text.split('\n')[0]}`);
+      void vscode.window.showErrorMessage(`Gitardo: the search failed. ${text.split('\n')[0]}`);
       return repo.state(this.limit, null, this.scope, resolve);
     }
   }
@@ -317,10 +317,10 @@ export class Controller implements vscode.Disposable {
     if (!this.repo) return;
     const file = uri?.scheme === 'file' ? path.relative(this.repo.root, uri.fsPath).replace(/\\/g, '/') : '';
     if (!file || file.startsWith('..') || path.isAbsolute(file)) {
-      void vscode.window.showWarningMessage('Gitar: open a file of this repository to see its history.');
+      void vscode.window.showWarningMessage('Gitardo: open a file of this repository to see its history.');
       return;
     }
-    await vscode.commands.executeCommand('gitar.graph.focus');
+    await vscode.commands.executeCommand('gitardo.graph.focus');
     await this.setFilter({ kind: 'path', path: file });
   }
 
@@ -358,7 +358,7 @@ export class Controller implements vscode.Disposable {
   /** Selects a commit in the graph, opening the graph first if needed. `hash` is the full one. */
   async reveal(hash: string): Promise<void> {
     if (!isHash(hash)) return;
-    await vscode.commands.executeCommand('gitar.graph.focus');
+    await vscode.commands.executeCommand('gitardo.graph.focus');
     await this.include(hash);
     // Only now: a view that loads in the meantime would be told of a commit it has not been sent yet.
     this.pendingReveal = hash;
@@ -403,7 +403,7 @@ export class Controller implements vscode.Disposable {
     const hash = await repo.resolve(revision.trim());
     if (!hash) {
       // A few characters can be the start of more than one hash, which git refuses to choose between.
-      void vscode.window.showWarningMessage(`Gitar: "${revision.trim()}" is not a commit of this repository, or is the start of several.`);
+      void vscode.window.showWarningMessage(`Gitardo: "${revision.trim()}" is not a commit of this repository, or is the start of several.`);
       return;
     }
     await this.include(hash);
@@ -422,7 +422,7 @@ export class Controller implements vscode.Disposable {
     if (!repo || !isHash(hash)) return;
     const detail = await repo.commitDetail(hash).catch(() => null);
     if (!detail) {
-      void vscode.window.showWarningMessage(`Gitar: ${hash.slice(0, 7)} is not a commit of this repository.`);
+      void vscode.window.showWarningMessage(`Gitardo: ${hash.slice(0, 7)} is not a commit of this repository.`);
       return;
     }
     const key = `${repo.root}\n${detail.hash}`;
@@ -430,7 +430,7 @@ export class Controller implements vscode.Disposable {
     if (open) return open.reveal();
 
     const subject = detail.subject.length > TITLE_LENGTH ? `${detail.subject.slice(0, TITLE_LENGTH).trimEnd()}…` : detail.subject;
-    const panel = vscode.window.createWebviewPanel('gitar.commit', `${detail.hash.slice(0, 7)} ${subject}`, vscode.ViewColumn.Active, {
+    const panel = vscode.window.createWebviewPanel('gitardo.commit', `${detail.hash.slice(0, 7)} ${subject}`, vscode.ViewColumn.Active, {
       retainContextWhenHidden: true,
       // The search of VS Code, for a word among the changes.
       enableFindWidget: true,
@@ -469,7 +469,7 @@ export class Controller implements vscode.Disposable {
     } catch (error) {
       const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
       this.log.error(text);
-      void vscode.window.showErrorMessage(`Gitar: the search failed. ${text.split('\n')[0]}`);
+      void vscode.window.showErrorMessage(`Gitardo: the search failed. ${text.split('\n')[0]}`);
       this.post({ type: 'found', search, hashes: [], more: false, failed: true }, asker);
     }
   }
@@ -514,10 +514,10 @@ export class Controller implements vscode.Disposable {
       const kind = asker && this.views.get(asker);
       if (asker && kind && showsComparisons(kind)) return this.post({ type: 'compare', comparing }, asker);
       this.pendingCompare = comparing;
-      await vscode.commands.executeCommand('gitar.graph.focus');
+      await vscode.commands.executeCommand('gitardo.graph.focus');
       this.flushPending();
     } catch (error) {
-      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
   }
 
@@ -572,7 +572,7 @@ export class Controller implements vscode.Disposable {
     // The box can be accepted before the last check has come back.
     const hash = await repo.resolve(revision);
     if (!hash) {
-      void vscode.window.showWarningMessage(`Gitar: "${revision}" is not a commit of this repository.`);
+      void vscode.window.showWarningMessage(`Gitardo: "${revision}" is not a commit of this repository.`);
       return;
     }
     return { name: isHash(revision) ? hash.slice(0, 7) : revision, hash };
@@ -590,7 +590,7 @@ export class Controller implements vscode.Disposable {
       if (command === 'selectRepository') return await this.pickRepo();
       if (command === 'remotes') return await this.manageRemotes();
     } catch (error) {
-      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
   }
 
@@ -634,7 +634,7 @@ export class Controller implements vscode.Disposable {
       (branch) => !branch.current && !inUse.has(branch.name) && (merged.has(branch.name) || branch.upstream?.gone),
     );
     if (!candidates.length) {
-      void vscode.window.showInformationMessage('Gitar: no local branches are merged or have lost their upstream.');
+      void vscode.window.showInformationMessage('Gitardo: no local branches are merged or have lost their upstream.');
       return;
     }
     const picked = await vscode.window.showQuickPick(
@@ -660,7 +660,7 @@ export class Controller implements vscode.Disposable {
     this.post({ type: 'drafting', active: true });
     try {
       const message = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Window, title: 'Gitar: drafting commit message', cancellable: true },
+        { location: vscode.ProgressLocation.Window, title: 'Gitardo: drafting commit message', cancellable: true },
         (_progress, token) => draftCommitMessage(repo, state, token),
       );
       this.post({ type: 'drafting', active: false, message });
@@ -677,7 +677,7 @@ export class Controller implements vscode.Disposable {
   private async refreshPulls(force: boolean, prompt = false): Promise<void> {
     const github = this.github;
     if (!github) {
-      if (prompt) void vscode.window.showWarningMessage('Gitar: the main remote of this repository is not on github.com.');
+      if (prompt) void vscode.window.showWarningMessage('Gitardo: the main remote of this repository is not on github.com.');
       return;
     }
     if (!force && Date.now() - this.pullsAt < PULLS_MAX_AGE) return;
@@ -691,7 +691,7 @@ export class Controller implements vscode.Disposable {
       if (this.state) this.setState({ ...this.state, pulls });
     } catch (error) {
       this.log.warn(`Could not read pull requests: ${errorText(error)}`);
-      if (prompt) void vscode.window.showErrorMessage(`Gitar: could not read pull requests. ${errorText(error)}`);
+      if (prompt) void vscode.window.showErrorMessage(`Gitardo: could not read pull requests. ${errorText(error)}`);
     }
   }
 
@@ -704,7 +704,7 @@ export class Controller implements vscode.Disposable {
 
   /** What the Pull button runs: the settings add `--rebase` and `--autostash`, unless switched off. */
   private defaultPull(): PullAction {
-    const config = vscode.workspace.getConfiguration('gitar.pull');
+    const config = vscode.workspace.getConfiguration('gitardo.pull');
     return pullAction(config.get<boolean>('rebase') !== false, config.get<boolean>('autostash') !== false);
   }
 
@@ -718,7 +718,7 @@ export class Controller implements vscode.Disposable {
     if (!state) return;
     if (!state.remotes.length) {
       // Nothing to fetch from or push to yet: the useful next step is to say where.
-      const choice = await vscode.window.showWarningMessage('Gitar: this repository has no remote.', 'Add Remote…');
+      const choice = await vscode.window.showWarningMessage('Gitardo: this repository has no remote.', 'Add Remote…');
       if (choice) await this.manageRemotes(true);
       return;
     }
@@ -742,10 +742,10 @@ export class Controller implements vscode.Disposable {
       if (action.endsWith('Autostash') && kept && this.state!.stashes.length > state.stashes.length && /autostash/i.test(kept.message)) {
         void vscode.window
           .showWarningMessage(
-            `Gitar: pulled, but your changes do not fit on what came in. They are in conflict in the files, and whole in the stash "${kept.message}": resolve the conflicts, then drop the stash.`,
+            `Gitardo: pulled, but your changes do not fit on what came in. They are in conflict in the files, and whole in the stash "${kept.message}": resolve the conflicts, then drop the stash.`,
             'Show Stashes',
           )
-          .then((choice) => choice && vscode.commands.executeCommand('gitar.openStashes'));
+          .then((choice) => choice && vscode.commands.executeCommand('gitardo.openStashes'));
       }
       // The first push of a branch is the natural moment to open a pull request for it.
       const branch = state.branch;
@@ -754,7 +754,7 @@ export class Controller implements vscode.Disposable {
         if (choice) await this.openPullRequest(branch);
       }
     } catch (error) {
-      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
   }
 
@@ -765,15 +765,15 @@ export class Controller implements vscode.Disposable {
     // A key binding, or a view drawn before the setting changed, can still ask for it.
     if (action.kind === 'resolveConflicts' && !this.autoResolve()) {
       void vscode.window
-        .showInformationMessage('Gitar: resolving conflicts automatically is experimental, and it is switched off in the settings.', 'Open Settings')
-        .then((choice) => choice && vscode.commands.executeCommand('workbench.action.openSettings', 'gitar.conflicts.autoResolve'));
+        .showInformationMessage('Gitardo: resolving conflicts automatically is experimental, and it is switched off in the settings.', 'Open Settings')
+        .then((choice) => choice && vscode.commands.executeCommand('workbench.action.openSettings', 'gitardo.conflicts.autoResolve'));
       return;
     }
     try {
       const top = (await repo.reflog('HEAD', 1))[0];
       const reflogTop = top ? `${top.hash} ${top.subject}` : '';
 
-      // Deleting a branch or dropping a stash leaves no trace in the reflog, so Gitar remembers how to take its own back.
+      // Deleting a branch or dropping a stash leaves no trace in the reflog, so Gitardo remembers how to take its own back.
       if (action.kind === 'undo' && this.undoable?.reflogTop === reflogTop) {
         const { op } = this.undoable;
         if ((await this.run(op)).ok) this.undoable = undefined;
@@ -826,7 +826,7 @@ export class Controller implements vscode.Disposable {
         if (now) this.undoable = { reflogTop: `${now.hash} ${now.subject}`, op: undoOp(info, series.branch) };
       }
     } catch (error) {
-      void vscode.window.showErrorMessage(`Gitar: ${errorText(error)}`);
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
   }
 
@@ -853,7 +853,7 @@ export class Controller implements vscode.Disposable {
       ? `${left === 1 ? '1 file still has' : `${left} files still have`} conflicts to resolve by hand.`
       : `No file is left in conflict${operation ? `: the ${operation} can continue` : ''}.`;
     const buttons = !left && operation ? ['Continue', 'Undo'] : ['Undo'];
-    void vscode.window.showInformationMessage(`Gitar resolved conflicts in ${files}. ${rest}`, ...buttons).then((choice) => {
+    void vscode.window.showInformationMessage(`Gitardo resolved conflicts in ${files}. ${rest}`, ...buttons).then((choice) => {
       if (choice === 'Undo') void this.action({ kind: 'undo' });
       if (choice === 'Continue') void this.action({ kind: 'continue' });
     });
@@ -875,7 +875,7 @@ export class Controller implements vscode.Disposable {
 
   private async requireState(): Promise<RepoState | null> {
     if (!this.located) await this.locate();
-    if (!this.state) void vscode.window.showWarningMessage('Gitar: no Git repository in this workspace.');
+    if (!this.state) void vscode.window.showWarningMessage('Gitardo: no Git repository in this workspace.');
     return this.state;
   }
 
@@ -1020,14 +1020,14 @@ export class Controller implements vscode.Disposable {
     if (!this.located) await this.locate();
     if (this.repos.length < 2) {
       void vscode.window.showInformationMessage(
-        this.repos.length ? 'Gitar: this workspace has a single repository.' : 'Gitar: no Git repository in this workspace.',
+        this.repos.length ? 'Gitardo: this workspace has a single repository.' : 'Gitardo: no Git repository in this workspace.',
       );
       return;
     }
     const current = this.repo?.root;
     const choice = await vscode.window.showQuickPick(
       this.repos.map((repo) => ({ label: repo.name, description: repo.root === current ? 'current' : undefined, detail: repo.root, repo })),
-      { title: 'Repository shown in Gitar', matchOnDetail: true },
+      { title: 'Repository shown in Gitardo', matchOnDetail: true },
     );
     if (choice) await this.selectRepo(choice.repo.root);
   }
@@ -1037,7 +1037,7 @@ export class Controller implements vscode.Disposable {
     const state = await this.requireState();
     const repo = this.repo;
     if (!state || !repo) return;
-    const configured = vscode.workspace.getConfiguration('gitar').get<unknown[]>('identities') ?? [];
+    const configured = vscode.workspace.getConfiguration('gitardo').get<unknown[]>('identities') ?? [];
     const profiles = configured.filter(
       (profile): profile is IdentityProfile =>
         typeof (profile as IdentityProfile)?.name === 'string' && typeof (profile as IdentityProfile)?.email === 'string',
@@ -1052,7 +1052,7 @@ export class Controller implements vscode.Disposable {
       return newEmail?.trim() ? identityOp({ name: newName, email: newEmail }, localKeys) : undefined;
     };
     const openSettings = async (): Promise<undefined> => {
-      await vscode.commands.executeCommand('workbench.action.openSettings', 'gitar.identities');
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'gitardo.identities');
     };
     const items: (vscode.QuickPickItem & { op(): GitOp | undefined | Promise<GitOp | undefined> })[] = profiles.map((profile) => ({
       label: profile.name,
@@ -1064,7 +1064,7 @@ export class Controller implements vscode.Disposable {
     if (localKeys.length) {
       items.push({ label: 'Use the global identity', description: "Remove this repository's own setting", op: () => clearIdentityOp(localKeys) });
     }
-    items.push({ label: 'Edit the list of identities…', description: 'gitar.identities', op: openSettings });
+    items.push({ label: 'Edit the list of identities…', description: 'gitardo.identities', op: openSettings });
 
     const choice = await vscode.window.showQuickPick(items, {
       title: `Commit in ${state.name} as`,
@@ -1075,7 +1075,7 @@ export class Controller implements vscode.Disposable {
     if (op) await this.run(op);
   }
 
-  /** Picks up changes made outside Gitar: the terminal, another tool, a background fetch. */
+  /** Picks up changes made outside Gitardo: the terminal, another tool, a background fetch. */
   private watch(root: string, gitDir: string): void {
     const pattern = new vscode.RelativePattern(
       vscode.Uri.file(gitDir),
@@ -1228,7 +1228,7 @@ export class Controller implements vscode.Disposable {
     const repo = this.repo;
     if (!repo || this.running) return { ok: false };
 
-    const preview = vscode.workspace.getConfiguration('gitar').get<string>('commandPreview') === 'all';
+    const preview = vscode.workspace.getConfiguration('gitardo').get<string>('commandPreview') === 'all';
     if (!options.asked && (preview || op.danger || op.confirm)) {
       const ask = op.danger ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
       if ((await ask(`${op.title}?`, { modal: true, detail: this.describe(repo, op) }, 'Run')) !== 'Run') return { ok: false };
@@ -1240,7 +1240,7 @@ export class Controller implements vscode.Disposable {
     this.post({ type: 'busy', title: op.title });
     try {
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Window, title: `Gitar: ${op.title}` },
+        { location: vscode.ProgressLocation.Window, title: `Gitardo: ${op.title}` },
         async () => {
           if (op.writes?.length) {
             for (const write of op.writes) this.log.info(`> write ${write.path}`);
@@ -1275,9 +1275,9 @@ export class Controller implements vscode.Disposable {
   private describe(repo: Repo, op: GitOp): string {
     const commands = op.commands.map(formatCommand).join('\n');
     const note = op.note ? `${op.note}\n\n` : '';
-    if (!op.writes?.length) return `${note}Gitar will run in ${repo.root}:\n\n${commands}`;
+    if (!op.writes?.length) return `${note}Gitardo will run in ${repo.root}:\n\n${commands}`;
     const files = op.writes.map((write) => write.path).join('\n');
-    return `${note}Gitar will write in ${repo.root}:\n\n${files}${commands ? `\n\nand then run:\n\n${commands}` : ''}`;
+    return `${note}Gitardo will write in ${repo.root}:\n\n${files}${commands ? `\n\nand then run:\n\n${commands}` : ''}`;
   }
 
   private reportFailure(op: GitOp, error: string): void {
@@ -1292,7 +1292,7 @@ export class Controller implements vscode.Disposable {
       const resolvable = this.state.conflictFiles.reduce((sum, file) => sum + file.resolvable.length, 0);
       // The ones that need no choice between the two sides are a click away.
       const which = marked === 1 ? 'the conflict' : resolvable === marked ? `all ${marked} conflicts` : `${resolvable} of the ${marked} conflicts`;
-      const offer = resolvable ? ` Gitar can resolve ${which} automatically.` : '';
+      const offer = resolvable ? ` Gitardo can resolve ${which} automatically.` : '';
       void vscode.window
         .showWarningMessage(
           `${op.title} stopped: ${files}. Resolve them, then ${then}.${offer}`,

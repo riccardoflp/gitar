@@ -56,15 +56,15 @@ const paths = (files: { path: string }[]) => files.map((file) => file.path).sort
 async function init(folder: string) {
   fs.mkdirSync(folder, { recursive: true });
   await git(folder, ['init', '--initial-branch=main']);
-  await git(folder, ['config', 'user.name', 'Gitar Test']);
-  await git(folder, ['config', 'user.email', 'test@gitar.invalid']);
+  await git(folder, ['config', 'user.name', 'Gitardo Test']);
+  await git(folder, ['config', 'user.email', 'test@gitardo.invalid']);
   await git(folder, ['config', 'commit.gpgsign', 'false']);
   await git(folder, ['config', 'core.autocrlf', 'false']);
 }
 
 beforeEach(async () => {
   // The folder itself has a space and an accent in its name.
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar è '));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo è '));
   await init(path.join(dir, 'my repo'));
   root = (await Repo.discover(path.join(dir, 'my repo')))!;
   repo = new Repo(root);
@@ -353,7 +353,7 @@ describe('awkward repositories', { timeout: 60_000 }, () => {
 
     const inside = path.join(root, 'vendor', 'lib');
     fs.writeFileSync(path.join(inside, 'lib.txt'), 'two\n');
-    await git(inside, ['-c', 'user.name=Gitar Test', '-c', 'user.email=test@gitar.invalid', 'commit', '--quiet', '-am', 'Library moves on']);
+    await git(inside, ['-c', 'user.name=Gitardo Test', '-c', 'user.email=test@gitardo.invalid', 'commit', '--quiet', '-am', 'Library moves on']);
 
     const now = await state();
     expect(now.working.unstaged).toEqual([{ status: 'M', path: 'vendor/lib' }]);

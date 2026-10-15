@@ -12,7 +12,7 @@ const TIMEOUT = 240_000;
 const options = process.argv.slice(2).filter((argument) => argument.startsWith('--'));
 const [codePath] = process.argv.slice(2).filter((argument) => !argument.startsWith('--'));
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-e2e-'));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-e2e-'));
 
 /** Unpacks the .vsix, which is a zip archive, and returns the folder of the extension inside it. */
 function unpackVsix() {
@@ -46,7 +46,7 @@ const child = spawn(
     `--extensionTestsPath=${path.join(extension, 'dist', 'e2e.js')}`,
     ...isolated(temp),
   ],
-  { env: environment({ GITAR_E2E_RESULTS: results }), stdio: 'ignore' },
+  { env: environment({ GITARDO_E2E_RESULTS: results }), stdio: 'ignore' },
 );
 
 const timer = setTimeout(() => {

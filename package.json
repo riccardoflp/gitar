@@ -1,8 +1,8 @@
 {
-  "name": "gitar",
-  "displayName": "Gitar",
+  "name": "gitardo",
+  "displayName": "Gitardo",
   "description": "Commit graph, history and everyday Git operations in a single panel.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "RiccardoFilippozzi",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -38,56 +38,56 @@
     "viewsContainers": {
       "panel": [
         {
-          "id": "gitar",
-          "title": "Gitar",
-          "icon": "media/gitar.svg"
+          "id": "gitardo",
+          "title": "Gitardo",
+          "icon": "media/gitardo.svg"
         }
       ]
     },
     "views": {
-      "gitar": [
+      "gitardo": [
         {
           "type": "webview",
-          "id": "gitar.graph",
+          "id": "gitardo.graph",
           "name": "Graph"
         }
       ],
       "scm": [
         {
           "type": "webview",
-          "id": "gitar.changes",
-          "name": "Gitar Changes",
-          "contextualTitle": "Gitar",
+          "id": "gitardo.changes",
+          "name": "Gitardo Changes",
+          "contextualTitle": "Gitardo",
           "visibility": "hidden",
           "initialSize": 5
         },
         {
           "type": "webview",
-          "id": "gitar.commits",
+          "id": "gitardo.commits",
           "name": "Commits",
-          "contextualTitle": "Gitar",
+          "contextualTitle": "Gitardo",
           "initialSize": 4
         },
         {
           "type": "webview",
-          "id": "gitar.sideGraph",
-          "name": "Gitar Graph",
-          "contextualTitle": "Gitar",
+          "id": "gitardo.sideGraph",
+          "name": "Gitardo Graph",
+          "contextualTitle": "Gitardo",
           "visibility": "collapsed",
           "initialSize": 4
         },
         {
           "type": "webview",
-          "id": "gitar.branches",
+          "id": "gitardo.branches",
           "name": "Branches",
-          "contextualTitle": "Gitar",
+          "contextualTitle": "Gitardo",
           "initialSize": 3
         },
         {
           "type": "webview",
-          "id": "gitar.stashes",
+          "id": "gitardo.stashes",
           "name": "Stashes",
-          "contextualTitle": "Gitar",
+          "contextualTitle": "Gitardo",
           "visibility": "collapsed",
           "initialSize": 1
         }
@@ -95,555 +95,555 @@
     },
     "commands": [
       {
-        "command": "gitar.openGraph",
+        "command": "gitardo.openGraph",
         "title": "Show Graph",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.openInEditor",
+        "command": "gitardo.openInEditor",
         "title": "Open Graph in Editor",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(link-external)"
       },
       {
-        "command": "gitar.refresh",
+        "command": "gitardo.refresh",
         "title": "Refresh",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(refresh)"
       },
       {
-        "command": "gitar.fetch",
+        "command": "gitardo.fetch",
         "title": "Fetch",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(repo-fetch)"
       },
       {
-        "command": "gitar.pull",
+        "command": "gitardo.pull",
         "title": "Pull",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(repo-pull)"
       },
       {
-        "command": "gitar.pullPlain",
+        "command": "gitardo.pullPlain",
         "title": "Pull (No Options)",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.pullRebase",
+        "command": "gitardo.pullRebase",
         "title": "Pull (Rebase)",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.pullAutostash",
+        "command": "gitardo.pullAutostash",
         "title": "Pull (Autostash)",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.pullRebaseAutostash",
+        "command": "gitardo.pullRebaseAutostash",
         "title": "Pull (Rebase, Autostash)",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.push",
+        "command": "gitardo.push",
         "title": "Push",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(repo-push)"
       },
       {
-        "command": "gitar.pushForceWithLease",
+        "command": "gitardo.pushForceWithLease",
         "title": "Push (Force with Lease)",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.pushForce",
+        "command": "gitardo.pushForce",
         "title": "Push (Force)",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.showLog",
+        "command": "gitardo.showLog",
         "title": "Show Command Log",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.openChanges",
+        "command": "gitardo.openChanges",
         "title": "Show Changes",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.stash",
+        "command": "gitardo.stash",
         "title": "Stash Changes",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(git-stash)"
       },
       {
-        "command": "gitar.scmStashFile",
+        "command": "gitardo.scmStashFile",
         "title": "Stash This File…",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(git-stash)"
       },
       {
-        "command": "gitar.scmStashStaged",
+        "command": "gitardo.scmStashStaged",
         "title": "Stash Only the Staged Changes…",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(git-stash)"
       },
       {
-        "command": "gitar.scmStashAll",
+        "command": "gitardo.scmStashAll",
         "title": "Stash All Changes…",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(git-stash)"
       },
       {
-        "command": "gitar.undo",
+        "command": "gitardo.undo",
         "title": "Undo Last Operation",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.fileHistory",
+        "command": "gitardo.fileHistory",
         "title": "Show File History",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.revealCommit",
+        "command": "gitardo.revealCommit",
         "title": "Show Commit in Graph",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.reflog",
+        "command": "gitardo.reflog",
         "title": "Browse Reflog",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.cleanupBranches",
+        "command": "gitardo.cleanupBranches",
         "title": "Clean Up Branches",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.signInGitHub",
+        "command": "gitardo.signInGitHub",
         "title": "Sign In to GitHub",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.toggleBlame",
+        "command": "gitardo.toggleBlame",
         "title": "Toggle Inline Blame",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.toggleFileBlame",
+        "command": "gitardo.toggleFileBlame",
         "title": "Toggle File Blame",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.showFileBlame",
+        "command": "gitardo.showFileBlame",
         "title": "Show File Blame",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(person)"
       },
       {
-        "command": "gitar.hideFileBlame",
+        "command": "gitardo.hideFileBlame",
         "title": "Hide File Blame",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(eye-closed)"
       },
       {
-        "command": "gitar.toggleBlameEveryFile",
+        "command": "gitardo.toggleBlameEveryFile",
         "title": "Toggle File Blame in Every File",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.blameEveryFile",
+        "command": "gitardo.blameEveryFile",
         "title": "Keep File Blame On in Every File",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(pin)"
       },
       {
-        "command": "gitar.blameChosenFiles",
+        "command": "gitardo.blameChosenFiles",
         "title": "Stop Keeping File Blame On in Every File",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(pinned)"
       },
       {
-        "command": "gitar.toggleBlameWhitespace",
+        "command": "gitardo.toggleBlameWhitespace",
         "title": "Toggle Ignoring Whitespace and Moved Lines in Blame",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.blameIgnoreWhitespace",
+        "command": "gitardo.blameIgnoreWhitespace",
         "title": "Ignore Whitespace and Moved Lines in Blame",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(filter)"
       },
       {
-        "command": "gitar.blameCountWhitespace",
+        "command": "gitardo.blameCountWhitespace",
         "title": "Stop Ignoring Whitespace and Moved Lines in Blame",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(filter-filled)"
       },
       {
-        "command": "gitar.openLineCommit",
+        "command": "gitardo.openLineCommit",
         "title": "Open Commit of Current Line in Editor",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.revealLineCommit",
+        "command": "gitardo.revealLineCommit",
         "title": "Reveal Commit of Current Line in Graph",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.blamePrevious",
+        "command": "gitardo.blamePrevious",
         "title": "Blame File Before Commit of Current Line",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.switchIdentity",
+        "command": "gitardo.switchIdentity",
         "title": "Switch Identity",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.selectRepository",
+        "command": "gitardo.selectRepository",
         "title": "Select Repository",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.remotes",
+        "command": "gitardo.remotes",
         "title": "Manage Remotes",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.bisectReset",
+        "command": "gitardo.bisectReset",
         "title": "End Bisect",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.compare",
+        "command": "gitardo.compare",
         "title": "Compare Branches, Tags or Commits…",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(git-compare)"
       },
       {
-        "command": "gitar.goToCommit",
+        "command": "gitardo.goToCommit",
         "title": "Go to Commit…",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.openCommit",
+        "command": "gitardo.openCommit",
         "title": "Open Commit in Editor…",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.resolveConflicts",
+        "command": "gitardo.resolveConflicts",
         "title": "Resolve Conflicts Automatically",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(wand)"
       },
       {
-        "command": "gitar.createBranch",
+        "command": "gitardo.createBranch",
         "title": "Create Branch…",
-        "category": "Gitar",
+        "category": "Gitardo",
         "icon": "$(add)"
       },
       {
-        "command": "gitar.openCommits",
+        "command": "gitardo.openCommits",
         "title": "Show Commits in the Side Bar",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.openSideGraph",
+        "command": "gitardo.openSideGraph",
         "title": "Open Graph in the Side Bar",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.openBranches",
+        "command": "gitardo.openBranches",
         "title": "Show Branches",
-        "category": "Gitar"
+        "category": "Gitardo"
       },
       {
-        "command": "gitar.openStashes",
+        "command": "gitardo.openStashes",
         "title": "Show Stashes",
-        "category": "Gitar"
+        "category": "Gitardo"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "gitar.revealCommit",
+          "command": "gitardo.revealCommit",
           "when": "false"
         },
         {
-          "command": "gitar.resolveConflicts",
-          "when": "config.gitar.conflicts.autoResolve"
+          "command": "gitardo.resolveConflicts",
+          "when": "config.gitardo.conflicts.autoResolve"
         },
         {
-          "command": "gitar.showFileBlame",
+          "command": "gitardo.showFileBlame",
           "when": "false"
         },
         {
-          "command": "gitar.hideFileBlame",
+          "command": "gitardo.hideFileBlame",
           "when": "false"
         },
         {
-          "command": "gitar.blameEveryFile",
+          "command": "gitardo.blameEveryFile",
           "when": "false"
         },
         {
-          "command": "gitar.blameChosenFiles",
+          "command": "gitardo.blameChosenFiles",
           "when": "false"
         },
         {
-          "command": "gitar.blameIgnoreWhitespace",
+          "command": "gitardo.blameIgnoreWhitespace",
           "when": "false"
         },
         {
-          "command": "gitar.blameCountWhitespace",
+          "command": "gitardo.blameCountWhitespace",
           "when": "false"
         },
         {
-          "command": "gitar.scmStashFile",
+          "command": "gitardo.scmStashFile",
           "when": "false"
         },
         {
-          "command": "gitar.scmStashStaged",
+          "command": "gitardo.scmStashStaged",
           "when": "false"
         },
         {
-          "command": "gitar.scmStashAll",
+          "command": "gitardo.scmStashAll",
           "when": "false"
         }
       ],
       "explorer/context": [
         {
-          "command": "gitar.fileHistory",
+          "command": "gitardo.fileHistory",
           "when": "resourceScheme == file && !explorerResourceIsFolder",
           "group": "4_search@90"
         }
       ],
       "editor/context": [
         {
-          "command": "gitar.fileHistory",
+          "command": "gitardo.fileHistory",
           "when": "resourceScheme == file",
-          "group": "z_gitar@1"
+          "group": "z_gitardo@1"
         },
         {
-          "command": "gitar.toggleFileBlame",
-          "when": "resourceScheme == file && gitar.hasRepository",
-          "group": "z_gitar@2"
+          "command": "gitardo.toggleFileBlame",
+          "when": "resourceScheme == file && gitardo.hasRepository",
+          "group": "z_gitardo@2"
         },
         {
-          "command": "gitar.openLineCommit",
-          "when": "resourceScheme == file && gitar.hasRepository",
-          "group": "z_gitar@3"
+          "command": "gitardo.openLineCommit",
+          "when": "resourceScheme == file && gitardo.hasRepository",
+          "group": "z_gitardo@3"
         },
         {
-          "command": "gitar.revealLineCommit",
-          "when": "resourceScheme == file && gitar.hasRepository",
-          "group": "z_gitar@4"
+          "command": "gitardo.revealLineCommit",
+          "when": "resourceScheme == file && gitardo.hasRepository",
+          "group": "z_gitardo@4"
         },
         {
-          "command": "gitar.blamePrevious",
-          "when": "resourceScheme == file && gitar.hasRepository",
-          "group": "z_gitar@5"
+          "command": "gitardo.blamePrevious",
+          "when": "resourceScheme == file && gitardo.hasRepository",
+          "group": "z_gitardo@5"
         }
       ],
       "editor/title/context": [
         {
-          "command": "gitar.fileHistory",
+          "command": "gitardo.fileHistory",
           "when": "resourceScheme == file",
-          "group": "z_gitar@1"
+          "group": "z_gitardo@1"
         }
       ],
       "view/title": [
         {
-          "command": "gitar.refresh",
-          "when": "view =~ /^gitar\\./",
+          "command": "gitardo.refresh",
+          "when": "view =~ /^gitardo\\./",
           "group": "navigation@9"
         },
         {
-          "command": "gitar.openInEditor",
-          "when": "view == gitar.graph",
+          "command": "gitardo.openInEditor",
+          "when": "view == gitardo.graph",
           "group": "navigation@8"
         },
         {
-          "command": "gitar.fetch",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.fetch",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "navigation@1"
         },
         {
-          "command": "gitar.pull",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pull",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "navigation@2"
         },
         {
-          "command": "gitar.push",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.push",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "navigation@3"
         },
         {
-          "command": "gitar.compare",
-          "when": "view == gitar.sideGraph",
+          "command": "gitardo.compare",
+          "when": "view == gitardo.sideGraph",
           "group": "navigation@4"
         },
         {
-          "command": "gitar.pullPlain",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pullPlain",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "1_sync@1"
         },
         {
-          "command": "gitar.pullRebase",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pullRebase",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "1_sync@2"
         },
         {
-          "command": "gitar.pullAutostash",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pullAutostash",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "1_sync@3"
         },
         {
-          "command": "gitar.pullRebaseAutostash",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pullRebaseAutostash",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "1_sync@4"
         },
         {
-          "command": "gitar.pushForceWithLease",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pushForceWithLease",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "1_sync@5"
         },
         {
-          "command": "gitar.pushForce",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.pushForce",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "1_sync@6"
         },
         {
-          "command": "gitar.undo",
-          "when": "view == gitar.commits || view == gitar.sideGraph",
+          "command": "gitardo.undo",
+          "when": "view == gitardo.commits || view == gitardo.sideGraph",
           "group": "2_more@1"
         },
         {
-          "command": "gitar.reflog",
-          "when": "view == gitar.sideGraph",
+          "command": "gitardo.reflog",
+          "when": "view == gitardo.sideGraph",
           "group": "2_more@2"
         },
         {
-          "command": "gitar.goToCommit",
-          "when": "view == gitar.sideGraph",
+          "command": "gitardo.goToCommit",
+          "when": "view == gitardo.sideGraph",
           "group": "2_more@3"
         },
         {
-          "command": "gitar.createBranch",
-          "when": "view == gitar.branches",
+          "command": "gitardo.createBranch",
+          "when": "view == gitardo.branches",
           "group": "navigation@1"
         },
         {
-          "command": "gitar.compare",
-          "when": "view == gitar.branches",
+          "command": "gitardo.compare",
+          "when": "view == gitardo.branches",
           "group": "navigation@2"
         },
         {
-          "command": "gitar.cleanupBranches",
-          "when": "view == gitar.branches",
+          "command": "gitardo.cleanupBranches",
+          "when": "view == gitardo.branches",
           "group": "1_more@1"
         },
         {
-          "command": "gitar.remotes",
-          "when": "view == gitar.branches",
+          "command": "gitardo.remotes",
+          "when": "view == gitardo.branches",
           "group": "1_more@2"
         },
         {
-          "command": "gitar.stash",
-          "when": "view == gitar.stashes",
+          "command": "gitardo.stash",
+          "when": "view == gitardo.stashes",
           "group": "navigation@1"
         }
       ],
       "editor/title": [
         {
-          "command": "gitar.showFileBlame",
-          "when": "resourceScheme == file && gitar.hasRepository && !gitar.fileBlame",
+          "command": "gitardo.showFileBlame",
+          "when": "resourceScheme == file && gitardo.hasRepository && !gitardo.fileBlame",
           "group": "navigation@90"
         },
         {
-          "command": "gitar.hideFileBlame",
-          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/",
+          "command": "gitardo.hideFileBlame",
+          "when": "gitardo.fileBlame && resourceScheme =~ /^(file|gitardo)$/",
           "group": "navigation@90"
         },
         {
-          "command": "gitar.blameIgnoreWhitespace",
-          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && !config.gitar.blame.ignoreWhitespaceAndMoves",
+          "command": "gitardo.blameIgnoreWhitespace",
+          "when": "gitardo.fileBlame && resourceScheme =~ /^(file|gitardo)$/ && !config.gitardo.blame.ignoreWhitespaceAndMoves",
           "group": "navigation@91"
         },
         {
-          "command": "gitar.blameCountWhitespace",
-          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && config.gitar.blame.ignoreWhitespaceAndMoves",
+          "command": "gitardo.blameCountWhitespace",
+          "when": "gitardo.fileBlame && resourceScheme =~ /^(file|gitardo)$/ && config.gitardo.blame.ignoreWhitespaceAndMoves",
           "group": "navigation@91"
         },
         {
-          "command": "gitar.blameEveryFile",
-          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && !config.gitar.fileBlame.everyFile",
+          "command": "gitardo.blameEveryFile",
+          "when": "gitardo.fileBlame && resourceScheme =~ /^(file|gitardo)$/ && !config.gitardo.fileBlame.everyFile",
           "group": "navigation@92"
         },
         {
-          "command": "gitar.blameChosenFiles",
-          "when": "gitar.fileBlame && resourceScheme =~ /^(file|gitar)$/ && config.gitar.fileBlame.everyFile",
+          "command": "gitardo.blameChosenFiles",
+          "when": "gitardo.fileBlame && resourceScheme =~ /^(file|gitardo)$/ && config.gitardo.fileBlame.everyFile",
           "group": "navigation@92"
         }
       ],
       "scm/resourceGroup/context": [
         {
-          "command": "gitar.scmStashStaged",
-          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == index",
+          "command": "gitardo.scmStashStaged",
+          "when": "scmProvider == git && config.gitardo.scm.stashButtons && scmResourceGroup == index",
           "group": "inline"
         },
         {
-          "command": "gitar.scmStashStaged",
-          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == index",
-          "group": "9_gitar"
+          "command": "gitardo.scmStashStaged",
+          "when": "scmProvider == git && config.gitardo.scm.stashButtons && scmResourceGroup == index",
+          "group": "9_gitardo"
         },
         {
-          "command": "gitar.scmStashAll",
-          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == workingTree",
+          "command": "gitardo.scmStashAll",
+          "when": "scmProvider == git && config.gitardo.scm.stashButtons && scmResourceGroup == workingTree",
           "group": "inline"
         },
         {
-          "command": "gitar.scmStashAll",
-          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup == workingTree",
-          "group": "9_gitar"
+          "command": "gitardo.scmStashAll",
+          "when": "scmProvider == git && config.gitardo.scm.stashButtons && scmResourceGroup == workingTree",
+          "group": "9_gitardo"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "gitar.scmStashFile",
-          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
+          "command": "gitardo.scmStashFile",
+          "when": "scmProvider == git && config.gitardo.scm.stashButtons && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
           "group": "inline"
         },
         {
-          "command": "gitar.scmStashFile",
-          "when": "scmProvider == git && config.gitar.scm.stashButtons && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
-          "group": "9_gitar"
+          "command": "gitardo.scmStashFile",
+          "when": "scmProvider == git && config.gitardo.scm.stashButtons && scmResourceGroup =~ /^(index|workingTree|untracked)$/",
+          "group": "9_gitardo"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "gitar.find",
+        "command": "gitardo.find",
         "key": "ctrl+f",
         "mac": "cmd+f",
-        "when": "gitar.searchFocus"
+        "when": "gitardo.searchFocus"
       },
       {
-        "command": "gitar.openLineCommit",
+        "command": "gitardo.openLineCommit",
         "key": "alt+b",
         "mac": "ctrl+alt+b",
-        "when": "editorTextFocus && gitar.hasRepository"
+        "when": "editorTextFocus && gitardo.hasRepository"
       },
       {
-        "command": "gitar.revealLineCommit",
+        "command": "gitardo.revealLineCommit",
         "key": "shift+alt+b",
         "mac": "ctrl+shift+alt+b",
-        "when": "editorTextFocus && gitar.hasRepository"
+        "when": "editorTextFocus && gitardo.hasRepository"
       }
     ],
     "configuration": {
-      "title": "Gitar",
+      "title": "Gitardo",
       "properties": {
-        "gitar.commandPreview": {
+        "gitardo.commandPreview": {
           "type": "string",
           "enum": [
             "off",
@@ -654,12 +654,12 @@
             "Show the exact Git commands and ask before running anything that changes the repository or a remote."
           ],
           "default": "off",
-          "description": "Controls when Gitar shows the Git commands it is about to run and waits for you to approve them."
+          "description": "Controls when Gitardo shows the Git commands it is about to run and waits for you to approve them."
         },
-        "gitar.identities": {
+        "gitardo.identities": {
           "type": "array",
           "default": [],
-          "description": "Names and emails to choose from with Gitar: Switch Identity. The chosen one is saved in the configuration of the repository.",
+          "description": "Names and emails to choose from with Gitardo: Switch Identity. The chosen one is saved in the configuration of the repository.",
           "items": {
             "type": "object",
             "required": [
@@ -682,82 +682,82 @@
             }
           }
         },
-        "gitar.blame.enabled": {
+        "gitardo.blame.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show who last changed the current line, and when, at the end of that line in the editor."
         },
-        "gitar.blame.ignoreWhitespaceAndMoves": {
+        "gitardo.blame.ignoreWhitespaceAndMoves": {
           "type": "boolean",
           "default": false,
           "markdownDescription": "Leave a line to who wrote it when all that was changed since is its whitespace, or where in the file it is (`git blame -w -M`). It holds for the blame of the line under the cursor and for the blame of a file, and the funnel at the top right of an editor that shows its blame switches it."
         },
-        "gitar.fileBlame.everyFile": {
+        "gitardo.fileBlame.everyFile": {
           "type": "boolean",
           "default": false,
           "description": "Show the blame of a file beside its lines in every file that is opened, rather than in the ones it is asked for. The pin at the top right of an editor that shows its blame switches it, and the button of the blame still hides it file by file."
         },
-        "gitar.fileBlame.format": {
+        "gitardo.fileBlame.format": {
           "type": "string",
           "default": "${date} ${author:20}",
           "markdownDescription": "What the blame of a file says beside each line. `${date}` is the day of the commit, `${ago}` how long ago it was, `${author}` who made it, `${summary}` the first line of its message, and `${hash}` its hash. A number after a colon is the most letters something may take, as in `${author:20}`; a hash is 7 letters unless told otherwise. Anything else is written as it is. Example: `${ago} ${author:16} ${summary:40}`."
         },
-        "gitar.fileBlame.groupLines": {
+        "gitardo.fileBlame.groupLines": {
           "type": "boolean",
           "default": true,
           "description": "In the blame of a file, say the commit beside the first of the lines it changed that follow each other, and leave the others with nothing but its colors. Turn it off to have it said beside every line."
         },
-        "gitar.fileBlame.age.enabled": {
+        "gitardo.fileBlame.age.enabled": {
           "type": "boolean",
           "default": true,
           "description": "In the blame of a file, draw a line beside each line of the file in a color that says how long ago it was changed."
         },
-        "gitar.fileBlame.age.recentColor": {
+        "gitardo.fileBlame.age.recentColor": {
           "type": "string",
           "format": "color-hex",
           "default": "#e5534b",
           "markdownDescription": "The color of the age of a line that was just changed, as `#rrggbb`."
         },
-        "gitar.fileBlame.age.oldColor": {
+        "gitardo.fileBlame.age.oldColor": {
           "type": "string",
           "format": "color-hex",
           "default": "#316dca",
           "markdownDescription": "The color of the age of a line that was changed long ago, as `#rrggbb`. The ages in between have the colors in between."
         },
-        "gitar.fileBlame.age.oldAfterDays": {
+        "gitardo.fileBlame.age.oldAfterDays": {
           "type": "number",
           "default": 730,
           "minimum": 1,
           "description": "After how many days a line has the color of the lines changed long ago. Recent days count more than old ones: a day and a week are further apart than a year and a year and a week."
         },
-        "gitar.scm.stashButtons": {
+        "gitardo.scm.stashButtons": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Add the buttons that stash to the list of changes of VS Code, in the Source Control view: on each file, on **Staged Changes** for what is staged, and on **Changes** for everything. The Changes view of Gitar has them whatever is set here."
+          "markdownDescription": "Add the buttons that stash to the list of changes of VS Code, in the Source Control view: on each file, on **Staged Changes** for what is staged, and on **Changes** for everything. The Changes view of Gitardo has them whatever is set here."
         },
-        "gitar.pull.autostash": {
+        "gitardo.pull.autostash": {
           "type": "boolean",
           "default": true,
           "markdownDescription": "Whether the **Pull** button sets the changes that are not committed aside before it pulls, and puts them back after: `git pull --autostash`. Switched off, a pull that would touch a file with changes is refused by Git. The menu beside the button has every way to pull, whatever is set here."
         },
-        "gitar.pull.rebase": {
+        "gitardo.pull.rebase": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Whether the **Pull** button puts your commits that are not pushed on top of what comes in, instead of merging the two: `git pull --rebase`. With `#gitar.pull.autostash#` it runs `git pull --rebase --autostash`. Switched off, the button leaves the choice to the configuration of Git, which merges unless told otherwise. The menu beside the button has every way to pull, whatever is set here."
+          "markdownDescription": "Whether the **Pull** button puts your commits that are not pushed on top of what comes in, instead of merging the two: `git pull --rebase`. With `#gitardo.pull.autostash#` it runs `git pull --rebase --autostash`. Switched off, the button leaves the choice to the configuration of Git, which merges unless told otherwise. The menu beside the button has every way to pull, whatever is set here."
         },
-        "gitar.conflicts.autoResolve": {
+        "gitardo.conflicts.autoResolve": {
           "type": "boolean",
           "default": false,
           "tags": [
             "experimental"
           ],
-          "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitar shows what it would write before writing it, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
+          "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitardo shows what it would write before writing it, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
         }
       }
     },
     "colors": [
       {
-        "id": "gitar.blameHighlightBackground",
+        "id": "gitardo.blameHighlightBackground",
         "description": "Background of the blame beside the line under the cursor, and beside the other lines of the same commit.",
         "defaults": {
           "dark": "#2f81f740",
@@ -767,7 +767,7 @@
         }
       },
       {
-        "id": "gitar.blameHighlightForeground",
+        "id": "gitardo.blameHighlightForeground",
         "description": "Color of the blame beside the line under the cursor and the other lines of the same commit, and of their marks in the scroll bar.",
         "defaults": {
           "dark": "#79b8ff",

@@ -22,7 +22,7 @@ export async function draftCommitMessage(repo: Repo, state: RepoState, token: vs
   const subjects = (await repo.state(10)).rows.filter((row) => row.author).map((row) => row.subject);
 
   const messages = [vscode.LanguageModelChatMessage.User(buildPrompt(diff, untracked, subjects))];
-  const options = { justification: 'Gitar sends your uncommitted changes to the model to draft a commit message.' };
+  const options = { justification: 'Gitardo sends your uncommitted changes to the model to draft a commit message.' };
   const response = await model.sendRequest(messages, options, token);
   let text = '';
   for await (const chunk of response.text) text += chunk;

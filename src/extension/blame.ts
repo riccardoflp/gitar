@@ -14,9 +14,9 @@ export interface Blamable {
 }
 
 /** Whether a line is left to who wrote it when only its whitespace or its place in the file changed since. */
-export const ignoresWhitespace = () => vscode.workspace.getConfiguration('gitar').get<boolean>('blame.ignoreWhitespaceAndMoves') === true;
+export const ignoresWhitespace = () => vscode.workspace.getConfiguration('gitardo').get<boolean>('blame.ignoreWhitespaceAndMoves') === true;
 
-/** Finds the repository a file of the editor is in. It works before any Gitar view is opened. */
+/** Finds the repository a file of the editor is in. It works before any Gitardo view is opened. */
 export class BlameSource {
   /** The repository of each folder a file was opened from, found once. */
   private readonly found = new Map<string, Promise<Repo | undefined>>();
@@ -80,7 +80,7 @@ export class BlameAnnotator implements vscode.Disposable {
       this.decoration,
       vscode.window.onDidChangeActiveTextEditor(schedule),
       vscode.window.onDidChangeTextEditorSelection(schedule),
-      vscode.workspace.onDidChangeConfiguration((event) => event.affectsConfiguration('gitar.blame') && schedule()),
+      vscode.workspace.onDidChangeConfiguration((event) => event.affectsConfiguration('gitardo.blame') && schedule()),
     ];
     schedule();
   }
@@ -101,7 +101,7 @@ export class BlameAnnotator implements vscode.Disposable {
     if (!editor) return;
     const clear = () => editor.setDecorations(this.decoration, []);
 
-    const enabled = vscode.workspace.getConfiguration('gitar').get<boolean>('blame.enabled');
+    const enabled = vscode.workspace.getConfiguration('gitardo').get<boolean>('blame.enabled');
     const { document, selection } = editor;
     if (!enabled || document.uri.scheme !== 'file' || !selection.isSingleLine) return clear();
 
@@ -117,10 +117,10 @@ export class BlameAnnotator implements vscode.Disposable {
     const text = blame.committed ? `${blame.author}, ${ago(blame.date)} • ${blame.summary}` : 'Not committed yet';
     const hover = new vscode.MarkdownString();
     if (blame.committed) {
-      hover.isTrusted = { enabledCommands: ['gitar.revealCommit'] };
-      const link = `command:gitar.revealCommit?${encodeURIComponent(JSON.stringify([blame.hash]))}`;
+      hover.isTrusted = { enabledCommands: ['gitardo.revealCommit'] };
+      const link = `command:gitardo.revealCommit?${encodeURIComponent(JSON.stringify([blame.hash]))}`;
       hover.appendText(`${blame.author}, ${new Date(blame.date * 1000).toLocaleString()}\n\n${blame.summary}`);
-      hover.appendMarkdown(`\n\n[Show ${blame.hash.slice(0, 7)} in the Gitar graph](${link})`);
+      hover.appendMarkdown(`\n\n[Show ${blame.hash.slice(0, 7)} in the Gitardo graph](${link})`);
     }
     const end = document.lineAt(line).range.end;
     editor.setDecorations(this.decoration, [

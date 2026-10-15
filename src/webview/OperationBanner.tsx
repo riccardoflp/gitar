@@ -6,7 +6,7 @@ const NAMES = { merge: 'Merge', rebase: 'Rebase', 'cherry-pick': 'Cherry-pick', 
 
 const RESOLVE_TITLE =
   'Resolve the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made by both, ' +
-  'differences in spaces or line endings only. Gitar asks first and can show what it would write; the other conflicts stay as they are.';
+  'differences in spaces or line endings only. Gitardo asks first and can show what it would write; the other conflicts stay as they are.';
 
 /** How many of the conflicts marked in the files need no choice between their two sides, and how many there are. */
 export function resolvableConflicts(state: RepoState, path?: string): [resolvable: number, marked: number] {

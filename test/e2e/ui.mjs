@@ -1,4 +1,4 @@
-// Looks at Gitar inside a real VS Code, and uses it the way a person does: node test/e2e/ui.mjs [--out=<folder>] [path to VS Code]
+// Looks at Gitardo inside a real VS Code, and uses it the way a person does: node test/e2e/ui.mjs [--out=<folder>] [path to VS Code]
 // VS Code starts as a separate instance with a throwaway profile and is driven through the DevTools protocol:
 // real clicks, real keys, the real dialogs and pickers. A screenshot of each step is saved to the output folder.
 
@@ -16,7 +16,7 @@ const TIMEOUT = 360_000;
 const WIDTH = 1500;
 const HEIGHT = 950;
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-ui-'));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-ui-'));
 const { workspace, app } = createWorkspace(temp);
 const window = await startWindow({ workspace, temp, out, codePath, width: WIDTH, height: HEIGHT });
 const { shot, setting, mouse, clickText, key, type, prompt, command, webview, problems } = window;
@@ -77,7 +77,7 @@ try {
     })()`);
 
   await step('the graph shows in the panel, with icons, in the colors of the theme', async () => {
-    await command('Gitar: Show Graph');
+    await command('Gitardo: Show Graph');
     const graph = await webview('graph');
     await until('the commits', () => graph.evaluate(`document.querySelectorAll('.row').length >= 4`));
     await shot('graph');
@@ -167,26 +167,26 @@ try {
     })()`);
     assert(icon, 'the activity bar has the icon of Source Control');
     await mouse(icon.x, icon.y);
-    const first = await until('the views of Gitar', async () => {
+    const first = await until('the views of Gitardo', async () => {
       const now = await panes();
       return now.some((pane) => pane.title === 'Commits') ? now : null;
     });
     await shot('source-control');
     const titles = first.map((pane) => pane.title);
     // Under the views of VS Code, in this order, and none of them open before it is wanted.
-    assert(titles.slice(-4).join() === 'Commits,Gitar Graph,Branches,Stashes', `views: ${titles}`);
+    assert(titles.slice(-4).join() === 'Commits,Gitardo Graph,Branches,Stashes', `views: ${titles}`);
     assert(first.slice(-4).every((pane) => !pane.open), `folded: ${JSON.stringify(first)}`);
-    assert(!titles.includes('Gitar Changes'), `the changes of Gitar are not shown: ${titles}`);
-    // Gitar has no icon of its own in the activity bar: the graph is in the panel, and the rest is here.
+    assert(!titles.includes('Gitardo Changes'), `the changes of Gitardo are not shown: ${titles}`);
+    // Gitardo has no icon of its own in the activity bar: the graph is in the panel, and the rest is here.
     const icons = await page.evaluate(`[...document.querySelectorAll('.activitybar .action-item a')].map((icon) => icon.getAttribute('aria-label') ?? '')`);
-    assert(!icons.some((label) => label.startsWith('Gitar')), `activity bar: ${icons}`);
+    assert(!icons.some((label) => label.startsWith('Gitardo')), `activity bar: ${icons}`);
   });
 
-  await step('the changes view of Gitar shows when it is asked for, and lists what changed', async () => {
+  await step('the changes view of Gitardo shows when it is asked for, and lists what changed', async () => {
     fs.writeFileSync(path.join(app, 'b.txt'), 'bee\nbuzz\n');
     fs.writeFileSync(path.join(app, 'new.txt'), 'new\n');
-    await command('Gitar: Show Changes');
-    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Gitar Changes' && pane.open));
+    await command('Gitardo: Show Changes');
+    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Gitardo Changes' && pane.open));
     // The views of VS Code above it take most of the side bar: they are folded, to give the room to the ones under test.
     await fold('Changes');
     await fold('Graph');
@@ -270,7 +270,7 @@ try {
   });
 
   await step('with the command preview on, a real dialog shows the exact command and Cancel runs nothing', async () => {
-    setting('gitar.commandPreview', 'all');
+    setting('gitardo.commandPreview', 'all');
     await sleep(1500);
     const changes = await webview('changes');
     const stage = async () => {
@@ -291,7 +291,7 @@ try {
     dialog = await stage();
     await clickText('.monaco-dialog-box .monaco-button', 'Run');
     await until('the file to be staged', () => git(app, 'status', '--porcelain').toString().trim() === 'A  new.txt');
-    setting('gitar.commandPreview', 'off');
+    setting('gitardo.commandPreview', 'off');
     await sleep(1000);
     // Close the diff that selecting the file opened.
     await command('View: Close All Editors');
@@ -309,7 +309,7 @@ try {
       page.evaluate(`[...document.querySelectorAll('.editor-instance .view-line span')].map((span) => getComputedStyle(span, '::after').content).find((content) => content.includes('Change a')) ?? null`),
     );
     await shot('blame');
-    assert(/Gitar Test, .+ • Change a/.test(blame), `annotation: ${blame}`);
+    assert(/Gitardo Test, .+ • Change a/.test(blame), `annotation: ${blame}`);
   });
 
   await step('the button of the editor shows who changed each line beside it, with the color of its age and the lines of the commit under the cursor standing out, and the file as it was before a commit', async () => {
@@ -348,11 +348,11 @@ try {
     );
     // The day and the name beside the lines that are in a commit, and room beside the empty one that ends the file.
     assert(
-      lines.every((line) => (line.text ? /^\d{4}-\d\d-\d\d Gitar Test$/.test(line.label) : line.label === ' ')),
+      lines.every((line) => (line.text ? /^\d{4}-\d\d-\d\d Gitardo Test$/.test(line.label) : line.label === ' ')),
       `labels: ${JSON.stringify(lines)}`,
     );
     // As wide for every line, no wider than what it says, and the lines as tall as they were.
-    const letter = lines[0].width / '2026-10-13 Gitar Test'.length;
+    const letter = lines[0].width / '2026-10-13 Gitardo Test'.length;
     assert(lines.every((line) => line.width === lines[0].width) && letter > 5 && letter < 12, `widths: ${JSON.stringify(lines)}`);
     assert(lines.every((line, index) => line.height === plain[index].height), `heights: ${JSON.stringify(lines)} were ${JSON.stringify(plain)}`);
     // At the left of each a line in the color of its age: the one of what was just changed, which all of this was.
@@ -400,7 +400,7 @@ try {
     // The file as it was before the commit of a line, in a tab that says of which commit, with the blame it had then.
     await clickText('.editor-instance .view-line', 'two');
     await until('the line under the cursor', async () => (await lit()) === 'two');
-    await command('Gitar: Blame File Before Commit of Current Line');
+    await command('Gitardo: Blame File Before Commit of Current Line');
     const tab = await until('the tab of the file as it was', () =>
       page.evaluate(`[...document.querySelectorAll('.tabs-container .tab.active')].map((tab) => tab.textContent).find((name) => /^a \\([0-9a-f]{7}\\)\\.txt/.test(name)) ?? null`),
     );
@@ -409,7 +409,7 @@ try {
       return now.length === 1 && now[0].label ? now : null;
     });
     await shot('file-blame-before');
-    assert(past[0].text === 'one' && /^\d{4}-\d\d-\d\d Gitar Test$/.test(past[0].label), `${tab}: ${JSON.stringify(past)}`);
+    assert(past[0].text === 'one' && /^\d{4}-\d\d-\d\d Gitardo Test$/.test(past[0].label), `${tab}: ${JSON.stringify(past)}`);
     // By the keyboard: the palette puts the commands used last first, and one of them closes every editor.
     await clickText('.editor-instance .view-line', 'one');
     await key('W', CTRL);
@@ -769,8 +769,8 @@ try {
 
   await step('the side bar lists the commits of the branch, apart from the graph: each says whether it is pushed and unfolds to its files', async () => {
     // The changes had their turn: their room goes to the views under them.
-    await fold('Gitar Changes');
-    await command('Gitar: Show Commits in the Side Bar');
+    await fold('Gitardo Changes');
+    await command('Gitardo: Show Commits in the Side Bar');
     await until('the view', async () => (await panes()).some((pane) => pane.title === 'Commits' && pane.open));
     await sleep(500);
     const commits = await webview('commits');
@@ -828,8 +828,8 @@ try {
   await step('the side bar has the graph too, with the details under the commits and the buttons in the header of the view', async () => {
     // The commits had their turn: their room goes to the views under them.
     await fold('Commits');
-    await command('Gitar: Open Graph in the Side Bar');
-    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Gitar Graph' && pane.open));
+    await command('Gitardo: Open Graph in the Side Bar');
+    await until('the view', async () => (await panes()).some((pane) => pane.title === 'Gitardo Graph' && pane.open));
     await sleep(500);
     const commits = await webview('sideGraph');
     await until('the commits', async () => (await subjects(commits)).includes('Add a'));
@@ -846,7 +846,7 @@ try {
       })),
     }))`);
     assert(rows.length >= 4 && rows.every((row) => row.height === 42 && row.under), `two lines to a commit: ${JSON.stringify(rows)}`);
-    assert(rows.filter((row) => row.who === 'Gitar Test' && row.when).length >= 4, `who and when: ${JSON.stringify(rows)}`);
+    assert(rows.filter((row) => row.who === 'Gitardo Test' && row.when).length >= 4, `who and when: ${JSON.stringify(rows)}`);
     const labelled = rows.find((row) => row.labels.length > 1);
     // Side by side on the line of their own, the labels of a commit keep their names.
     assert(labelled && labelled.labels.every((label) => label.read), `labels with their names: ${JSON.stringify(rows.map((row) => row.labels))}`);
@@ -887,7 +887,7 @@ try {
     await key('Escape');
     await until('the list closed', () => commits.evaluate(`!document.querySelector('.scope-picker')`));
 
-    const { actions } = await header('Gitar Graph');
+    const { actions } = await header('Gitardo Graph');
     for (const wanted of ['Fetch', 'Pull', 'Push', 'Compare Branches, Tags or Commits…', 'Refresh']) {
       assert(actions.some((action) => action.startsWith(wanted)), `the header has ${wanted}: ${actions}`);
     }
@@ -896,8 +896,8 @@ try {
 
   await step('the branches in the side bar compare two of them, or one with a revision typed in the real prompts', async () => {
     // A view as short as the others leave it has little room for its menu: the graph makes way.
-    await fold('Gitar Graph');
-    await command('Gitar: Show Branches');
+    await fold('Gitardo Graph');
+    await command('Gitardo: Show Branches');
     await until('the view', async () => (await panes()).some((pane) => pane.title === 'Branches' && pane.open));
     await sleep(500);
     const branches = await webview('branches');
@@ -965,7 +965,7 @@ try {
 
   await step('the stashes in the side bar unfold to their files, and their header counts them', async () => {
     git(app, 'stash', 'push', '--include-untracked', '-m', 'Put aside');
-    await command('Gitar: Show Stashes');
+    await command('Gitardo: Show Stashes');
     const stashes = await webview('stashes');
     await until('the stash', () => stashes.evaluate(`document.querySelectorAll('.stash').length === 1`));
     await stashes.click('.stash .file-open');
@@ -1054,7 +1054,7 @@ try {
   });
 
   await step('opens the graph as an editor tab, with the details of a commit beside it', async () => {
-    await command('Gitar: Open Graph in Editor');
+    await command('Gitardo: Open Graph in Editor');
     // The one in the panel is still there, lower down.
     const graph = await webview('graph', (frame) => frame.y < 300);
     await graph.click('.row', 'Add feature');
@@ -1105,7 +1105,7 @@ try {
     })`);
     assert(seen.body === 'With a body that says why,\non two lines.', `body: ${seen.body}`);
     assert(seen.current === 'main', `the label of the branch: ${seen.current}`);
-    assert(seen.author.startsWith('Gitar Test') && seen.author.includes('@'), `author: ${seen.author}`);
+    assert(seen.author.startsWith('Gitardo Test') && seen.author.includes('@'), `author: ${seen.author}`);
     assert(/^[0-9a-f]{40}$/.test(seen.hash), `hash: ${seen.hash}`);
     assert(seen.total === '3 changed files+5−1', `total: ${seen.total}`);
     assert(seen.diffs.join() === 'notes.txt +2−1,src/main.txt +1,src/parts/list.txt +2', `diffs: ${seen.diffs}`);
@@ -1329,9 +1329,9 @@ try {
 
     // The button of the status bar opens the graph in a tab of the editor.
     const tabs = () => page.evaluate(`[...document.querySelectorAll('.tabs-container .tab')].map((tab) => tab.textContent)`);
-    assert(!(await tabs()).some((tab) => tab.includes('Gitar')), `tabs: ${await tabs()}`);
-    await clickText('.statusbar-item', 'Gitar');
-    await until('the graph in a tab', async () => (await tabs()).some((tab) => tab.includes('Gitar')));
+    assert(!(await tabs()).some((tab) => tab.includes('Gitardo')), `tabs: ${await tabs()}`);
+    await clickText('.statusbar-item', 'Gitardo');
+    await until('the graph in a tab', async () => (await tabs()).some((tab) => tab.includes('Gitardo')));
     await shot('status-bar');
     await command('View: Close All Editors');
   });
@@ -1375,7 +1375,7 @@ try {
     await command('Preferences: Open Settings (UI)');
     await until('the settings', () => page.evaluate(`Boolean(document.querySelector('.settings-editor .suggest-input-container'))`));
     await sleep(500);
-    await type('gitar.conflicts.autoResolve');
+    await type('gitardo.conflicts.autoResolve');
     const found = await until('the setting', async () => {
       const items = await page.evaluate(`[...document.querySelectorAll('.settings-editor .setting-item-contents')].map((item) => ({
         text: item.textContent,
@@ -1389,7 +1389,7 @@ try {
     await command('View: Close All Editors');
 
     // Switched on, the banner counts what can be resolved without a choice.
-    setting('gitar.conflicts.autoResolve', true);
+    setting('gitardo.conflicts.autoResolve', true);
     await until('the banner', async () => (await banner()).resolve === 'Resolve 2 of 3 automatically');
     assert((await banner()).text === 'Merge in progress · 2 files have conflicts', `banner: ${JSON.stringify(await banner())}`);
     await shot('conflicts-banner');
@@ -1425,7 +1425,7 @@ try {
       return now.text === 'Merge in progress · 1 file has conflicts' && now.resolve === null;
     });
     await until('what is left to do', async () =>
-      (await toasts()).some((toast) => toast.includes('Gitar resolved conflicts in 2 files. 1 file still has conflicts to resolve by hand.')),
+      (await toasts()).some((toast) => toast.includes('Gitardo resolved conflicts in 2 files. 1 file still has conflicts to resolve by hand.')),
     );
     await command('View: Close All Editors');
     await sleep(500);
@@ -1443,8 +1443,8 @@ try {
     // The files in conflict have their buttons in the changes view: what can be resolved, a whole side, or done by hand.
     await fold('Branches');
     await fold('Stashes');
-    await clickText('.sidebar .pane-header[aria-expanded="false"] .title', 'Gitar Changes');
-    await until('the view unfolded', async () => (await panes()).some((pane) => pane.title === 'Gitar Changes' && pane.open));
+    await clickText('.sidebar .pane-header[aria-expanded="false"] .title', 'Gitardo Changes');
+    await until('the view unfolded', async () => (await panes()).some((pane) => pane.title === 'Gitardo Changes' && pane.open));
     const changes = await webview('changes');
     const buttons = (name) =>
       changes.evaluate(`[...[...document.querySelectorAll('.group .file')].find((row) => row.textContent.includes(${JSON.stringify(name)}))?.querySelectorAll('button[title]') ?? []].map((button) => button.title).filter((title) => !title.includes('.txt')).join(' | ')`);
@@ -1458,7 +1458,7 @@ try {
 
     git(app, 'merge', '--abort');
     await until('the banner gone', () => graph.evaluate(`!document.querySelector('.banner:not(.bisect)')`));
-    setting('gitar.conflicts.autoResolve', undefined);
+    setting('gitardo.conflicts.autoResolve', undefined);
   });
 } catch (error) {
   await finish(error);

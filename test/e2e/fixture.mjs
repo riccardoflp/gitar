@@ -29,8 +29,8 @@ export const git = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pi
 function init(dir) {
   fs.mkdirSync(dir, { recursive: true });
   git(dir, 'init', '--initial-branch=main');
-  git(dir, 'config', 'user.name', 'Gitar Test');
-  git(dir, 'config', 'user.email', 'test@gitar.invalid');
+  git(dir, 'config', 'user.name', 'Gitardo Test');
+  git(dir, 'config', 'user.email', 'test@gitardo.invalid');
   git(dir, 'config', 'commit.gpgsign', 'false');
   git(dir, 'config', 'core.autocrlf', 'false');
 }

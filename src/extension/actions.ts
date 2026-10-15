@@ -117,7 +117,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
     case 'rebaseInteractive': {
       // The todo list and the reworded messages live in files that git reads while the rebase runs.
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-rebase-'));
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-rebase-'));
       const file = (name: string) => path.join(dir, name).replace(/\\/g, '/');
       const messageFile = (index: number) => file(`message-${index}.txt`);
       action.steps.forEach((step, index) => {

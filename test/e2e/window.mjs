@@ -1,5 +1,5 @@
 // A real VS Code window, started on its own with a throwaway profile and driven through the DevTools protocol:
-// real clicks, real keys, the real dialogs and pickers, and a way into Gitar's webviews.
+// real clicks, real keys, the real dialogs and pickers, and a way into Gitardo's webviews.
 
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -36,7 +36,7 @@ export async function startWindow({ workspace, temp, out, codePath, settings: ex
     'workbench.secondarySideBar.defaultVisibility': 'hidden',
     'telemetry.telemetryLevel': 'off',
     'editor.minimap.enabled': false,
-    'gitar.commandPreview': 'off',
+    'gitardo.commandPreview': 'off',
     ...extra,
   };
   const settingsFile = path.join(temp, 'user-data', 'User', 'settings.json');
@@ -164,7 +164,7 @@ export async function startWindow({ workspace, temp, out, codePath, settings: ex
     await sleep(300);
   }
 
-  /** One of Gitar's webviews: where it is in the window, and a way to run code inside it. `accept` chooses among several by their place. */
+  /** One of Gitardo's webviews: where it is in the window, and a way to run code inside it. `accept` chooses among several by their place. */
   async function webview(kind, accept = () => true) {
     // The identifier VS Code gives the extension: who publishes it and its name, as its package says.
     const { publisher, name } = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8'));

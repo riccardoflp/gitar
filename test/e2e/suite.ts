@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CONFLICT, INDEX, contentUri } from '../../src/extension/content';
-import type { GitarApi } from '../../src/extension/extension';
+import type { GitardoApi } from '../../src/extension/extension';
 import { git } from '../../src/git/exec';
 import { Repo } from '../../src/git/repo';
 import type { Filter, HostMessage, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
@@ -43,7 +43,7 @@ async function until<T>(what: string, check: () => T | undefined | null | false,
 export async function run(): Promise<void> {
   const results: Result[] = [];
   const report = () => {
-    const file = process.env.GITAR_E2E_RESULTS;
+    const file = process.env.GITARDO_E2E_RESULTS;
     if (file) fs.writeFileSync(file, JSON.stringify(results, null, 2));
   };
   const step = async (name: string, body: () => Promise<void>) => {
@@ -62,7 +62,7 @@ export async function run(): Promise<void> {
   const write = (file: string, content: string) => fs.writeFileSync(path.join(app, file), content);
 
   // By its name, whoever publishes it.
-  const extension = vscode.extensions.all.find((candidate) => candidate.packageJSON.name === 'gitar') as vscode.Extension<GitarApi> | undefined;
+  const extension = vscode.extensions.all.find((candidate) => candidate.packageJSON.name === 'gitardo') as vscode.Extension<GitardoApi> | undefined;
   assert.ok(extension, 'the extension is installed');
   const { controller, log, fileBlame } = await extension.activate();
   const internals = controller as unknown as Internals;
@@ -153,7 +153,7 @@ export async function run(): Promise<void> {
   });
 
   await step('the graph view loads its UI and gets the state of the first repository', async () => {
-    await vscode.commands.executeCommand('gitar.openGraph');
+    await vscode.commands.executeCommand('gitardo.openGraph');
     // The UI says `ready` once React has mounted, which proves the bundle ran under the content security policy.
     await until('the graph webview to say it is ready', () => received.some((incoming) => incoming.type === 'ready'));
     await until('the repository state', () => internals.state);
@@ -170,9 +170,9 @@ export async function run(): Promise<void> {
   await step('the five views of the side bar load too, and the graph opens as an editor tab', async () => {
     const before = received.filter((incoming) => incoming.type === 'ready').length;
     // The stashes start folded, and a folded view is not loaded: its command unfolds it.
-    for (const name of ['Changes', 'Commits', 'SideGraph', 'Branches', 'Stashes']) await vscode.commands.executeCommand(`gitar.open${name}`);
+    for (const name of ['Changes', 'Commits', 'SideGraph', 'Branches', 'Stashes']) await vscode.commands.executeCommand(`gitardo.open${name}`);
     await until('the webviews of the side bar', () => kinds().join() === 'branches,changes,commits,graph,sideGraph,stashes');
-    await vscode.commands.executeCommand('gitar.openInEditor');
+    await vscode.commands.executeCommand('gitardo.openInEditor');
     await until('the new webviews to say they are ready', () => received.filter((incoming) => incoming.type === 'ready').length >= before + 6);
     assert.deepEqual(kinds(), ['branches', 'changes', 'commits', 'graph', 'graph', 'sideGraph', 'stashes']);
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
@@ -199,10 +199,10 @@ export async function run(): Promise<void> {
   });
 
   await step('shows the exact commands and waits when the preview is on', async () => {
-    await vscode.workspace.getConfiguration('gitar').update('commandPreview', 'all', vscode.ConfigurationTarget.Global);
+    await vscode.workspace.getConfiguration('gitardo').update('commandPreview', 'all', vscode.ConfigurationTarget.Global);
     try {
       write('a.txt', 'one\ntwo\nthree\n');
-      await vscode.commands.executeCommand('gitar.refresh');
+      await vscode.commands.executeCommand('gitardo.refresh');
       asked.length = 0;
       // Declined: nothing runs.
       answer = () => undefined;
@@ -221,7 +221,7 @@ export async function run(): Promise<void> {
       assert.ok(logged.includes('> git add -- a.txt'));
       await controller.action({ kind: 'unstageAll' });
     } finally {
-      await vscode.workspace.getConfiguration('gitar').update('commandPreview', undefined, vscode.ConfigurationTarget.Global);
+      await vscode.workspace.getConfiguration('gitardo').update('commandPreview', undefined, vscode.ConfigurationTarget.Global);
     }
   });
 
@@ -269,7 +269,7 @@ export async function run(): Promise<void> {
     await fromWebview({ type: 'openDiff', source: { kind: 'staged' }, file: { status: 'M', path: 'a.txt' } });
     const tab = await until('the diff editor', () => vscode.window.tabGroups.activeTabGroup.activeTab);
     assert.ok(tab.input instanceof vscode.TabInputTextDiff, 'a diff editor is open');
-    assert.equal(tab.input.original.scheme, 'gitar');
+    assert.equal(tab.input.original.scheme, 'gitardo');
     assert.match(tab.label, /a\.txt/);
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await controller.action({ kind: 'unstageAll' });
@@ -346,7 +346,7 @@ export async function run(): Promise<void> {
       return byLabel(titles.length === 1 ? '$(git-branch) feature' : '$(target) main')(items);
     };
     forget();
-    await vscode.commands.executeCommand('gitar.compare');
+    await vscode.commands.executeCommand('gitardo.compare');
     assert.deepEqual(titles, ['Compare', 'Compare feature with']);
     // Everything but the side that is already chosen.
     assert.deepEqual(offered, [
@@ -388,13 +388,13 @@ export async function run(): Promise<void> {
     inputs = ['no-such-thing'];
     forget();
     asked.length = 0;
-    await vscode.commands.executeCommand('gitar.compare');
+    await vscode.commands.executeCommand('gitardo.compare');
     assert.deepEqual(
       asked.map((question) => question.message),
-      ['Gitar: "no-such-thing" is not a commit of this repository.'],
+      ['Gitardo: "no-such-thing" is not a commit of this repository.'],
     );
     choose = () => undefined;
-    await vscode.commands.executeCommand('gitar.compare');
+    await vscode.commands.executeCommand('gitardo.compare');
     assert.equal(compared(), null);
 
     // A branch clicked in the side bar is shown where the commits are, and nowhere else.
@@ -408,14 +408,14 @@ export async function run(): Promise<void> {
   });
 
   await step('narrows the graph to the history of a file, switching repository if needed', async () => {
-    await vscode.commands.executeCommand('gitar.fileHistory', vscode.Uri.file(path.join(app, 'b.txt')));
+    await vscode.commands.executeCommand('gitardo.fileHistory', vscode.Uri.file(path.join(app, 'b.txt')));
     assert.deepEqual(state().filter, { kind: 'path', path: 'b.txt' });
     // On every branch: `feature` changes the file too.
     assert.deepEqual(subjects(), ['Add feature', 'Add b']);
     await controller.setFilter(null);
     assert.equal(state().filter, null);
 
-    await vscode.commands.executeCommand('gitar.fileHistory', vscode.Uri.file(path.join(lib, 'lib.txt')));
+    await vscode.commands.executeCommand('gitardo.fileHistory', vscode.Uri.file(path.join(lib, 'lib.txt')));
     assert.equal(state().name, 'lib');
     assert.deepEqual(subjects(), ['Add lib']);
     await controller.selectRepo(state().repos[0].root);
@@ -464,11 +464,11 @@ export async function run(): Promise<void> {
 
     // A branch deleted while it is one of those shown is no longer one of them.
     await git(app, ['branch', 'scoped', 'HEAD~1']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     await internals.onMessage(graph, { type: 'setScope', scope: { kind: 'refs', refs: ['refs/heads/scoped', 'refs/heads/main'] } });
     assert.deepEqual(state().scope, { kind: 'refs', refs: ['refs/heads/scoped', 'refs/heads/main'] });
     await git(app, ['branch', '-D', 'scoped']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     assert.deepEqual(state().scope, { kind: 'refs', refs: ['refs/heads/main'] });
 
     await internals.onMessage(graph, { type: 'setScope', scope: null });
@@ -481,7 +481,7 @@ export async function run(): Promise<void> {
     // What was checked out before is where one is likely to go back to: not what is checked out now.
     await git(app, ['checkout', '-q', 'feature']);
     await git(app, ['checkout', '-q', 'main']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     assert.equal(state().recentBranches[0], 'feature');
     assert.ok(!state().recentBranches.includes('main'), `recent: ${state().recentBranches}`);
 
@@ -502,11 +502,11 @@ export async function run(): Promise<void> {
 
     // A branch that is deleted is no longer one, and the others stay when one is taken out.
     await git(app, ['branch', 'liked']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/heads/liked', favorite: true });
     assert.equal(state().favorites.length, 3);
     await git(app, ['branch', '-D', 'liked']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     assert.deepEqual(state().favorites, ['refs/heads/feature', 'refs/remotes/origin/main']);
     await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/heads/feature', favorite: false });
     await internals.onMessage(graph, { type: 'setFavorite', ref: 'refs/remotes/origin/main', favorite: false });
@@ -582,7 +582,7 @@ export async function run(): Promise<void> {
     const theirs = async (file: string, content: string, message: string) => {
       fs.writeFileSync(path.join(other, file), content);
       await git(other, ['add', '--all']);
-      await git(other, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitar.invalid', 'commit', '-m', message]);
+      await git(other, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitardo.invalid', 'commit', '-m', message]);
       await git(other, ['push', 'origin', 'HEAD:main']);
     };
     const read = (file: string) => fs.readFileSync(path.join(app, file), 'utf8');
@@ -617,7 +617,7 @@ export async function run(): Promise<void> {
       await git(app, ['reset', '--hard', start]);
       if (state().stashes.length > stashes) await git(app, ['stash', 'drop']);
       await git(app, ['push', '--force', 'origin', `${start}:main`]);
-      await vscode.commands.executeCommand('gitar.refresh');
+      await vscode.commands.executeCommand('gitardo.refresh');
     }
     assert.equal(state().head, start);
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 0);
@@ -625,13 +625,13 @@ export async function run(): Promise<void> {
 
   await step('the Pull button pulls the way the settings choose: with a rebase and the changes set aside, unless told otherwise', async () => {
     const setting = (name: string, value: boolean | undefined) =>
-      vscode.workspace.getConfiguration('gitar').update(name, value, vscode.ConfigurationTarget.Global);
+      vscode.workspace.getConfiguration('gitardo').update(name, value, vscode.ConfigurationTarget.Global);
     /** What the button is set to, once the views were told. */
     const chosen = (action: string) => until(`the button set to ${action}`, () => state().defaultPull === action);
     /** The pull that the command of the button runs. */
     const pulled = async () => {
       logged.length = 0;
-      await vscode.commands.executeCommand('gitar.pull');
+      await vscode.commands.executeCommand('gitardo.pull');
       return logged.filter((line) => line.startsWith('> git pull'));
     };
     try {
@@ -650,7 +650,7 @@ export async function run(): Promise<void> {
       await setting('pull.autostash', undefined);
       await chosen('pullRebaseAutostash');
       logged.length = 0;
-      await vscode.commands.executeCommand('gitar.pullPlain');
+      await vscode.commands.executeCommand('gitardo.pullPlain');
       assert.deepEqual(logged.filter((line) => line.startsWith('> git pull')), ['> git pull']);
       assert.deepEqual(errors, []);
     } finally {
@@ -662,7 +662,7 @@ export async function run(): Promise<void> {
   await step('warns about what a force push overwrites', async () => {
     // Rewrite the last commit, so that the remote has one the local branch does not.
     await git(app, ['commit', '--amend', '--allow-empty', '-m', 'Add a file, reworded']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     asked.length = 0;
     answer = () => undefined;
     await controller.sync('pushForceWithLease');
@@ -716,7 +716,7 @@ export async function run(): Promise<void> {
       return items.filter((item) => item.picked);
     };
     answer = run;
-    await vscode.commands.executeCommand('gitar.cleanupBranches');
+    await vscode.commands.executeCommand('gitardo.cleanupBranches');
     // `topic` points at the commit that was reworded since, so it is not merged and not offered.
     assert.deepEqual(offered, ['merged (ticked)']);
     assert.deepEqual(
@@ -735,7 +735,7 @@ export async function run(): Promise<void> {
       return byLabel('Show in graph')(items);
     };
     posted.length = 0;
-    await vscode.commands.executeCommand('gitar.reflog');
+    await vscode.commands.executeCommand('gitardo.reflog');
     assert.ok(entries > 5, `the reflog has entries (${entries})`);
     assert.ok(posted.some((outgoing) => outgoing.type === 'reveal'));
   });
@@ -764,7 +764,7 @@ export async function run(): Promise<void> {
     unanswered.add('loadMore');
     try {
       internals.limit = 2;
-      await vscode.commands.executeCommand('gitar.refresh');
+      await vscode.commands.executeCommand('gitardo.refresh');
       assert.ok(!loaded(oldest) && state().hasMore, 'only the last commits are loaded');
       forget();
       await internals.onMessage(view('sideGraph'), { type: 'goTo', revision: oldest });
@@ -805,7 +805,7 @@ export async function run(): Promise<void> {
     const third = (await git(app, ['rev-parse', 'HEAD~2'])).stdout.trim();
     inputs = ['HEAD~2'];
     forget();
-    await vscode.commands.executeCommand('gitar.goToCommit');
+    await vscode.commands.executeCommand('gitardo.goToCommit');
     assert.ok(revealed().includes(`${third} in graph`), `revealed: ${revealed()}`);
   });
 
@@ -838,7 +838,7 @@ export async function run(): Promise<void> {
     // In the history of a file, only the commits of that history.
     await controller.setFilter({ kind: 'path', path: 'b.txt' });
     assert.ok(hashes().length < everything);
-    assert.deepEqual((await find({ kind: 'author', query: 'gitar test' })).hashes, hashes());
+    assert.deepEqual((await find({ kind: 'author', query: 'gitardo test' })).hashes, hashes());
     assert.deepEqual(state().filter, { kind: 'path', path: 'b.txt' });
 
     // A list of results gives way to the graph the new ones are shown in.
@@ -857,9 +857,9 @@ export async function run(): Promise<void> {
 
   await step('switches identity for the repository', async () => {
     choose = byLabel('Enter a name and email…');
-    inputs = ['Other Me', 'other@gitar.invalid'];
-    await vscode.commands.executeCommand('gitar.switchIdentity');
-    assert.deepEqual(state().identity, { name: 'Other Me', email: 'other@gitar.invalid' });
+    inputs = ['Other Me', 'other@gitardo.invalid'];
+    await vscode.commands.executeCommand('gitardo.switchIdentity');
+    assert.deepEqual(state().identity, { name: 'Other Me', email: 'other@gitardo.invalid' });
   });
 
   await step('opens all the changes between two commits in one editor', async () => {
@@ -909,7 +909,7 @@ export async function run(): Promise<void> {
     assert.equal(told('state', webview).length, 1);
 
     // Asked for again, the commit has its tab: that one is shown.
-    await vscode.commands.executeCommand('gitar.openGraph');
+    await vscode.commands.executeCommand('gitardo.openGraph');
     await controller.openCommit(hash);
     assert.equal(commitViews().length, 1);
     assert.equal(tabs().filter((candidate) => candidate.label.startsWith(short)).length, 1);
@@ -919,7 +919,7 @@ export async function run(): Promise<void> {
     await until('the tab of the parent', () => tabs().some((candidate) => candidate.label === `${parent.slice(0, 7)} Add b`));
     await internals.onMessage(webview, { type: 'setFilesLayout', layout: 'list' });
     inputs = ['feature'];
-    await vscode.commands.executeCommand('gitar.openCommit');
+    await vscode.commands.executeCommand('gitardo.openCommit');
     await until('the tab of the typed revision', () => tabs().some((candidate) => /^\w{7} Add feature$/.test(candidate.label)));
     assert.equal(commitViews().length, 3);
     // The layout chosen in one tab is the one the next opens with.
@@ -968,19 +968,19 @@ export async function run(): Promise<void> {
 
     choose = byLabel('Add remote…');
     inputs = ['backup', 'https://example.invalid/backup.git'];
-    await vscode.commands.executeCommand('gitar.remotes');
+    await vscode.commands.executeCommand('gitardo.remotes');
     assert.deepEqual(state().remotes, ['backup', 'origin']);
     assert.ok(logged.includes('> git remote add backup https://example.invalid/backup.git'));
 
     choose = pickRemote('backup', 'Rename…');
     inputs = ['mirror'];
-    await vscode.commands.executeCommand('gitar.remotes');
+    await vscode.commands.executeCommand('gitardo.remotes');
     assert.deepEqual(state().remotes, ['mirror', 'origin']);
 
     choose = pickRemote('mirror', 'Remove');
     asked.length = 0;
     answer = run;
-    await vscode.commands.executeCommand('gitar.remotes');
+    await vscode.commands.executeCommand('gitardo.remotes');
     assert.equal(asked[0].message, 'Remove remote mirror?');
     assert.deepEqual(state().remotes, ['origin']);
 
@@ -989,14 +989,14 @@ export async function run(): Promise<void> {
     asked.length = 0;
     answer = () => undefined;
     await controller.sync('push');
-    assert.deepEqual(asked, [{ message: 'Gitar: this repository has no remote.', detail: '', items: ['Add Remote…'] }]);
+    assert.deepEqual(asked, [{ message: 'Gitardo: this repository has no remote.', detail: '', items: ['Add Remote…'] }]);
     await controller.selectRepo(state().repos[0].root);
   });
 
   await step('stashes a single file and leaves the rest alone', async () => {
     write('a.txt', 'one\ntwo\nstash me\n');
     write('keep.txt', 'stays\n');
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     inputs = ['only a'];
     await controller.action({ kind: 'stashPush', paths: ['a.txt'] });
     assert.equal(state().stashes.length, 1);
@@ -1020,11 +1020,11 @@ export async function run(): Promise<void> {
     const pop = () => controller.action({ kind: 'stashPop', ref: 'stash@{0}' });
     write('a.txt', 'one\ntwo\nstash me\n');
     write('keep.txt', 'stays\n');
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     try {
       logged.length = 0;
       inputs = ['from the list'];
-      await vscode.commands.executeCommand('gitar.scmStashFile', file(app, 'a.txt'));
+      await vscode.commands.executeCommand('gitardo.scmStashFile', file(app, 'a.txt'));
       assert.deepEqual(stashed(), ['> git stash push --include-untracked -m "from the list" -- a.txt']);
       assert.equal(state().stashes.length, 1);
       assert.deepEqual(state().working.unstaged, [{ status: '?', path: 'keep.txt' }]);
@@ -1034,7 +1034,7 @@ export async function run(): Promise<void> {
       // On the group of the changes: everything, untracked files too.
       logged.length = 0;
       inputs = [''];
-      await vscode.commands.executeCommand('gitar.scmStashAll', { resourceStates: [file(app, 'a.txt'), file(app, 'keep.txt')] });
+      await vscode.commands.executeCommand('gitardo.scmStashAll', { resourceStates: [file(app, 'a.txt'), file(app, 'keep.txt')] });
       assert.deepEqual(stashed(), ['> git stash push --include-untracked']);
       assert.equal(state().changes, 0);
       await pop();
@@ -1044,7 +1044,7 @@ export async function run(): Promise<void> {
       await controller.action({ kind: 'stage', paths: ['a.txt'] });
       logged.length = 0;
       inputs = ['staged'];
-      await vscode.commands.executeCommand('gitar.scmStashStaged', { resourceStates: [file(app, 'a.txt')] });
+      await vscode.commands.executeCommand('gitardo.scmStashStaged', { resourceStates: [file(app, 'a.txt')] });
       assert.deepEqual(stashed(), ['> git stash push --staged -m staged']);
       assert.deepEqual(state().working.staged, []);
       assert.deepEqual(state().working.unstaged, [{ status: '?', path: 'keep.txt' }]);
@@ -1054,7 +1054,7 @@ export async function run(): Promise<void> {
       // A file of the other repository is stashed there, which the views then show.
       fs.writeFileSync(path.join(lib, 'lib.txt'), 'lib\nmore\n');
       inputs = ['in lib'];
-      await vscode.commands.executeCommand('gitar.scmStashFile', file(lib, 'lib.txt'));
+      await vscode.commands.executeCommand('gitardo.scmStashFile', file(lib, 'lib.txt'));
       assert.equal(state().name, 'lib');
       assert.equal(state().stashes.length, 1);
       assert.equal(state().changes, 0);
@@ -1081,11 +1081,11 @@ export async function run(): Promise<void> {
       made.push((await git(app, ['rev-parse', 'HEAD'])).stdout.trim());
     }
     await git(app, ['checkout', 'main']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
     assert.equal(state().branch, 'main');
     const before = state().head!;
 
-    await vscode.workspace.getConfiguration('gitar').update('commandPreview', 'all', vscode.ConfigurationTarget.Global);
+    await vscode.workspace.getConfiguration('gitardo').update('commandPreview', 'all', vscode.ConfigurationTarget.Global);
     try {
       asked.length = 0;
       answer = run;
@@ -1094,7 +1094,7 @@ export async function run(): Promise<void> {
       assert.match(asked[0].detail, /In this order:\n\w{7} Pick one\n\w{7} Pick two\n/);
       assert.ok(asked[0].detail.endsWith(`git cherry-pick ${made[0]} ${made[1]}`));
     } finally {
-      await vscode.workspace.getConfiguration('gitar').update('commandPreview', undefined, vscode.ConfigurationTarget.Global);
+      await vscode.workspace.getConfiguration('gitardo').update('commandPreview', undefined, vscode.ConfigurationTarget.Global);
     }
     assert.equal(state().operation, null);
     const log = async () => (await git(app, ['log', '--format=%s', '-2', 'main'])).stdout.trim().split('\n');
@@ -1109,13 +1109,13 @@ export async function run(): Promise<void> {
     await controller.action({ kind: 'undo' });
     assert.deepEqual(await log(), ['Pick two', 'Pick one']);
     await git(app, ['branch', '-D', 'picks']);
-    await vscode.commands.executeCommand('gitar.refresh');
+    await vscode.commands.executeCommand('gitardo.refresh');
   });
 
   await step('follows a renamed file in its history', async () => {
     await git(app, ['mv', 'pick-one.txt', 'renamed.txt']);
     await git(app, ['commit', '-m', 'Rename a file']);
-    await vscode.commands.executeCommand('gitar.fileHistory', vscode.Uri.file(path.join(app, 'renamed.txt')));
+    await vscode.commands.executeCommand('gitardo.fileHistory', vscode.Uri.file(path.join(app, 'renamed.txt')));
     assert.deepEqual(state().filter, { kind: 'path', path: 'renamed.txt', renamedFrom: ['pick-one.txt'] });
     assert.deepEqual(subjects(), ['Rename a file', 'Pick one']);
     await controller.setFilter(null);
@@ -1136,7 +1136,7 @@ export async function run(): Promise<void> {
     const found = state().rows.find((row) => row.hash === state().bisect!.bad);
     assert.equal(found?.subject, 'Add b');
     assert.ok(asked.some((question) => /first bad commit is \w{7} "Add b"/.test(question.message)));
-    await vscode.commands.executeCommand('gitar.bisectReset');
+    await vscode.commands.executeCommand('gitardo.bisectReset');
     assert.equal(state().bisect, null);
     assert.equal(state().branch, 'main');
   });
@@ -1192,8 +1192,8 @@ export async function run(): Promise<void> {
 
     // Experimental, and off until it is switched on: the conflicts are not looked into, nothing is offered and nothing runs.
     const autoResolve = (value: boolean | undefined) =>
-      vscode.workspace.getConfiguration('gitar').update('conflicts.autoResolve', value, vscode.ConfigurationTarget.Global);
-    assert.equal(vscode.workspace.getConfiguration('gitar').get('conflicts.autoResolve'), false);
+      vscode.workspace.getConfiguration('gitardo').update('conflicts.autoResolve', value, vscode.ConfigurationTarget.Global);
+    assert.equal(vscode.workspace.getConfiguration('gitardo').get('conflicts.autoResolve'), false);
     asked.length = 0;
     answer = run;
     await controller.action({ kind: 'merge', ref: 'beside' });
@@ -1204,10 +1204,10 @@ export async function run(): Promise<void> {
     assert.deepEqual(plain?.items, ['Show Log']);
     const untouched = read('c.txt');
     asked.length = 0;
-    await vscode.commands.executeCommand('gitar.resolveConflicts');
+    await vscode.commands.executeCommand('gitardo.resolveConflicts');
     assert.deepEqual(
       asked.map((question) => question.message),
-      ['Gitar: resolving conflicts automatically is experimental, and it is switched off in the settings.'],
+      ['Gitardo: resolving conflicts automatically is experimental, and it is switched off in the settings.'],
     );
     assert.deepEqual(asked[0].items, ['Open Settings']);
     assert.equal(read('c.txt'), untouched);
@@ -1229,25 +1229,25 @@ export async function run(): Promise<void> {
       ];
       assert.deepEqual(state().conflictFiles, both);
       const stopped = asked.find((question) => /stopped: 2 files have conflicts/.test(question.message));
-      assert.match(stopped?.message ?? '', /Gitar can resolve 2 of the 3 conflicts automatically\.$/);
+      assert.match(stopped?.message ?? '', /Gitardo can resolve 2 of the 3 conflicts automatically\.$/);
       assert.deepEqual(stopped?.items, ['Resolve Automatically', 'Show Log']);
 
       // It asks first, saying the files it writes and the command it runs, and shows each file beside what it would become.
       const marked = read('c.txt');
       asked.length = 0;
       answer = (_text, _detail, items) => (items.includes('Preview') ? 'Preview' : undefined);
-      await vscode.commands.executeCommand('gitar.resolveConflicts');
+      await vscode.commands.executeCommand('gitardo.resolveConflicts');
       assert.equal(asked[0].message, 'Resolve 2 of 3 conflicts automatically?');
       assert.deepEqual(asked[0].items, ['Resolve', 'Preview']);
       assert.match(asked[0].detail, /^c\.txt: 1 of 2 conflicts \(changes to lines next to each other\)\nd\.txt: 1 of 1 conflict \(/);
       assert.match(asked[0].detail, /1 conflict will be left to resolve by hand/);
-      assert.match(asked[0].detail, /Gitar will write in [^\n]+:\n\nc\.txt\nd\.txt\n\nand then run:\n\ngit add -- d\.txt$/);
+      assert.match(asked[0].detail, /Gitardo will write in [^\n]+:\n\nc\.txt\nd\.txt\n\nand then run:\n\ngit add -- d\.txt$/);
       assert.equal(asked[1].message, 'Resolve 2 of 3 conflicts automatically, as in the preview?');
       assert.deepEqual(asked[1].items, ['Resolve']);
       const tab = await until('the preview', () => vscode.window.tabGroups.activeTabGroup.activeTab);
       assert.match(tab.label, /^Preview of the conflicts resolved automatically/);
       const proposed = await until('what is proposed for d.txt', () =>
-        vscode.workspace.textDocuments.find((document) => document.uri.scheme === 'gitar' && document.uri.path === '/d.txt' && /proposal/.test(document.uri.query)),
+        vscode.workspace.textDocuments.find((document) => document.uri.scheme === 'gitardo' && document.uri.path === '/d.txt' && /proposal/.test(document.uri.query)),
       );
       assert.equal(proposed.getText(), 'ONE\nTWO\n');
       // The second question was left without an answer: nothing is written.
@@ -1268,8 +1268,8 @@ export async function run(): Promise<void> {
       assert.equal(read('c.txt'), lines({ 2: 'two, theirs', 3: 'three, ours', 9: 'LEFT' }).replace('LEFT\n', left));
       assert.deepEqual(state().working.conflicts, [{ status: 'U', path: 'c.txt' }]);
       assert.deepEqual(state().conflictFiles, [{ path: 'c.txt', conflicts: 1, resolvable: [] }]);
-      const done = asked.find((question) => question.message.startsWith('Gitar resolved conflicts'));
-      assert.equal(done?.message, 'Gitar resolved conflicts in 2 files. 1 file still has conflicts to resolve by hand.');
+      const done = asked.find((question) => question.message.startsWith('Gitardo resolved conflicts'));
+      assert.equal(done?.message, 'Gitardo resolved conflicts in 2 files. 1 file still has conflicts to resolve by hand.');
       assert.deepEqual(done?.items, ['Undo']);
 
       // Undo puts every conflict back, in the file that was staged too.
@@ -1299,8 +1299,8 @@ export async function run(): Promise<void> {
       answer = (_text, _detail, items) => (items.includes('Resolve') ? 'Resolve' : undefined);
       await controller.action({ kind: 'resolveConflicts', paths: ['d.txt'] });
       assert.equal(asked[0].message, 'Resolve the conflict automatically?');
-      const whole = asked.find((question) => question.message.startsWith('Gitar resolved conflicts'));
-      assert.equal(whole?.message, 'Gitar resolved conflicts in 1 file. No file is left in conflict: the merge can continue.');
+      const whole = asked.find((question) => question.message.startsWith('Gitardo resolved conflicts'));
+      assert.equal(whole?.message, 'Gitardo resolved conflicts in 1 file. No file is left in conflict: the merge can continue.');
       assert.deepEqual(whole?.items, ['Continue', 'Undo']);
       assert.deepEqual(state().working.conflicts, []);
 
@@ -1328,10 +1328,10 @@ export async function run(): Promise<void> {
     const editor = await vscode.window.showTextDocument(uri);
     const count = editor.document.getText().split('\n').filter(Boolean).length;
     assert.equal(fileBlame.linesOf(uri), undefined);
-    await vscode.commands.executeCommand('gitar.toggleFileBlame');
+    await vscode.commands.executeCommand('gitardo.toggleFileBlame');
     const lines = await until('the blame', () => fileBlame.linesOf(uri));
     assert.equal(lines.length, count);
-    assert.ok(lines.every((line) => line?.committed && line.author === 'Gitar Test' && line.summary), JSON.stringify(lines));
+    assert.ok(lines.every((line) => line?.committed && line.author === 'Gitardo Test' && line.summary), JSON.stringify(lines));
 
     // A line that is typed is not committed, at once and when git has been asked.
     await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), 'typed\n'));
@@ -1344,7 +1344,7 @@ export async function run(): Promise<void> {
     assert.equal(typed()?.join(), after);
 
     // The button of the editor names the file.
-    await vscode.commands.executeCommand('gitar.hideFileBlame', uri);
+    await vscode.commands.executeCommand('gitardo.hideFileBlame', uri);
     assert.equal(fileBlame.linesOf(uri), undefined);
     await vscode.commands.executeCommand('workbench.action.files.revert');
     // A file that is in no commit has no one to name, and is told so rather than shown empty.
@@ -1352,7 +1352,7 @@ export async function run(): Promise<void> {
     try {
       const fresh = vscode.Uri.file(path.join(app, 'fresh.txt'));
       await vscode.window.showTextDocument(fresh);
-      await vscode.commands.executeCommand('gitar.toggleFileBlame');
+      await vscode.commands.executeCommand('gitardo.toggleFileBlame');
       assert.equal(fileBlame.linesOf(fresh), undefined);
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -1363,7 +1363,7 @@ export async function run(): Promise<void> {
 
   await step('opens the commit of a line and the file as it was before it, blames every file when asked, and re-reads when whitespace is ignored', async () => {
     const before = errors.length;
-    const setting = (name: string) => vscode.workspace.getConfiguration('gitar').get(name);
+    const setting = (name: string) => vscode.workspace.getConfiguration('gitardo').get(name);
     const tabs = () => vscode.window.tabGroups.all.flatMap((group) => group.tabs);
     const uri = vscode.Uri.file(path.join(app, 'a.txt'));
     const show = async (index: number) => {
@@ -1371,7 +1371,7 @@ export async function run(): Promise<void> {
       editor.selection = new vscode.Selection(index, 0, index, 0);
     };
     await show(0);
-    await vscode.commands.executeCommand('gitar.showFileBlame', uri);
+    await vscode.commands.executeCommand('gitardo.showFileBlame', uri);
     const lines = await until('the blame', () => fileBlame.linesOf(uri));
     const index = lines.findIndex((line) => line?.previous);
     const changed = lines[index];
@@ -1379,17 +1379,17 @@ export async function run(): Promise<void> {
 
     // The commit of the line, in a tab of its own.
     await show(index);
-    await vscode.commands.executeCommand('gitar.openLineCommit');
+    await vscode.commands.executeCommand('gitardo.openLineCommit');
     await until('the tab of the commit', () =>
       tabs().some((tab) => tab.input instanceof vscode.TabInputWebview && tab.label.startsWith(changed.hash.slice(0, 7))),
     );
 
     // The file as it was before that commit, named after the commit it is of, with the blame it had then.
     await show(index);
-    await vscode.commands.executeCommand('gitar.blamePrevious');
+    await vscode.commands.executeCommand('gitardo.blamePrevious');
     const past = await until('the file as it was', () => {
       const active = vscode.window.activeTextEditor;
-      return active?.document.uri.scheme === 'gitar' ? active.document : undefined;
+      return active?.document.uri.scheme === 'gitardo' ? active.document : undefined;
     });
     assert.ok(past.uri.path.endsWith(`a (${changed.previous.hash.slice(0, 7)}).txt`), past.uri.path);
     assert.equal(past.getText(), (await git(app, ['show', `${changed.previous.hash}:a.txt`])).stdout);
@@ -1400,21 +1400,21 @@ export async function run(): Promise<void> {
     const name = (await git(app, ['ls-files'])).stdout.split('\n').find((tracked) => tracked && tracked !== 'a.txt');
     assert.ok(name, 'another file in a commit');
     const other = vscode.Uri.file(path.join(app, name));
-    await vscode.commands.executeCommand('gitar.toggleBlameEveryFile');
+    await vscode.commands.executeCommand('gitardo.toggleBlameEveryFile');
     try {
       assert.equal(setting('fileBlame.everyFile'), true);
       await vscode.window.showTextDocument(other);
       await until('the blame of a file it was not asked for', () => fileBlame.linesOf(other));
-      await vscode.commands.executeCommand('gitar.hideFileBlame', other);
+      await vscode.commands.executeCommand('gitardo.hideFileBlame', other);
       await show(index);
       await vscode.window.showTextDocument(other);
       await sleep(800);
       assert.equal(fileBlame.linesOf(other), undefined);
       // Shown again when asked, as a file that only has it because every file does.
-      await vscode.commands.executeCommand('gitar.showFileBlame', other);
+      await vscode.commands.executeCommand('gitardo.showFileBlame', other);
       await until('the blame it was asked for', () => fileBlame.linesOf(other));
     } finally {
-      await vscode.commands.executeCommand('gitar.toggleBlameEveryFile');
+      await vscode.commands.executeCommand('gitardo.toggleBlameEveryFile');
     }
     assert.equal(setting('fileBlame.everyFile'), false);
     // The ones that were asked for keep their blame.
@@ -1422,13 +1422,13 @@ export async function run(): Promise<void> {
     assert.ok(fileBlame.linesOf(uri) && fileBlame.linesOf(other));
 
     // Whitespace: git is asked again, and the file still has its blame.
-    await vscode.commands.executeCommand('gitar.toggleBlameWhitespace');
+    await vscode.commands.executeCommand('gitardo.toggleBlameWhitespace');
     try {
       assert.equal(setting('blame.ignoreWhitespaceAndMoves'), true);
       await sleep(1500);
       assert.equal(fileBlame.linesOf(uri)?.length, lines.length);
     } finally {
-      await vscode.commands.executeCommand('gitar.toggleBlameWhitespace');
+      await vscode.commands.executeCommand('gitardo.toggleBlameWhitespace');
     }
     assert.equal(setting('blame.ignoreWhitespaceAndMoves'), false);
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -1441,10 +1441,10 @@ export async function run(): Promise<void> {
     editor.selection = new vscode.Selection(1, 0, 1, 0);
     // The annotation is a decoration, which the API gives no way to read back: this only shows that making it does not fail.
     await sleep(1500);
-    await vscode.commands.executeCommand('gitar.toggleBlame');
-    assert.equal(vscode.workspace.getConfiguration('gitar').get('blame.enabled'), false);
-    await vscode.commands.executeCommand('gitar.toggleBlame');
-    assert.equal(vscode.workspace.getConfiguration('gitar').get('blame.enabled'), true);
+    await vscode.commands.executeCommand('gitardo.toggleBlame');
+    assert.equal(vscode.workspace.getConfiguration('gitardo').get('blame.enabled'), false);
+    await vscode.commands.executeCommand('gitardo.toggleBlame');
+    assert.equal(vscode.workspace.getConfiguration('gitardo').get('blame.enabled'), true);
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     assert.equal(errors.length, before);
   });

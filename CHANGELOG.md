@@ -1,6 +1,12 @@
 # Changelog
 
-What changed in each version of Gitar. The versions follow [Semantic Versioning](https://semver.org).
+What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
+
+## 0.2.0
+
+### Changed
+
+- Gitar is now Gitardo, with an identifier of its own: `RiccardoFilippozzi.gitardo`. On the Marketplace it is another extension, so the one named Gitar is to be uninstalled and this one installed. Its commands and settings are named after it too, `gitardo.*` where they were `gitar.*`: the settings saved under the old names are to be set again.
 
 ## 0.1.0 - 2026-10-13
 
@@ -10,8 +16,8 @@ The first release.
 
 - **Graph**, in the bottom panel or in an editor tab: the commit graph, the references beside it and the details of the selected commit.
 - **Commits**, in the Source Control side bar: the commits of the branch that is checked out, each with whether it is pushed and the files it changed.
-- **Gitar Graph**, **Branches** and **Stashes**, in the side bar: the graph, the references and the stashes on their own, for when the panel is closed.
-- **Gitar Changes**, hidden until asked for: staging and committing by file, by hunk or by line.
+- **Gitardo Graph**, **Branches** and **Stashes**, in the side bar: the graph, the references and the stashes on their own, for when the panel is closed.
+- **Gitardo Changes**, hidden until asked for: staging and committing by file, by hunk or by line.
 - A commit in an editor tab of its own, with its whole message and what it changed in each file.
 - A button in the status bar that opens the graph, wherever the workspace has a repository.
 
@@ -36,7 +42,7 @@ The first release.
 
 ### Safety
 
-- Every command that Gitar runs is logged exactly as it was run, and can be shown before it runs.
+- Every command that Gitardo runs is logged exactly as it was run, and can be shown before it runs.
 - The operations that can lose work ask first, and say what would be lost.
 - Conflicts open in the merge editor, with continue, skip and abort in a banner. Resolving the ones that need no choice is offered as an experiment, off by default.
 

@@ -13,7 +13,7 @@ export async function githubSession(prompt: boolean): Promise<vscode.Authenticat
 export async function fetchPulls(repo: GitHubRepo, token: string): Promise<Record<string, PullRequest>> {
   const response = await fetch('https://api.github.com/graphql', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'gitar-vscode' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'gitardo-vscode' },
     body: JSON.stringify({ query: PULLS_QUERY, variables: repo }),
   });
   if (!response.ok) throw new Error(`GitHub answered ${response.status} ${response.statusText}`);

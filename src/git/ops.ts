@@ -15,7 +15,7 @@ export interface GitOp {
   note?: string;
   /** Fed to the standard input of the last command. */
   input?: string;
-  /** Files Gitar writes itself before the commands run, which is said along with them. */
+  /** Files Gitardo writes itself before the commands run, which is said along with them. */
   writes?: FileWrite[];
   /** What to offer when git refuses with a message matching `when`, typically the forced variant. */
   fallback?: { when: RegExp; op: GitOp };

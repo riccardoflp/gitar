@@ -9,7 +9,7 @@ import { revisionUri } from './content';
 /** How long a file is left alone after it changes before it is blamed again. */
 const DELAY = 400;
 /** True while the file of the active editor shows its blame: what the buttons of the editor go by. */
-const CONTEXT = 'gitar.fileBlame';
+const CONTEXT = 'gitardo.fileBlame';
 /** A space that is not taken for a place to fold the line at, nor run together with the next one. */
 const SPACE = String.fromCharCode(0xa0);
 /** What a decoration has no name for is said after the one thing it lets through as it is written. */
@@ -30,7 +30,7 @@ interface Settings {
 }
 
 function readSettings(): Settings {
-  const config = vscode.workspace.getConfiguration('gitar');
+  const config = vscode.workspace.getConfiguration('gitardo');
   const text = (name: string, fallback: string) => {
     const value = config.get<unknown>(name);
     return typeof value === 'string' && value.trim() ? value : fallback;
@@ -62,15 +62,15 @@ export interface BlameActions {
 
 function hover(line: BlameLine, root: string): vscode.MarkdownString {
   const text = new vscode.MarkdownString();
-  text.isTrusted = { enabledCommands: ['gitar.revealCommit', 'gitar.openCommit', 'gitar.blamePrevious'] };
+  text.isTrusted = { enabledCommands: ['gitardo.revealCommit', 'gitardo.openCommit', 'gitardo.blamePrevious'] };
   const link = (command: string, ...args: unknown[]) => `command:${command}?${encodeURIComponent(JSON.stringify(args))}`;
   text.appendText(`${line.author}, ${new Date(line.date * 1000).toLocaleString()}\n\n${line.summary}`);
   const links = [
-    `[Show ${line.hash.slice(0, 7)} in the Gitar graph](${link('gitar.revealCommit', line.hash)})`,
-    `[Open it in an editor tab](${link('gitar.openCommit', line.hash)})`,
+    `[Show ${line.hash.slice(0, 7)} in the Gitardo graph](${link('gitardo.revealCommit', line.hash)})`,
+    `[Open it in an editor tab](${link('gitardo.openCommit', line.hash)})`,
   ];
   // A commit that added the file has nothing before it.
-  if (line.previous) links.push(`[Blame the file as it was before](${link('gitar.blamePrevious', root, line.previous.hash, line.previous.file)})`);
+  if (line.previous) links.push(`[Blame the file as it was before](${link('gitardo.blamePrevious', root, line.previous.hash, line.previous.file)})`);
   text.appendMarkdown(`\n\n${links.join(' · ')}`);
   return text;
 }
@@ -103,7 +103,7 @@ export class FileBlame implements vscode.Disposable {
   });
   /** Where the other lines of the commit of the line under the cursor are, in the scroll bar of a file longer than its editor. */
   private readonly marks = vscode.window.createTextEditorDecorationType({
-    overviewRulerColor: new vscode.ThemeColor('gitar.blameHighlightForeground'),
+    overviewRulerColor: new vscode.ThemeColor('gitardo.blameHighlightForeground'),
     overviewRulerLane: vscode.OverviewRulerLane.Center,
   });
   private readonly subscriptions: vscode.Disposable[];
@@ -135,7 +135,7 @@ export class FileBlame implements vscode.Disposable {
       vscode.workspace.onDidSaveTextDocument((document) => this.schedule(document)),
       vscode.workspace.onDidCloseTextDocument((document) => this.forget(document.uri)),
       vscode.workspace.onDidChangeConfiguration(
-        (event) => (event.affectsConfiguration('gitar.fileBlame') || event.affectsConfiguration('gitar.blame')) && this.configured(),
+        (event) => (event.affectsConfiguration('gitardo.fileBlame') || event.affectsConfiguration('gitardo.blame')) && this.configured(),
       ),
     ];
     this.tell();
@@ -159,7 +159,7 @@ export class FileBlame implements vscode.Disposable {
       ? vscode.workspace.textDocuments.find((candidate) => candidate.uri.toString() === uri.toString())
       : vscode.window.activeTextEditor?.document;
     if (!document) {
-      void vscode.window.showInformationMessage('Gitar: open a file of a repository to see who changed its lines.');
+      void vscode.window.showInformationMessage('Gitardo: open a file of a repository to see who changed its lines.');
       return;
     }
     const key = document.uri.toString();
@@ -172,7 +172,7 @@ export class FileBlame implements vscode.Disposable {
     this.hidden.delete(key);
     if (await this.show(document)) return;
     void vscode.window.showInformationMessage(
-      `Gitar: ${path.basename(document.uri.fsPath)} is not in any commit yet, so there is no one to name beside its lines.`,
+      `Gitardo: ${path.basename(document.uri.fsPath)} is not in any commit yet, so there is no one to name beside its lines.`,
     );
   }
 
@@ -205,7 +205,7 @@ export class FileBlame implements vscode.Disposable {
       if (!at) return;
       if (!at.line.previous) {
         void vscode.window.showInformationMessage(
-          `Gitar: ${at.line.hash.slice(0, 7)} is the commit that added this file, so there is nothing before it to blame.`,
+          `Gitardo: ${at.line.hash.slice(0, 7)} is the commit that added this file, so there is nothing before it to blame.`,
         );
         return;
       }
@@ -229,7 +229,7 @@ export class FileBlame implements vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     const found = editor && (await this.source.of(editor.document));
     if (!editor || !found) {
-      void vscode.window.showInformationMessage('Gitar: put the cursor on a line of a file of a repository.');
+      void vscode.window.showInformationMessage('Gitardo: put the cursor on a line of a file of a repository.');
       return undefined;
     }
     const lines =
@@ -237,7 +237,7 @@ export class FileBlame implements vscode.Disposable {
       (await found.repo.blame(found.file, this.source.options(editor.document, found)).catch(() => null));
     const line = lines?.[editor.selection.active.line];
     if (line?.committed) return { line, found };
-    void vscode.window.showInformationMessage(line ? 'Gitar: this line is not committed yet.' : 'Gitar: this line is in no commit.');
+    void vscode.window.showInformationMessage(line ? 'Gitardo: this line is not committed yet.' : 'Gitardo: this line is in no commit.');
     return undefined;
   }
 
@@ -249,7 +249,7 @@ export class FileBlame implements vscode.Disposable {
     try {
       const read = auto
         ? await this.read(document)
-        : await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Gitar: reading the blame…' }, () => this.read(document));
+        : await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Gitardo: reading the blame…' }, () => this.read(document));
       if (!read) {
         this.none.add(key);
         return false;
@@ -394,8 +394,8 @@ export class FileBlame implements vscode.Disposable {
       };
       // What the line under the cursor has beside it stands out, as it does beside the other lines of its commit.
       const lit = {
-        color: new vscode.ThemeColor('gitar.blameHighlightForeground'),
-        backgroundColor: new vscode.ThemeColor('gitar.blameHighlightBackground'),
+        color: new vscode.ThemeColor('gitardo.blameHighlightForeground'),
+        backgroundColor: new vscode.ThemeColor('gitardo.blameHighlightBackground'),
       };
       for (const [index, label] of labels.entries()) {
         const line = shown.lines[index];

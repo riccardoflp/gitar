@@ -1,4 +1,4 @@
-// Times what Gitar reads from a repository: node dist/perf.js <repository>
+// Times what Gitardo reads from a repository: node dist/perf.js <repository>
 // Make a large one to try it on with test/perf/big-repo.mjs.
 
 import { Repo } from '../../src/git/repo';

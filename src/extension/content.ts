@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Repo } from '../git/repo';
 
-export const SCHEME = 'gitar';
+export const SCHEME = 'gitardo';
 
 /** Stands for the staged version of a file: `git show :0:<path>`. */
 export const INDEX = ':0';
@@ -9,7 +9,7 @@ export const INDEX = ':0';
 /** The three sides of a file in conflict, as the index keeps them: `git show :1:<path>` and so on. */
 export const CONFLICT = { base: ':1', ours: ':2', theirs: ':3' } as const;
 
-/** Stands for what Gitar proposes to write in a file, shown beside what the file has before anything is written. */
+/** Stands for what Gitardo proposes to write in a file, shown beside what the file has before anything is written. */
 const PROPOSAL = 'proposal';
 const proposals = new Map<string, string>();
 

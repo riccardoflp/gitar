@@ -67,10 +67,10 @@ const beside = () => divergent({ 'a.txt': BASE }, { 'a.txt': BASE.replace('two',
 const BESIDE = text('one', 'TWO', 'THREE', 'four', 'five');
 
 beforeEach(async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitar-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-'));
   await git(dir, ['init', '--initial-branch=main']);
-  await git(dir, ['config', 'user.name', 'Gitar Test']);
-  await git(dir, ['config', 'user.email', 'test@gitar.invalid']);
+  await git(dir, ['config', 'user.name', 'Gitardo Test']);
+  await git(dir, ['config', 'user.email', 'test@gitardo.invalid']);
   await git(dir, ['config', 'commit.gpgsign', 'false']);
   await git(dir, ['config', 'core.autocrlf', 'false']);
   root = (await Repo.discover(dir))!;

@@ -59,7 +59,7 @@ function page(theme: keyof typeof THEMES, data: Record<string, string>): string 
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gitar preview</title>
+<title>Gitardo preview</title>
 <style>
 :root {
   --vscode-font-family: "Segoe UI", system-ui, sans-serif;
@@ -122,9 +122,9 @@ window.acquireVsCodeApi = () => ({
     const response = await fetch('/message', { method: 'POST', body: JSON.stringify(message) });
     for (const reply of await response.json()) window.postMessage(reply, '*');
   },
-  getState: () => JSON.parse(sessionStorage.getItem('gitar') || 'null'),
+  getState: () => JSON.parse(sessionStorage.getItem('gitardo') || 'null'),
   // Hands the state back, as the one of VS Code does.
-  setState: (state) => (sessionStorage.setItem('gitar', JSON.stringify(state)), state),
+  setState: (state) => (sessionStorage.setItem('gitardo', JSON.stringify(state)), state),
 });
 </script>
 <script src="/webview.js"></script>
@@ -264,7 +264,7 @@ async function main() {
         response.end(String(error));
       }
     })
-    .listen(port, '127.0.0.1', () => console.log(`Gitar preview of ${roots.join(', ') || 'no repository'} on http://localhost:${port}`));
+    .listen(port, '127.0.0.1', () => console.log(`Gitardo preview of ${roots.join(', ') || 'no repository'} on http://localhost:${port}`));
 }
 
 void main();
