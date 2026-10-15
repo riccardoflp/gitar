@@ -56,6 +56,7 @@ import {
 } from '../src/git/ops';
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
+import { foldersToLink, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
 import { WORKTREE, type Filter, type Scope } from '../src/shared/protocol';
 import { canFastForward } from '../src/shared/refs';
 
@@ -445,6 +446,70 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect(after.worktrees).toHaveLength(1);
     expect(after.branches.map((branch) => branch.name)).toEqual(['main']);
     fs.rmSync(path.dirname(moved), { recursive: true, force: true });
+  });
+
+  it('links and copies into a new worktree what git ignores, as the settings of VS Code ask', async () => {
+    write('.gitignore', 'node_modules/\n.env\n*.log\nconfig/\n');
+    write('a.txt', 'one\n');
+    await commitAll('First commit');
+    const files = {
+      'node_modules/pkg/index.js': 'module\n',
+      'packages/a/node_modules/x.js': 'nested\n',
+      '.env': 'SECRET=1\n',
+      'config/one.json': '{}\n',
+      'config/two.json': '[]\n',
+      'debug.log': 'not asked for\n',
+    };
+    for (const [file, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      write(file, content);
+    }
+    const patterns = { link: ['node_modules'], include: ['.env', 'config/', 'node_modules/'] };
+    expect((await foldersToLink(root, patterns.link)).sort()).toEqual(['node_modules', 'packages/a/node_modules']);
+
+    const dir = `${root}-worktree`;
+    await run(worktreeAddOp(dir, 'main', 'feature', false));
+    const lines: string[] = [];
+    const log = { info: (line: string) => lines.push(line), warn: (line: string) => lines.push(`warning: ${line}`) };
+    expect(await setUpWorktree(root, dir, patterns, log)).toEqual([]);
+
+    // The folders are links to those of this checkout; the files, and a folder all of whose files match, are copies.
+    expect(lines.filter((line) => line.startsWith('> ')).sort()).toEqual([
+      '> copy .env',
+      '> copy config',
+      '> symlink node_modules',
+      '> symlink packages/a/node_modules',
+    ]);
+    expect(fs.lstatSync(path.join(dir, 'node_modules')).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'packages/a/node_modules/x.js'), 'utf8')).toBe('nested\n');
+    expect(fs.lstatSync(path.join(dir, '.env')).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(dir, '.env'), 'utf8')).toBe('SECRET=1\n');
+    expect(fs.readFileSync(path.join(dir, 'config/two.json'), 'utf8')).toBe('[]\n');
+    expect(fs.existsSync(path.join(dir, 'debug.log'))).toBe(false);
+    expect((await git(dir, ['status', '--porcelain'])).stdout).toBe('');
+
+    // Again, nothing is made over what is there.
+    lines.length = 0;
+    expect(await setUpWorktree(root, dir, patterns, log)).toEqual([]);
+    expect(lines.filter((line) => !line.startsWith('> ')).sort()).toEqual([
+      '.env is in the worktree already.',
+      'config is in the worktree already.',
+      'node_modules is in the worktree already.',
+      'packages/a/node_modules is in the worktree already.',
+    ]);
+
+    // Git for Windows would delete what is in a junction along with the worktree: the links are taken out first.
+    lines.length = 0;
+    await unlinkFolderLinks(dir, log);
+    if (process.platform === 'win32') {
+      expect(lines.sort()).toEqual([`> unlink ${dir}/node_modules`, `> unlink ${dir}/packages/a/node_modules`]);
+      expect(fs.existsSync(path.join(dir, 'node_modules'))).toBe(false);
+    }
+    expect(fs.readFileSync(path.join(dir, '.env'), 'utf8')).toBe('SECRET=1\n');
+    await git(root, ['worktree', 'remove', '--force', dir]);
+    expect(fs.existsSync(dir)).toBe(false);
+    expect(fs.readFileSync(path.join(root, 'node_modules/pkg/index.js'), 'utf8')).toBe('module\n');
+    expect(fs.readFileSync(path.join(root, 'packages/a/node_modules/x.js'), 'utf8')).toBe('nested\n');
   });
 
   it('reads commit details and file contents at a commit and in the index', async () => {

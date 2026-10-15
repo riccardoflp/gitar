@@ -26,6 +26,7 @@ import {
 } from '../git/ops';
 import { samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
+import { unlinkFolderLinks } from '../git/worktreeSetup';
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import type {
@@ -713,7 +714,12 @@ export class Controller implements vscode.Disposable {
     const names = (wanted: boolean) => picked.filter((item) => merged.has(item.branch.name) === wanted).map((item) => item.branch.name);
     const worktrees = picked.flatMap(({ worktree }) => (worktree ? [{ path: worktree.path, dirty: !!worktree.changes, prunable: worktree.prunable }] : []));
     const op = cleanupBranchesOp(names(true), names(false), worktrees);
-    if (worktrees.length) op.onSuccess = () => worktrees.forEach((worktree) => removeEmptyParents(worktree.path, state));
+    if (worktrees.length) {
+      op.prepare = async (log) => {
+        for (const worktree of worktrees) if (!worktree.prunable) await unlinkFolderLinks(worktree.path, log);
+      };
+      op.onSuccess = () => worktrees.forEach((worktree) => removeEmptyParents(worktree.path, state));
+    }
     await this.run(op);
   }
 
@@ -1323,7 +1329,7 @@ export class Controller implements vscode.Disposable {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: `Gitardo: ${op.title}` },
         async () => {
-          op.prepare?.();
+          await op.prepare?.(this.log);
           if (op.writes?.length) {
             for (const write of op.writes) this.log.info(`> write ${write.path}`);
             await writeFiles(repo.root, op.writes);
@@ -1336,6 +1342,7 @@ export class Controller implements vscode.Disposable {
             const output = (result.stdout + result.stderr).trim();
             if (output) this.log.info(output);
           }
+          await op.finish?.(this.log);
         },
       );
       op.onSuccess?.();

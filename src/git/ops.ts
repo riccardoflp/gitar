@@ -19,10 +19,21 @@ export interface GitOp {
   writes?: FileWrite[];
   /** What to offer when git refuses with a message matching `when`, typically the forced variant. */
   fallback?: { when: RegExp; op: GitOp };
-  /** Called after the user agreed and before the commands run, for what they need that is not a file to write. */
-  prepare?(): void;
+  /**
+   * Called after the user agreed and before the commands run, for what they need that is not a file to write. What it
+   * does besides making folders goes to the log; when it throws, no command runs.
+   */
+  prepare?(log: OpLog): void | Promise<void>;
+  /** What Gitardo does itself once the commands have succeeded, saying each step in the log. It must not throw. */
+  finish?(log: OpLog): Promise<void>;
   /** Called once all commands have succeeded. */
   onSuccess?(): void;
+}
+
+/** Where an operation says what it does besides its commands: the log of Gitardo. */
+export interface OpLog {
+  info(line: string): void;
+  warn(line: string): void;
 }
 
 /** How to take back the last operation: either a checkout to return from, or a branch to move back. */

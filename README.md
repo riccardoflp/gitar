@@ -270,6 +270,22 @@ The **+** on the title of the Worktrees section, in the Branches view or beside 
 
 New worktrees go in the folder that `gitardo.worktrees.folder` names, `${repo}.worktrees` next to the repository unless you change it: the worktree `fix-login` of `~/code/app` is `~/code/app.worktrees/fix-login`. `${repo}` is the name of the repository's folder, a relative path starts from the folder that holds it, and `~` is your home folder. A folder left empty when a worktree is renamed or removed goes too.
 
+#### What git ignores, in a new worktree
+
+A new worktree has only what is committed: no `node_modules`, no `.env`. Two experimental settings of VS Code's Git extension, which VS Code applies only to the worktrees it creates itself, are applied by Gitardo too, to every worktree it creates:
+
+```json
+"git.worktreeSymlinkFolders": ["node_modules"],
+"git.worktreeIncludeFiles": [".env", ".vscode/settings.local.json"]
+```
+
+- `git.worktreeSymlinkFolders`: the folders that git ignores and that match these patterns, in `.gitignore` syntax, are linked into the new worktree from the folder you are in, the outermost ones only. What changes through a link changes in the folder you are in. On Windows the links are junctions, which need no rights.
+- `git.worktreeIncludeFiles`: the files and folders that git ignores and that match these patterns are copied, except what is inside a linked folder and what the worktree has from its commit. A folder all of whose files match is copied as a whole.
+
+Gitardo works them out the way VS Code does, after `git worktree add`, and says each one in the log, as `symlink <folder>` and `copy <path>`, before making it. Nothing is made where the worktree has something already. One that fails does not stop the others, and Gitardo says so once they are done. With the command preview on, the question names the two settings and their patterns.
+
+On Windows, git deletes what is inside a junction when it removes a worktree: the folder it links to, in the folder you are in. So before **Remove…** and **Gitardo: Clean Up Branches** remove a worktree, Gitardo takes out of it the links to folders outside it, among the files git does not track, each said in the log as `unlink <path>`. A worktree with such links, made by VS Code or by Gitardo, is to be removed from Gitardo, or after deleting the links, not with `git worktree remove` in a terminal.
+
 #### A format for the names
 
 When branches are named after a convention, `gitardo.worktrees.branchFormat` writes it down, and Gitardo asks for its parts:
@@ -416,7 +432,11 @@ For the same reason, two things that look odd in a command are there on purpose:
 - A file whose name is also a pattern to git (it contains `[`, `]`, `*`, `?` or `\`, or starts with `:`) is passed as `:(literal)<name>`. Without it, staging or discarding `pages/[id].tsx` would also act on `pages/i.tsx` and `pages/d.tsx`.
 - A branch that shares its name with a tag or with a remote branch is named in full, as `refs/heads/<name>`, where the short name would mean the other one or be refused: merging it, starting a branch from it, pushing it.
 
-One operation does more than run commands: resolving conflicts automatically, which is experimental and off by default, writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
+A few operations do more than run commands:
+
+- Resolving conflicts automatically, which is experimental and off by default, writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
+- Creating a worktree, when `git.worktreeSymlinkFolders` or `git.worktreeIncludeFiles` is set, links and copies what they ask for after `git worktree add`, with a `symlink <folder>` or `copy <path>` line in the log for each (see [What git ignores, in a new worktree](#what-git-ignores-in-a-new-worktree)).
+- Removing a worktree, on Windows, first takes out of it the links to folders outside it, with an `unlink <path>` line for each.
 
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
 

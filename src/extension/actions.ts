@@ -57,6 +57,7 @@ import {
   type GitOp,
   type ResetMode,
 } from '../git/ops';
+import { setUpWorktree, setupPatterns, unlinkFolderLinks } from '../git/worktreeSetup';
 import type { Action, RepoState, Worktree } from '../shared/protocol';
 import { isHome, refArg, worktreeOf } from '../shared/refs';
 
@@ -183,6 +184,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       const worktree = findWorktree(action.path, state);
       if (isHome(worktree.path, state)) throw new Error('This worktree is the folder open in this window: remove it from another one.');
       const leaveNoEmptyFolders = (op: GitOp): GitOp => {
+        op.prepare = (log) => unlinkFolderLinks(action.path, log);
         op.onSuccess = () => removeEmptyParents(action.path, state);
         if (op.fallback) leaveNoEmptyFolders(op.fallback.op);
         return op;
@@ -413,6 +415,32 @@ async function openInWorktree(name: string, remote: boolean, state: RepoState): 
   const local = state.branches.some((candidate) => candidate.name === branch);
   const op = remote && !local ? worktreeTrackOp(dir, branch, refArg('remote', name, state)) : worktreeAddOp(dir, branch, null, false);
   op.onSuccess = () => void openWorktree(dir, where);
+  return withSetup(op, dir, state);
+}
+
+/**
+ * Has a new worktree get, once git has made it, what VS Code's experimental settings git.worktreeSymlinkFolders and
+ * git.worktreeIncludeFiles bring from this checkout, as VS Code does for the worktrees it creates.
+ */
+function withSetup(op: GitOp, dir: string, state: RepoState): GitOp {
+  const config = vscode.workspace.getConfiguration('git', vscode.Uri.file(state.root));
+  const patterns = {
+    link: setupPatterns(config.get('worktreeSymlinkFolders')),
+    include: setupPatterns(config.get('worktreeIncludeFiles')),
+  };
+  if (!patterns.link.length && !patterns.include.length) return op;
+  const what = [
+    patterns.link.length && `link the folders matching git.worktreeSymlinkFolders (${patterns.link.join(', ')})`,
+    patterns.include.length && `copy what matches git.worktreeIncludeFiles (${patterns.include.join(', ')})`,
+  ].filter(Boolean);
+  op.note = `Then Gitardo will ${what.join(', and ')} from ${state.root}, where git ignores them.`;
+  op.finish = async (log) => {
+    const failures = await setUpWorktree(state.root, dir, patterns, log);
+    if (failures.length) {
+      const which = failures.length === 1 ? failures[0] : `${failures.length} folders or files`;
+      void vscode.window.showWarningMessage(`The worktree was created, but ${which} failed: the log says why.`);
+    }
+  };
   return op;
 }
 
@@ -673,7 +701,7 @@ async function addWorktree(
       if (choice) void openWorktree(dir, choice === 'Open in Agents Window' ? 'agents' : 'window');
     });
   };
-  return op;
+  return withSetup(op, dir, state);
 }
 
 /**
@@ -725,7 +753,7 @@ async function renameWorktree(worktree: Worktree, state: RepoState): Promise<Git
   }
   const op = worktreeMoveOp(worktree.path, to, branch);
   // Git moves a worktree into a folder that is there already.
-  op.prepare = () => fs.mkdirSync(path.dirname(to), { recursive: true });
+  op.prepare = () => void fs.mkdirSync(path.dirname(to), { recursive: true });
   op.onSuccess = () => removeEmptyParents(dir, state);
   return op;
 }

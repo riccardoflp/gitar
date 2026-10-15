@@ -415,6 +415,68 @@ export async function run(): Promise<void> {
     assert.equal(state().worktrees.length, 1);
   });
 
+  await step('links and copies into a new worktree what the settings of VS Code ask, and unlinks before removing it', async () => {
+    const config = vscode.workspace.getConfiguration('git');
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    const exclude = path.join(app, '.git', 'info', 'exclude');
+    const excluded = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : null;
+    const branches = state().branches.length;
+    let made: string | undefined;
+    // Ignored through the repository's own exclude file, which leaves what is committed alone.
+    fs.mkdirSync(path.dirname(exclude), { recursive: true });
+    fs.writeFileSync(exclude, `${excluded ?? ''}\nnode_modules/\n.env\n`);
+    fs.mkdirSync(path.join(app, 'node_modules', 'pkg'), { recursive: true });
+    write('node_modules/pkg/index.js', 'module\n');
+    write('.env', 'SECRET=1\n');
+    await config.update('worktreeSymlinkFolders', ['node_modules'], vscode.ConfigurationTarget.Global);
+    await config.update('worktreeIncludeFiles', ['.env'], vscode.ConfigurationTarget.Global);
+    try {
+      logged.length = 0;
+      answer = () => undefined;
+      inputs = ['linked/one'];
+      choose = byLabel('main');
+      await controller.action({ kind: 'worktreeAdd' });
+      made = state().worktrees.find((worktree) => worktree.branch === 'linked/one')?.path;
+      assert.ok(made, JSON.stringify(state().worktrees));
+      // After git made it, each one said in the log as it is made.
+      const steps = logged.filter((line) => line.startsWith('> '));
+      assert.match(steps[0], /^> git worktree add /);
+      assert.deepEqual(steps.slice(1), ['> symlink node_modules', '> copy .env']);
+      assert.ok(fs.lstatSync(path.join(made, 'node_modules')).isSymbolicLink());
+      assert.equal(fs.readFileSync(path.join(made, 'node_modules/pkg/index.js'), 'utf8'), 'module\n');
+      assert.ok(!fs.lstatSync(path.join(made, '.env')).isSymbolicLink());
+      assert.equal(fs.readFileSync(path.join(made, '.env'), 'utf8'), 'SECRET=1\n');
+
+      // Git for Windows would delete what is in the junction with the worktree, in this checkout: it goes first.
+      logged.length = 0;
+      answer = run;
+      await controller.action({ kind: 'worktreeRemove', path: made, deleteBranch: true });
+      if (process.platform === 'win32') {
+        assert.equal(logged.find((line) => line.startsWith('> '))?.toLowerCase(), `> unlink ${made}/node_modules`.toLowerCase());
+      }
+      assert.ok(!state().worktrees.some((worktree) => worktree.branch === 'linked/one'));
+      assert.ok(!fs.existsSync(made));
+      assert.equal(fs.readFileSync(path.join(app, 'node_modules/pkg/index.js'), 'utf8'), 'module\n');
+      assert.equal(state().branches.length, branches);
+    } finally {
+      answer = () => undefined;
+      choose = () => undefined;
+      await config.update('worktreeSymlinkFolders', undefined, vscode.ConfigurationTarget.Global);
+      await config.update('worktreeIncludeFiles', undefined, vscode.ConfigurationTarget.Global);
+      // The link goes before its folder does, so that nothing of this checkout goes with it.
+      const link = made && path.join(made, 'node_modules');
+      if (link && fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(link);
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+      await git(app, ['branch', '-D', 'linked/one']).catch(() => undefined);
+      fs.rmSync(path.join(app, 'node_modules'), { recursive: true, force: true });
+      fs.rmSync(path.join(app, '.env'), { force: true });
+      if (excluded === null) fs.rmSync(exclude, { force: true });
+      else fs.writeFileSync(exclude, excluded);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+  });
+
   await step('shows another worktree in the views of this window, works in it there and goes back', async () => {
     const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
     const dir = `${home}/shown`;
