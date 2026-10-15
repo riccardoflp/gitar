@@ -84,7 +84,7 @@ export function parseStashes(out: string): Stash[] {
   });
 }
 
-const samePath = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
+export const samePath = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 
 /** Parses `git worktree list --porcelain`. */
 export function parseWorktrees(out: string, root: string): Worktree[] {

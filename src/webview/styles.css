@@ -707,7 +707,7 @@ input:focus-visible,
   color: var(--vscode-descriptionForeground);
 }
 
-.changes {
+.dirty {
   flex: none;
   display: flex;
   align-items: center;
@@ -1365,6 +1365,12 @@ input:focus-visible,
 
 .banner .grow {
   min-width: 120px;
+}
+
+.banner.worktree {
+  color: inherit;
+  background: var(--vscode-editorInfo-background, var(--vscode-editorWidget-background));
+  border-bottom-color: var(--vscode-panel-border);
 }
 
 .banner.bisect {

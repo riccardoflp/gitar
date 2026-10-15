@@ -10,7 +10,7 @@ import {
   type Stash,
   type Worktree,
 } from '../shared/protocol';
-import { canFastForward, nameOnRemote, pullOf, pushedName, refArg, worktreeOf } from '../shared/refs';
+import { canFastForward, isHome, nameOnRemote, pullOf, pushedName, refArg, worktreeOf } from '../shared/refs';
 
 export { pullOf, pushedName };
 import { scopeRefs, toggleScopeRef } from '../shared/scope';
@@ -212,7 +212,7 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
   const { name } = branch;
   const checkedOut = state.worktrees.some((worktree) => worktree.branch === name);
   const worktree = worktreeOf(name, state);
-  const removable = worktree && !worktree.main;
+  const removable = worktree && !worktree.main && !isHome(worktree.path, state);
   // What a double click does comes first.
   const here: MenuEntry[] =
     branch.current || worktree
@@ -324,18 +324,22 @@ function worktreeOpenEntries(worktree: Worktree, state: RepoState, ofBranch = fa
       label: !ofBranch ? REVEAL : REVEAL.startsWith('Reveal') ? REVEAL.replace('Reveal', 'Reveal worktree') : 'Open folder of worktree',
       run: () => act({ kind: 'worktreeReveal', path }),
     },
+    // The views of this window go to it, for its changes, commits and branches.
+    !worktree.current && { label: ofBranch ? 'Show worktree in Gitardo' : 'Show in Gitardo', run: () => post({ type: 'selectRepo', root: path }) },
   ];
 }
 
 export function worktreeMenu(worktree: Worktree, state: RepoState): MenuEntry[] {
   const { path } = worktree;
+  // The folder of this window, while the views show another worktree.
+  const home = isHome(path, state);
   return [
     ...worktreeOpenEntries(worktree, state),
     'separator',
-    !worktree.prunable && !worktree.main && !worktree.current && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
+    !worktree.prunable && !worktree.main && !worktree.current && !home && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
     { label: 'Copy path', run: () => copy(path) },
     'separator',
-    !worktree.current && !worktree.main && { label: 'Remove…', danger: true, run: () => act({ kind: 'worktreeRemove', path }) },
+    !worktree.current && !worktree.main && !home && { label: 'Remove…', danger: true, run: () => act({ kind: 'worktreeRemove', path }) },
     state.worktrees.some((candidate) => candidate.prunable) && {
       label: 'Prune missing worktrees',
       run: () => act({ kind: 'worktreePrune' }),

@@ -102,6 +102,23 @@ describe('menus of branches that a worktree has', () => {
   it('says what a worktree menu opens without naming the worktree', () => {
     expect(labels(worktreeMenu(there, repo)).slice(0, 3)).toEqual(['Open in Agents Window', 'Open in new window', 'Open in terminal']);
   });
+
+  it('shows another worktree in the views of this window, and keeps the folder of the window from being removed there', () => {
+    expect(labels(worktreeMenu(there, repo))).toContain('Show in Gitardo');
+    expect(labels(worktreeMenu(here, repo))).not.toContain('Show in Gitardo');
+    expect(labels(branchMenu(login, repo, () => {}))).toContain('Show worktree in Gitardo');
+    posted.length = 0;
+    const show = worktreeMenu(there, repo).find((entry) => entry && entry !== 'separator' && entry.label === 'Show in Gitardo');
+    if (show && show !== 'separator') show.run();
+    expect(posted).toEqual([{ type: 'selectRepo', root: there.path }]);
+
+    // Seen from the worktree of feature/login, the folder of the window is a worktree like another, but its own.
+    const window = worktree({ path: 'C:/prj/feature', branch: 'feature', current: false, main: false });
+    const shown = { ...state([worktree({}), { ...there, current: true }, window], [main, login]), home: { root: 'C:\\prj\\feature', name: 'feature' } } as RepoState;
+    expect(labels(worktreeMenu(window, shown))).not.toEqual(expect.arrayContaining(['Rename…']));
+    expect(labels(worktreeMenu(window, shown))).not.toContain('Remove…');
+    expect(labels(branchMenu({ name: 'feature', hash: 'aaa', current: false }, shown, () => {}))).not.toContain('Remove worktree…');
+  });
 });
 
 describe('the status of a worktree', () => {

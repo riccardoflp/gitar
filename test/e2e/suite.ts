@@ -415,6 +415,51 @@ export async function run(): Promise<void> {
     assert.equal(state().worktrees.length, 1);
   });
 
+  await step('shows another worktree in the views of this window, works in it there and goes back', async () => {
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    const dir = `${home}/shown`;
+    const same = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
+    const branches = state().branches.length;
+    const back = state().repos[0];
+    await git(app, ['worktree', 'add', '-b', 'shown/one', dir, 'main']);
+    await vscode.commands.executeCommand('gitardo.refresh');
+    try {
+      await controller.selectRepo(dir);
+      assert.ok(same(state().root, dir), state().root);
+      assert.equal(state().branch, 'shown/one');
+      assert.deepEqual(state().home, back);
+      // The window's own folder is listed as another worktree, which is neither renamed nor removed from here.
+      const window = state().worktrees.find((worktree) => same(worktree.path, app));
+      assert.ok(window && !window.current);
+      errors.length = 0;
+      await controller.action({ kind: 'worktreeRemove', path: window.path, deleteBranch: false });
+      assert.ok(errors.some((text) => /folder open in this window/.test(text)), JSON.stringify(errors));
+      errors.length = 0;
+
+      // What is done in the views is done in that worktree.
+      fs.writeFileSync(path.join(dir, 'shown.txt'), 'shown\n');
+      await vscode.commands.executeCommand('gitardo.refresh');
+      assert.deepEqual(state().working.unstaged.map((file) => file.path), ['shown.txt']);
+      await controller.action({ kind: 'stage', paths: ['shown.txt'] });
+      assert.equal((await git(dir, ['diff', '--cached', '--name-only'])).stdout.trim(), 'shown.txt');
+      assert.equal((await git(app, ['diff', '--cached', '--name-only'])).stdout.trim(), '');
+
+      // And back to the folder of the window.
+      await controller.selectRepo(back.root);
+      assert.equal(state().root, back.root);
+      assert.equal(state().home, null);
+    } finally {
+      if (!same(state().root, back.root)) await controller.selectRepo(back.root);
+      await git(app, ['worktree', 'remove', '--force', dir]).catch(() => undefined);
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+      await git(app, ['branch', '-D', 'shown/one']).catch(() => undefined);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+    assert.equal(state().branches.length, branches);
+    assert.equal(state().worktrees.length, 1);
+  });
+
   await step('opens a branch in its worktree, made for it with nothing asked, and switches between worktrees', async () => {
     const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
     const branches = state().branches.length;

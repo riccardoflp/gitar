@@ -7,6 +7,7 @@ import { ActionButtons, FileRow, type FileAction } from './FileRow';
 import { Icon } from './Icon';
 import { OperationBanner, resolvableConflicts } from './OperationBanner';
 import { RepoSelect } from './RepoSelect';
+import { WorktreeBanner } from './WorktreeBanner';
 import { act } from './menus';
 import { loadUiState, onMessage, post, saveUiState } from './vscode';
 
@@ -280,6 +281,7 @@ export function ChangesApp() {
   return (
     <div className="changes">
       <RepoSelect state={state} disabled={busy} />
+      <WorktreeBanner state={state} busy={busy} />
       <OperationBanner state={state} busy={busy} />
       <BisectBanner state={state} busy={busy} />
       <CommitBox state={state} busy={busy} />

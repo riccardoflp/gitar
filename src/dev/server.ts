@@ -3,6 +3,7 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { discoverRepos, repoName } from '../git/discover';
 import { parseGitHubRemote } from '../git/github';
+import { samePath } from '../git/parse';
 import { Repo } from '../git/repo';
 import type { Filter, HostMessage, Scope, ViewKind, WebviewMessage } from '../shared/protocol';
 
@@ -143,24 +144,34 @@ async function main() {
   let scope: Scope | null = null;
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
+  /** The worktrees of the repository shown, which the views can be pointed at, and the repository to go back to. */
+  let worktrees: string[] = [];
+  let home: (typeof repos)[number] | null = null;
+  const inRoots = (dir: string) => roots.find((root) => samePath(root, dir));
 
   async function state(): Promise<HostMessage[]> {
     if (!repo) return [{ type: 'state', state: null }];
     const github = parseGitHubRemote(await repo.remoteUrl('origin'));
     const read = await repo.state(limit, filter, scope, true);
     scope = read.scope;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout' } }];
+    worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
+    const away = inRoots(read.root) ? null : home;
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', home: away } }];
   }
 
   async function handle(message: WebviewMessage): Promise<HostMessage[]> {
     switch (message.type) {
-      case 'selectRepo':
-        if (!roots.includes(message.root)) return [];
-        repo = new Repo(message.root);
+      case 'selectRepo': {
+        const root = inRoots(message.root) ?? worktrees.find((dir) => samePath(dir, message.root));
+        if (!root) return [];
+        const shown = repo && inRoots(repo.root);
+        if (shown) home = repos.find((each) => each.root === shown) ?? home;
+        repo = new Repo(root);
         filter = null;
         scope = null;
         limit = PAGE_SIZE;
         return state();
+      }
       case 'setFilter':
         filter = message.filter;
         limit = PAGE_SIZE;

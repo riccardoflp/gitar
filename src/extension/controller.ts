@@ -24,6 +24,7 @@ import {
   type GitOp,
   type IdentityProfile,
 } from '../git/ops';
+import { samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
 import { WORKTREE, showsGraph, showsComparisons } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
@@ -133,6 +134,8 @@ export class Controller implements vscode.Disposable {
   private pendingCompare?: Comparing;
   /** Every repository of the workspace; `repo` is the one being shown. */
   private repos: RepoInfo[] = [];
+  /** The repository of the workspace shown before a worktree of it that is not in the workspace. */
+  private home?: RepoInfo;
   /** Whether this VS Code has the Agents window, which is looked up once: it comes and goes with VS Code itself. */
   private agentsWindow?: Promise<boolean>;
   private readonly views = new Map<vscode.Webview, ViewKind>();
@@ -234,6 +237,7 @@ export class Controller implements vscode.Disposable {
           agentsWindow: await (this.agentsWindow ??= hasCommand(AGENTS_WINDOW)),
           worktreesRoot: worktreesFolder(state),
           openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
+          home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
       }
     } catch (error) {
@@ -1070,16 +1074,29 @@ export class Controller implements vscode.Disposable {
     await this.refresh();
   }
 
-  /** Switches to another repository of the workspace, and remembers the choice for this workspace. */
+  /**
+   * Switches to another repository of the workspace, and remembers the choice for this workspace; or to another worktree
+   * of the repository shown, for as long as the window lasts: its changes, commits and branches are worked on from here.
+   */
   async selectRepo(root: string): Promise<void> {
-    if (this.running || !this.repos.some((repo) => repo.root === root) || root === this.repo?.root) return;
-    await this.memento.update(REPO_KEY, root);
-    await this.open(root);
+    const shown = this.repo?.root;
+    if (this.running || (shown && samePath(root, shown))) return;
+    const repo = this.repos.find((each) => samePath(each.root, root));
+    if (repo) {
+      await this.memento.update(REPO_KEY, repo.root);
+      return this.open(repo.root);
+    }
+    const worktree = this.state?.worktrees.find((each) => samePath(each.path, root) && !each.prunable);
+    if (!worktree) return;
+    // The way back is the repository of the workspace that was shown, or the one that was before another worktree.
+    this.home = this.repos.find((each) => shown && samePath(each.root, shown)) ?? this.home;
+    await this.open(worktree.path);
   }
 
   private async pickRepo(): Promise<void> {
     if (!this.located) await this.locate();
-    if (this.repos.length < 2) {
+    // Showing a worktree, there is always the repository of the workspace to go back to.
+    if (this.repos.length < 2 && !this.state?.home) {
       void vscode.window.showInformationMessage(
         this.repos.length ? 'Gitardo: this workspace has a single repository.' : 'Gitardo: no Git repository in this workspace.',
       );
@@ -1087,7 +1104,10 @@ export class Controller implements vscode.Disposable {
     }
     const current = this.repo?.root;
     const choice = await vscode.window.showQuickPick(
-      this.repos.map((repo) => ({ label: repo.name, description: repo.root === current ? 'current' : undefined, detail: repo.root, repo })),
+      [
+        ...this.repos.map((repo) => ({ label: repo.name, description: repo.root === current ? 'current' : undefined, detail: repo.root, repo })),
+        ...(this.state?.home && current ? [{ label: this.state.name, description: 'worktree, current', detail: current, repo: { root: current, name: this.state.name } }] : []),
+      ],
       { title: 'Repository shown in Gitardo', matchOnDetail: true },
     );
     if (choice) await this.selectRepo(choice.repo.root);

@@ -340,6 +340,7 @@ export class Repo {
       agentsWindow: false,
       worktreesRoot: null,
       openBranches: 'checkout',
+      home: null,
     };
   }
 

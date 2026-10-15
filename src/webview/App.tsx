@@ -9,6 +9,7 @@ import { Detail } from './Detail';
 import { FilterBar } from './FilterBar';
 import { Icon } from './Icon';
 import { OperationBanner } from './OperationBanner';
+import { WorktreeBanner } from './WorktreeBanner';
 import { RebaseEditor } from './RebaseEditor';
 import { RefsTree } from './RefsTree';
 import { Sash } from './Sash';
@@ -329,6 +330,7 @@ export function App({ compact = false }: { compact?: boolean }) {
         onStep={step}
       />
       {/* In the side bar the Changes view, right above, already says what is under way. */}
+      {!compact && <WorktreeBanner state={state} busy={busy !== null} />}
       {!compact && <OperationBanner state={state} busy={busy !== null} />}
       {!compact && <BisectBanner state={state} busy={busy !== null} onShow={jump} />}
       <FilterBar state={state} />

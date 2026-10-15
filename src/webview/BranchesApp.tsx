@@ -4,6 +4,7 @@ import { Compare } from './Compare';
 import { Placeholder } from './Placeholder';
 import { RefsTree, type SectionId } from './RefsTree';
 import { onMessage, post } from './vscode';
+import { WorktreeBanner } from './WorktreeBanner';
 
 /** The stashes have a view of their own beside this one. */
 const SECTIONS: SectionId[] = ['favorites', 'recent', 'branches', 'remotes', 'tags', 'worktrees'];
@@ -58,6 +59,7 @@ export function BranchesApp() {
 
   return (
     <div className="side">
+      <WorktreeBanner state={state} busy={false} />
       <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} sections={SECTIONS} />
       {comparing && (
         <Compare

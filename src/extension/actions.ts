@@ -57,7 +57,7 @@ import {
   type ResetMode,
 } from '../git/ops';
 import type { Action, RepoState, Worktree } from '../shared/protocol';
-import { refArg } from '../shared/refs';
+import { isHome, refArg } from '../shared/refs';
 
 function askName(title: string, state: RepoState, kind: 'branch' | 'tag', value = ''): Thenable<string | undefined> {
   const taken = new Set((kind === 'branch' ? state.branches : state.tags).map((ref) => ref.name));
@@ -180,6 +180,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
     case 'worktreeRemove': {
       const worktree = findWorktree(action.path, state);
+      if (isHome(worktree.path, state)) throw new Error('This worktree is the folder open in this window: remove it from another one.');
       const leaveNoEmptyFolders = (op: GitOp): GitOp => {
         op.onSuccess = () => removeEmptyParents(action.path, state);
         if (op.fallback) leaveNoEmptyFolders(op.fallback.op);
@@ -645,7 +646,7 @@ async function addWorktree(
  */
 async function renameWorktree(worktree: Worktree, state: RepoState): Promise<GitOp | undefined> {
   if (worktree.main) throw new Error('Git cannot move the main worktree, the folder the repository was created in.');
-  if (worktree.current) throw new Error('This worktree is the folder open in this window: rename it from another one.');
+  if (worktree.current || isHome(worktree.path, state)) throw new Error('This worktree is the folder open in this window: rename it from another one.');
   const dir = worktree.path.replace(/\\/g, '/');
   const { main, folder } = worktreesHome(state);
   const home = worktreesRoot(main, folder);

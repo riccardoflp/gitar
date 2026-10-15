@@ -124,7 +124,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
               {item.worktree && <Icon name="worktree" />}
               {item.hint && <span className="hint">{item.hint}</span>}
               {item.changes !== undefined && (
-                <span className="changes">
+                <span className="dirty">
                   <Icon name="edit" />
                   {item.changes}
                 </span>

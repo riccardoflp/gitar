@@ -193,6 +193,11 @@ export interface RepoState {
   worktreesRoot: string | null;
   /** What a double click on a branch does, as the settings say: check it out here, or open its worktree. */
   openBranches: 'checkout' | 'worktree';
+  /**
+   * The repository of the workspace the views go back to, while they show a worktree of it that is not in the
+   * workspace. Null when they show a repository of the workspace.
+   */
+  home: RepoInfo | null;
 }
 
 /** The commits of what is checked out, for the view that lists them apart from the graph. */

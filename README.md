@@ -313,6 +313,10 @@ Git checks a branch out in one worktree at a time, so a branch that another work
 
 The branch of the main worktree, seen from another worktree, is the same, except that the main worktree can be neither renamed nor removed.
 
+#### Another worktree in this window
+
+**Show in Gitardo**, in the context menu of a worktree, and **Show worktree in Gitardo** in that of its branch, point the views of this window at it: the graph, the changes, the commits and the branches are its own, and what you do there, staging, committing, pulling or pushing, is done in it, without opening another window. A banner at the top of the Graph, Changes and Branches views says which worktree they show, with **Back to** the repository of the window; the repository picker lists it too. The folder of the window, which the views list as another worktree meanwhile, can be neither renamed nor removed from there. The choice is not remembered: the next time the window opens, the views show its own folder.
+
 #### Working in worktrees only
 
 **Open in worktree**, in the context menu of a branch that no worktree has, opens it in a worktree of its own, with nothing asked: the worktree is made in the folder of the worktrees, named after the branch, if it is not there yet, and opens where `gitardo.worktrees.openIn` says. On a remote branch, the worktree has the local branch of the same name, made to track the remote one if there is none.
