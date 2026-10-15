@@ -927,15 +927,13 @@ export class Controller implements vscode.Disposable {
       const asked = action.kind === 'resolveConflicts';
       if (asked && !(await this.confirmWrites(repo, op))) return;
 
-      let result = await this.run(op, { silent: Boolean(op.fallback), asked });
-      if (op.fallback && result.error !== undefined) {
-        if (op.fallback.when.test(result.error)) result = await this.run(op.fallback.op);
-        else this.reportFailure(op, result.error);
-      }
+      const { result, ran } = await this.runWithFallback(op, asked);
       if (action.kind === 'cherryPickMany' && state.head && (result.ok || this.state?.operation === 'cherry-pick')) {
         this.series = { before: state.head, branch: state.branch, title: op.title };
       }
       if (!result.ok) return;
+      // Said along with the operation, so not asked again.
+      if (ran.then) await this.runWithFallback(ran.then, true);
 
       if (action.kind === 'commit') this.post({ type: 'committed' });
       if (action.kind === 'bisect') this.reportBisect();
@@ -964,6 +962,18 @@ export class Controller implements vscode.Disposable {
     } catch (error) {
       void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
+  }
+
+  /**
+   * Runs an operation, and when git refuses it in the way its fallback is for, the fallback, which is asked first as
+   * any operation is. `ran` is the one that ran last.
+   */
+  private async runWithFallback(op: GitOp, asked: boolean): Promise<{ result: RunResult; ran: GitOp }> {
+    const result = await this.run(op, { silent: Boolean(op.fallback), asked });
+    if (!op.fallback || result.error === undefined) return { result, ran: op };
+    if (op.fallback.when.test(result.error)) return { result: await this.run(op.fallback.op), ran: op.fallback.op };
+    this.reportFailure(op, result.error);
+    return { result, ran: op };
   }
 
   /** Asks before an operation writes files, and shows what it would write in each to who wants to see that first. */
@@ -1475,7 +1485,8 @@ export class Controller implements vscode.Disposable {
   private describe(repo: Repo, op: GitOp): string {
     // What runs no command says what it does in its note.
     if (!op.commands.length && !op.writes?.length) return op.note ?? '';
-    const commands = op.commands.map(formatCommand).join('\n');
+    const then = op.then ? `\n\nand once that is done:\n\n${op.then.commands.map(formatCommand).join('\n')}` : '';
+    const commands = op.commands.map(formatCommand).join('\n') + then;
     const note = op.note ? `${op.note}\n\n` : '';
     if (!op.writes?.length) return `${note}Gitardo will run in ${repo.root}:\n\n${commands}`;
     const files = op.writes.map((write) => write.path).join('\n');

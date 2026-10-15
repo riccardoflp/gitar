@@ -367,6 +367,8 @@ Its context menu opens it in a new window (also by double-click), in a terminal,
 
 The **+** on the title of the section, **Add submodule…** in the **…** menu of the graph while there are none, and **Gitardo: Add Submodule…** ask for the URL of a repository, the folder to clone it in, named after it unless you change it, and the branch it follows, if any: `git submodule add` clones it, and its own submodules too. Git does not clone a submodule from a folder on disk unless allowed, since a repository could point one at any folder of the computer: when it refuses, Gitardo offers to allow it for those commands only, with `-c protocol.file.allow=always`. **Synchronize URLs from .gitmodules** copies the URLs of `.gitmodules` to the submodules after they changed there.
 
+Git leaves the submodules where they are on a checkout, so they no longer match the commit checked out. Gitardo updates them to the commits it records once the checkout is done, with `git submodule update --init --recursive`, which also clones the ones that commit adds and the ones inside them: after **Check out**, after creating a branch and checking it out, after **Create branch from stash…** and after undoing a checkout, when the repository has submodules before or after it. When Gitardo asks before the checkout, it shows that command too, and it asks anyway when a submodule has commits on a detached HEAD that no branch would have then; files not committed in a submodule are kept, or stop the update when they are in the way. The setting `gitardo.submodules.updateOnCheckout`, on by default, turns this off.
+
 Gitardo follows what happens in the submodules: a commit or a checkout made in one, in its window or a terminal, updates its icon.
 
 ### Remotes

@@ -135,6 +135,12 @@ export class Repo {
     return (await this.read([...(folder ? ['-C', folder] : []), 'rev-parse', '--absolute-git-dir'])).trim();
   }
 
+  /** Whether a commit has submodules: a `.gitmodules` file. */
+  async hasSubmodulesAt(revision: string): Promise<boolean> {
+    if (!revision || revision.startsWith('-')) return false;
+    return (await this.query(['cat-file', '-e', `${revision}:.gitmodules`])).code === 0;
+  }
+
   async working(): Promise<WorkingState> {
     return parseStatus(await this.read(['status', '--porcelain=v1', '-z', '--untracked-files=all']));
   }

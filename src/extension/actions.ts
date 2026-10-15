@@ -31,6 +31,7 @@ import {
   submoduleRemoveOp,
   submoduleSyncOp,
   submoduleUpdateOp,
+  submodulesUpdateOp,
   checkoutLocalOp,
   checkoutOp,
   cherryPickManyOp,
@@ -111,8 +112,10 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
   const hasHead = state.head !== null;
 
   switch (action.kind) {
-    case 'checkout':
-      return action.target === 'remote' ? checkoutRemote(action.ref, action.rebase ?? false, state, repo) : checkoutOp(action.target, action.ref);
+    case 'checkout': {
+      const op = action.target === 'remote' ? await checkoutRemote(action.ref, action.rebase ?? false, state, repo) : checkoutOp(action.target, action.ref);
+      return updatingSubmodules(op, action.ref, state, repo);
+    }
 
     case 'createBranch': {
       const name = await askName('Create branch', state, 'branch');
@@ -121,7 +124,9 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
         { label: 'Create and check out', value: true },
         { label: 'Create only', description: 'Stay on the current branch', value: false },
       ]);
-      return checkout === undefined ? undefined : createBranchOp(name, action.at, checkout);
+      if (checkout === undefined) return;
+      const op = createBranchOp(name, action.at, checkout);
+      return checkout ? updatingSubmodules(op, action.at, state, repo) : op;
     }
 
     case 'renameBranch': {
@@ -187,7 +192,8 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       if (state.bisect) throw new Error('End the bisect first.');
       const info = await repo.undoInfo(state.branch, state.working);
       if (!info) throw new Error('There is nothing to undo.');
-      return undoOp(info, state.branch);
+      const op = undoOp(info, state.branch);
+      return info.kind === 'checkout' ? updatingSubmodules(op, info.from, state, repo) : op;
     }
 
     case 'worktreeAdd':
@@ -333,7 +339,8 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
     case 'stashBranch': {
       const name = await askName(`Create branch from ${action.ref}`, state, 'branch');
-      return name ? stashBranchOp(name, action.ref) : undefined;
+      // The branch starts at the commit the stash was made on.
+      return name ? updatingSubmodules(stashBranchOp(name, action.ref), `${action.ref}^`, state, repo) : undefined;
     }
 
     case 'stage':
@@ -540,21 +547,46 @@ function findSubmodule(folder: string, state: RepoState): Submodule {
 }
 
 /**
- * Going back to the recorded commit leaves the commits made in a submodule on a detached HEAD where nothing reaches
- * them, and git carries its changes along or refuses: that is said first.
+ * What going to the recorded commit leaves behind in a submodule: the commits made in it on a detached HEAD, which no
+ * branch has then, and its changes, which git carries along or stops for. `named` says which submodule it is about.
  */
-function updateSubmodule(submodule: Submodule): GitOp {
-  const op = submoduleUpdateOp(submodule, false);
-  const notes: string[] = [];
+function submoduleRisks(submodule: Submodule, named: boolean): { lost: string[]; changes: string[] } {
+  const it = named ? submodule.path : 'It';
+  const lost: string[] = [];
+  const changes: string[] = [];
   if (submodule.ahead && !submodule.headBranch) {
     const commits = submodule.ahead === 1 ? '1 commit' : `${submodule.ahead} commits`;
-    notes.push(`It has ${commits} after the recorded one on a detached HEAD: no branch will have them. Create a branch in it first to keep them.`);
+    lost.push(`${it} has ${commits} after the recorded one on a detached HEAD: no branch will have them. Create a branch in it first to keep them.`);
   }
-  if (submodule.changes) notes.push('It has changes that are not committed: git keeps them, or stops if they are in the way.');
-  if (notes.length) {
+  if (submodule.changes) changes.push(`${it} has changes that are not committed: git keeps them, or stops if they are in the way.`);
+  return { lost, changes };
+}
+
+/** Going back to the recorded commit is asked first when it leaves something behind in the submodule. */
+function updateSubmodule(submodule: Submodule): GitOp {
+  const op = submoduleUpdateOp(submodule, false);
+  const { lost, changes } = submoduleRisks(submodule, false);
+  if (lost.length || changes.length) {
     op.confirm = true;
-    op.note = notes.join('\n\n');
+    op.note = [...lost, ...changes].join('\n\n');
   }
+  return op;
+}
+
+/**
+ * A checkout leaves the submodules on what they had, which is not what the commit checked out records: they are updated
+ * to it once the checkout is done, unless the settings say not to, and only when there are submodules here or there.
+ * What that would leave behind in them is said, and asked first when it is commits that no branch would have.
+ */
+async function updatingSubmodules(op: GitOp | undefined, to: string, state: RepoState, repo: Repo): Promise<GitOp | undefined> {
+  if (!op || !vscode.workspace.getConfiguration('gitardo').get<boolean>('submodules.updateOnCheckout', true)) return op;
+  if (!state.submodules.length && !(await repo.hasSubmodulesAt(to))) return op;
+  op.then = submodulesUpdateOp();
+  const risks = state.submodules.map((submodule) => submoduleRisks(submodule, true));
+  const lost = risks.flatMap((risk) => risk.lost);
+  const notes = [...lost, ...risks.flatMap((risk) => risk.changes)];
+  if (lost.length) op.confirm = true;
+  if (notes.length) op.note = [op.note, 'Then the submodules go to the commits recorded for them.', ...notes].filter(Boolean).join('\n\n');
   return op;
 }
 

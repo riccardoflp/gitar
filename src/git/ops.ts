@@ -20,6 +20,11 @@ export interface GitOp {
   /** What to offer when git refuses with a message matching `when`, typically the forced variant. */
   fallback?: { when: RegExp; op: GitOp };
   /**
+   * What runs once this has succeeded, as an operation of its own with its own fallback, such as updating the
+   * submodules after a checkout: whatever happens to it, this one is done. Its commands are said along with these.
+   */
+  then?: GitOp;
+  /**
    * Called after the user agreed and before the commands run, for what they need that is not a file to write. What it
    * does besides making folders goes to the log; when it throws, no command runs.
    */
@@ -652,6 +657,14 @@ export function submoduleUpdateOp(submodule: SubmoduleAt, remote: boolean): GitO
       [...allow, '-C', submodule.path, 'submodule', 'update', '--init', '--recursive'],
     ],
     note: 'Stage the submodule afterwards to record the commit it is on now.',
+  }));
+}
+
+/** Checks out in every submodule, and in theirs, the commit recorded for it, cloning the ones that are not initialized. */
+export function submodulesUpdateOp(): GitOp {
+  return allowingDisk((allow) => ({
+    title: 'Update the submodules',
+    commands: [[...allow, 'submodule', 'update', '--init', '--recursive']],
   }));
 }
 

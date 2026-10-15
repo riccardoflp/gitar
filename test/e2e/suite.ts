@@ -2050,6 +2050,70 @@ export async function run(): Promise<void> {
     }
   });
 
+  await step('updates the submodules after a checkout, cloning from a folder on disk once allowed, unless the settings say not to', async () => {
+    const home = state().branch!;
+    const config = vscode.workspace.getConfiguration('gitardo');
+    const submodule = () => state().submodules.find((each) => each.path === 'vendor/lib');
+    // Two branches that record two commits of lib, made in a terminal without cloning it: here there is no submodule yet.
+    const first = (await git(lib, ['rev-parse', 'HEAD'])).stdout.trim();
+    fs.writeFileSync(path.join(lib, 'two.txt'), 'two\n');
+    await git(lib, ['add', 'two.txt']);
+    await git(lib, ['commit', '-m', 'Lib two']);
+    const second = (await git(lib, ['rev-parse', 'HEAD'])).stdout.trim();
+    await git(app, ['checkout', '-b', 'with-lib']);
+    fs.writeFileSync(path.join(app, '.gitmodules'), `[submodule "vendor/lib"]\n\tpath = vendor/lib\n\turl = ${lib.replace(/\\/g, '/')}\n`);
+    await git(app, ['add', '.gitmodules']);
+    await git(app, ['update-index', '--add', '--cacheinfo', `160000,${first},vendor/lib`]);
+    await git(app, ['commit', '-m', 'Add lib']);
+    await git(app, ['checkout', '-b', 'with-lib-2']);
+    await git(app, ['update-index', '--cacheinfo', `160000,${second},vendor/lib`]);
+    await git(app, ['commit', '-m', 'Move lib']);
+    await git(app, ['checkout', home]);
+    await controller.refresh();
+    try {
+      // Git leaves the submodule out; the update clones it and checks out what the branch records, but git refuses to
+      // clone from a folder on disk: that is asked.
+      asked.length = 0;
+      answer = run;
+      logged.length = 0;
+      const before = errors.length;
+      await controller.action({ kind: 'checkout', target: 'branch', ref: 'with-lib' });
+      // The refusal is logged, as every failure of git is.
+      assert.ok(errors.slice(before).every((text) => text.includes("transport 'file' not allowed")), errors.slice(before).join('\n'));
+      errors.length = before;
+      assert.equal(state().branch, 'with-lib');
+      assert.deepEqual(
+        asked.map((question) => question.message),
+        ['Update the submodules from a folder on disk?'],
+      );
+      assert.ok(logged.includes('> git checkout with-lib'), logged.join('\n'));
+      assert.ok(logged.includes('> git -c protocol.file.allow=always submodule update --init --recursive'), logged.join('\n'));
+      assert.deepEqual([submodule()?.head, submodule()?.ahead, submodule()?.behind], [first, 0, 0]);
+
+      // Switched off, the submodule stays on what it had, one behind what the other branch records.
+      await config.update('submodules.updateOnCheckout', false, vscode.ConfigurationTarget.Global);
+      logged.length = 0;
+      await controller.action({ kind: 'checkout', target: 'branch', ref: 'with-lib-2' });
+      assert.ok(!logged.some((line) => line.includes('submodule update')), logged.join('\n'));
+      assert.deepEqual([submodule()?.recorded, submodule()?.head, submodule()?.behind], [second, first, 1]);
+    } finally {
+      answer = () => undefined;
+      await config.update('submodules.updateOnCheckout', undefined, vscode.ConfigurationTarget.Global);
+      await git(app, ['submodule', 'deinit', '--force', '--all']);
+      await git(app, ['checkout', home]);
+      fs.rmSync(path.join(app, 'vendor'), { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      // VS Code's own git extension keeps the submodule open, and on Windows its clone with it: what is left of it stays
+      // with the workspace, which is thrown away.
+      try {
+        fs.rmSync(path.join(app, '.git', 'modules'), { recursive: true, force: true });
+      } catch {}
+      await git(app, ['branch', '-D', 'with-lib', 'with-lib-2']);
+      await git(lib, ['reset', '--hard', first]);
+      await controller.refresh();
+    }
+    assert.deepEqual(state().submodules, []);
+  });
+
   await step('logged no unexpected errors', async () => {
     // The conflicting merge is the one failure the tests provoke on purpose.
     assert.deepEqual(

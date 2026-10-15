@@ -11,6 +11,7 @@ import {
   submoduleRemoveOp,
   submoduleSyncOp,
   submoduleUpdateOp,
+  submodulesUpdateOp,
   type GitOp,
 } from '../src/git/ops';
 import { parseBranchStatus, parseGitlinks, parseGitmodules } from '../src/git/parse';
@@ -266,6 +267,28 @@ describe('submodules of a real repository', { timeout: 60_000 }, () => {
     const lost = await one('vendor/lib');
     expect(lost).toMatchObject({ recorded: elsewhere, ahead: null, behind: null });
     expect(submoduleStatus(lost)).toBe('unknown');
+  });
+
+  it('knows which commits have submodules, and updates them all after a checkout to one', async () => {
+    await git(app, ['checkout', '-b', 'with-lib']);
+    await run(submoduleAddOp(lib, 'vendor/lib', ''));
+    await git(app, ['commit', '-m', 'add lib']);
+    const recorded = (await one('vendor/lib')).recorded;
+    await git(app, ['checkout', 'main']);
+    expect(await repo.hasSubmodulesAt('with-lib')).toBe(true);
+    expect(await repo.hasSubmodulesAt('main')).toBe(false);
+    expect(await repo.hasSubmodulesAt('--all')).toBe(false);
+
+    // A clone made elsewhere has the branch, but not the submodules, until they are updated.
+    const other = path.join(base, 'other');
+    await git(base, ['-c', 'protocol.file.allow=always', 'clone', app, other]);
+    app = other;
+    repo = new Repo(other);
+    await git(other, ['checkout', 'with-lib']);
+    expect(submoduleStatus(await one('vendor/lib'))).toBe('uninitialized');
+    await run(submodulesUpdateOp());
+    expect(await one('vendor/lib')).toMatchObject({ head: recorded, ahead: 0, behind: 0 });
+    expect(submoduleStatus(await one('vendor/lib/inner'))).toBe('synced');
   });
 
   it('synchronizes the URLs of .gitmodules', async () => {
