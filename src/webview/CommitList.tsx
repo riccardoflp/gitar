@@ -49,6 +49,8 @@ interface Props {
   onSelect(hash: string, mode: SelectMode): void;
   /** A commit was double-clicked, to see it whole. */
   onOpen(hash: string): void;
+  /** What a double click on a label does instead, when it does something of its own: a branch is checked out. */
+  labelOpen(label: Label): (() => void) | undefined;
   /** Two lines to a commit: who made it and when go under its message, where a narrow list has the room for them. */
   tall?: boolean;
   onRowMenu(event: MouseEvent, row: Row): void;
@@ -118,7 +120,7 @@ const Graph = memo(function Graph({ graph, width, height, lane, hollow }: GraphP
 
 export function CommitList(props: Props) {
   const { rows, empty, hasMore, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
-  const { dragSource, canDrop, onDrop, onOpen, tall } = props;
+  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall } = props;
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -239,6 +241,13 @@ export function CommitList(props: Props) {
               className={`label ${label.kind}${label.current ? ' current' : ''}`}
               title={label.worktree ? `${label.name}\nIn the worktree ${label.worktree}` : label.name}
               onContextMenu={(event) => onLabelMenu(event, label, row)}
+              onDoubleClick={(event) => {
+                const open = labelOpen(label);
+                if (!open) return;
+                // Not the commit's own double click as well.
+                event.stopPropagation();
+                open();
+              }}
               {...drag(label, row)}
             >
               <Icon name={label.worktree ? 'worktree' : LABEL_ICONS[label.kind]} />

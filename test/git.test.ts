@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatCommand } from '../src/git/exec';
 import {
   abortOp,
+  checkoutLocalOp,
   checkoutOp,
   cherryPickOp,
   bisectOp,
@@ -398,6 +399,19 @@ describe('operations', () => {
     expect(checkoutOp('branch', 'dev').commands).toEqual([['checkout', 'dev']]);
     expect(checkoutOp('remote', 'origin/dev').commands).toEqual([['checkout', '--track', 'origin/dev']]);
     expect(checkoutOp('detached', hash).commands).toEqual([['checkout', '--detach', hash]]);
+  });
+
+  it('checks out a remote branch in the local branch of its name, brought up to it', () => {
+    const local = { name: 'dev', current: false, ahead: 0, behind: 0 };
+    expect(checkoutLocalOp('origin/dev', local).commands).toEqual([['checkout', 'dev']]);
+    expect(checkoutLocalOp('origin/dev', { ...local, behind: 2 }).commands).toEqual([['checkout', 'dev'], ['merge', '--ff-only', 'origin/dev']]);
+    expect(checkoutLocalOp('origin/dev', { ...local, current: true, behind: 2 }).commands).toEqual([['merge', '--ff-only', 'origin/dev']]);
+    // With commits of its own, it is only checked out, unless they are to be rebased.
+    expect(checkoutLocalOp('origin/dev', { ...local, ahead: 1, behind: 2 }).commands).toEqual([['checkout', 'dev']]);
+    expect(checkoutLocalOp('origin/dev', { ...local, ahead: 1, behind: 2 }, true)).toMatchObject({
+      title: 'Check out dev and rebase it onto origin/dev',
+      commands: [['rebase', '--autostash', 'origin/dev', 'dev']],
+    });
   });
 
   it('creates branches and tags at a given commit', () => {

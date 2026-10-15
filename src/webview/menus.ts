@@ -254,12 +254,59 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
   ];
 }
 
+/**
+ * What a double click on a branch does, where it is listed and where it labels its commit. Git checks it out nowhere
+ * but in its worktree, which opens instead; working only in worktrees, one is made for it. Undefined when it is
+ * checked out here already.
+ */
+export function openBranch(branch: Branch, state: RepoState): (() => void) | undefined {
+  if (branch.current) return undefined;
+  const worktree = worktreeOf(branch.name, state);
+  if (worktree) return worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path });
+  if (state.openBranches === 'worktree') return () => act({ kind: 'openInWorktree', name: branch.name });
+  return () => act({ kind: 'checkout', target: 'branch', ref: branch.name });
+}
+
+/**
+ * What a double click on a remote branch does: it is checked out, or opened in a worktree, in the local branch of its
+ * name. When another worktree has that branch, it is worked on there, and that worktree opens, as a double click on
+ * the branch itself does.
+ */
+export function openRemoteBranch(ref: NamedRef, state: RepoState): (() => void) | undefined {
+  const worktree = worktreeOf(nameOnRemote(ref.name, state) ?? ref.name, state);
+  if (worktree) return worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path });
+  if (state.openBranches === 'worktree') return () => act({ kind: 'openInWorktree', name: ref.name, remote: true });
+  return () => act({ kind: 'checkout', target: 'remote', ref: refArg('remote', ref.name, state) });
+}
+
 export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (comparing: Comparing) => void): MenuEntry[] {
   const { name } = ref;
+  const remoteRef = refArg('remote', name, state);
+  // The local branch of its name, which a check out goes to when there is one.
+  const ownName = nameOnRemote(name, state) ?? name;
+  const local = state.branches.find((branch) => branch.name === ownName);
+  const upstream = local?.upstream;
+  // How far it is from this one is only known when it follows it.
+  const diverged = !!upstream && upstream.name === name && !upstream.gone && upstream.ahead > 0 && upstream.behind > 0;
+  // Another worktree has the local branch: that worktree opens, to work on it there, where it would be checked out.
+  const worktree = worktreeOf(ownName, state);
+  // What a double click does comes first.
+  const here: MenuEntry[] = worktree
+    ? worktreeOpenEntries(worktree, state, true)
+    : [
+        { label: local ? `Check out ${ownName}` : 'Check out as local branch', run: () => act({ kind: 'checkout', target: 'remote', ref: remoteRef }) },
+        { label: 'Open in worktree', run: () => act({ kind: 'openInWorktree', name, remote: true }) },
+      ];
+  if (!worktree && state.openBranches === 'worktree') here.reverse();
   return [
-    { label: 'Check out as local branch', run: () => act({ kind: 'checkout', target: 'remote', ref: refArg('remote', name, state) }) },
-    { label: 'Open in worktree', run: () => act({ kind: 'openInWorktree', name, remote: true }) },
-    ...integrate(refArg('remote', name, state), ref.hash, state),
+    ...here,
+    worktree && 'separator',
+    // Checked out already, it is rebased by the entry that rebases what is checked out.
+    diverged && !local.current && !worktree && {
+      label: `Check out ${ownName} and rebase it onto this`,
+      run: () => act({ kind: 'checkout', target: 'remote', ref: remoteRef, rebase: true }),
+    },
+    ...integrate(remoteRef, ref.hash, state),
     'separator',
     compareWithHead(name, ref.hash, state, onCompare),
     compareWith(name, ref.hash),

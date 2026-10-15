@@ -8,6 +8,7 @@ import {
   abortOp,
   bisectOp,
   bisectResetOp,
+  checkoutLocalOp,
   checkoutOp,
   cherryPickManyOp,
   cherryPickOp,
@@ -980,6 +981,61 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     } finally {
       fs.rmSync(remote, { recursive: true, force: true });
       fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('checks out a remote branch in the local branch of its name, fast-forwarded to it or with its own commits rebased onto it', async () => {
+    write('a.txt', 'one\n');
+    await commitAll('base');
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
+    /** Commits only `file`, leaving the rest as it is. */
+    const commitFile = async (file: string, message: string) => {
+      write(file, `${file}\n`);
+      await run(stageOp([file]));
+      await run(commitOp(message, false, false));
+      return (await state()).head!;
+    };
+    /** Someone else pushes a commit to feature. */
+    const theirs = async (file: string) => {
+      await git(root, ['checkout', '-q', '-b', 'elsewhere', 'origin/feature']);
+      const hash = await commitFile(file, `Their ${file}`);
+      await git(root, ['push', '-q', 'origin', 'elsewhere:feature']);
+      await git(root, ['checkout', '-q', 'main']);
+      await git(root, ['branch', '-q', '-D', 'elsewhere']);
+      return hash;
+    };
+    const local = async () => ({
+      name: 'feature',
+      current: (await state()).branch === 'feature',
+      ...(await repo.divergence('refs/heads/feature', 'origin/feature')),
+    });
+    try {
+      await git(remote, ['init', '--bare', '--initial-branch=main']);
+      await git(root, ['remote', 'add', 'origin', remote]);
+      await git(root, ['push', '-q', '-u', 'origin', 'main', 'main:feature']);
+      await git(root, ['branch', '--track', 'feature', 'origin/feature']);
+
+      // Behind the remote branch, it is fast-forwarded, and what is not committed comes along.
+      const first = await theirs('first.txt');
+      write('a.txt', 'not committed\n');
+      expect(await local()).toMatchObject({ ahead: 0, behind: 1 });
+      await run(checkoutLocalOp('origin/feature', await local()));
+      expect(await state()).toMatchObject({ branch: 'feature', head: first });
+      expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('not committed\n');
+
+      // With a commit of its own and one more of theirs, its own is replayed on top, what is not committed set aside meanwhile.
+      await commitFile('mine.txt', 'Mine');
+      await git(root, ['checkout', '-q', 'main']);
+      await theirs('second.txt');
+      expect(await local()).toMatchObject({ ahead: 1, behind: 1 });
+      await run(checkoutLocalOp('origin/feature', await local(), true));
+      expect((await state()).branch).toBe('feature');
+      const rows = (await state()).rows.filter((row) => row.hash !== WORKTREE);
+      expect(rows.map((row) => row.subject).slice(0, 4)).toEqual(['Mine', 'Their second.txt', 'Their first.txt', 'base']);
+      expect(await local()).toMatchObject({ ahead: 1, behind: 0 });
+      expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('not committed\n');
+    } finally {
+      fs.rmSync(remote, { recursive: true, force: true });
     }
   });
 

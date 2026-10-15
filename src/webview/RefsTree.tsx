@@ -5,7 +5,7 @@ import { scopeLabel, scopeRefs } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { endDrag, startDrag, type DragSource } from './drag';
-import { act, branchMenu, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
+import { act, branchMenu, openBranch, openRemoteBranch, remoteBranchMenu, stashMenu, tagMenu, worktreeMenu, type Comparing } from './menus';
 import { loadUiState, post, saveUiState } from './vscode';
 
 export type SectionId = 'favorites' | 'recent' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'worktrees';
@@ -169,16 +169,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         current: branch.current,
         favorite: favorites.has(`refs/heads/${branch.name}`),
         menu: () => branchMenu(branch, state, onCompare),
-        // Git checks it out nowhere but in its worktree, which opens instead; working only in worktrees, one is made for it.
-        open: branch.current
-          ? undefined
-          : worktree
-            ? worktree.prunable
-              ? undefined
-              : () => act({ kind: 'worktreeOpen', path: worktree.path })
-            : state.openBranches === 'worktree'
-              ? () => act({ kind: 'openInWorktree', name: branch.name })
-              : () => act({ kind: 'checkout', target: 'branch', ref: branch.name }),
+        open: openBranch(branch, state),
         drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
       };
     });
@@ -191,6 +182,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         label: ref.name,
         favorite: favorites.has(`refs/remotes/${ref.name}`),
         menu: () => remoteBranchMenu(ref, state, onCompare),
+        open: openRemoteBranch(ref, state),
         drag: { kind: 'branch', name: ref.name, hash: ref.hash, local: false, current: false },
       }),
     );

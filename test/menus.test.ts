@@ -5,7 +5,7 @@ import { changesText, upstreamHint, worktreeOf, worktreeStatus } from '../src/sh
 // The menus post what is chosen to the extension; here they are only read.
 const posted = vi.hoisted(() => [] as unknown[]);
 vi.mock('../src/webview/vscode', () => ({ post: (message: unknown) => posted.push(message) }));
-const { branchMenu, dropMenu, worktreeMenu } = await import('../src/webview/menus');
+const { branchMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, worktreeMenu } = await import('../src/webview/menus');
 
 const worktree = (overrides: Partial<Worktree>): Worktree => ({
   path: 'C:/prj/app',
@@ -118,6 +118,63 @@ describe('menus of branches that a worktree has', () => {
     expect(labels(worktreeMenu(window, shown))).not.toEqual(expect.arrayContaining(['Rename…']));
     expect(labels(worktreeMenu(window, shown))).not.toContain('Remove…');
     expect(labels(branchMenu({ name: 'feature', hash: 'aaa', current: false }, shown, () => {}))).not.toContain('Remove worktree…');
+  });
+});
+
+describe('menus of remote branches', () => {
+  const upstream = { name: 'origin/feature', remote: 'origin', branch: 'feature', ahead: 1, behind: 2, gone: false };
+  const main: Branch = { name: 'main', hash: 'aaa', current: true };
+  const feature: Branch = { name: 'feature', hash: 'bbb', current: false, upstream };
+  const ref = { name: 'origin/feature', hash: 'ccc' };
+  const repo = (branches: Branch[], openBranches: RepoState['openBranches'] = 'checkout') =>
+    ({ ...state([worktree({})], branches, true, openBranches), remoteBranches: [ref], remotes: ['origin'] }) as RepoState;
+
+  it('checks out the local branch of its name, and offers to rebase it when each has commits the other has not', () => {
+    expect(labels(remoteBranchMenu(ref, repo([main]), () => {})).slice(0, 2)).toEqual(['Check out as local branch', 'Open in worktree']);
+    expect(labels(remoteBranchMenu(ref, repo([main, { ...feature, upstream: { ...upstream, ahead: 0 } }]), () => {})).slice(0, 3)).toEqual([
+      'Check out feature',
+      'Open in worktree',
+      'Merge into main',
+    ]);
+    const menu = labels(remoteBranchMenu(ref, repo([main, feature]), () => {}));
+    expect(menu.slice(0, 3)).toEqual(['Check out feature', 'Open in worktree', 'Check out feature and rebase it onto this']);
+
+    posted.length = 0;
+    const rebase = remoteBranchMenu(ref, repo([main, feature]), () => {}).find((entry) => entry && entry !== 'separator' && entry.label.includes('rebase it'));
+    if (rebase && rebase !== 'separator') rebase.run();
+    expect(posted).toEqual([{ type: 'action', action: { kind: 'checkout', target: 'remote', ref: 'origin/feature', rebase: true } }]);
+  });
+
+  it('checks out a branch on a double click, or opens it in a worktree, and does nothing for the one checked out', () => {
+    posted.length = 0;
+    openRemoteBranch(ref, repo([main]))?.();
+    openRemoteBranch(ref, repo([main], 'worktree'))?.();
+    openBranch(feature, repo([main, feature]))?.();
+    expect(posted).toEqual([
+      { type: 'action', action: { kind: 'checkout', target: 'remote', ref: 'origin/feature' } },
+      { type: 'action', action: { kind: 'openInWorktree', name: 'origin/feature', remote: true } },
+      { type: 'action', action: { kind: 'checkout', target: 'branch', ref: 'feature' } },
+    ]);
+    expect(openBranch(main, repo([main]))).toBeUndefined();
+  });
+
+  it('opens the worktree that has the local branch of its name, instead of checking it out', () => {
+    const there = worktree({ path: 'C:/prj/app.worktrees/feature', hash: 'bbb', branch: 'feature', current: false, main: false });
+    const repoThere = { ...repo([main, feature]), worktrees: [worktree({}), there] } as RepoState;
+    const menu = labels(remoteBranchMenu(ref, repoThere, () => {}));
+    expect(menu.slice(0, 2)).toEqual(['Open worktree in Agents Window', 'Open worktree in new window']);
+    expect(menu.some((label) => /^Check out|rebase it/.test(label))).toBe(false);
+
+    posted.length = 0;
+    openRemoteBranch(ref, repoThere)?.();
+    openRemoteBranch(ref, { ...repoThere, openBranches: 'worktree' })?.();
+    expect(posted).toEqual([
+      { type: 'action', action: { kind: 'worktreeOpen', path: there.path } },
+      { type: 'action', action: { kind: 'worktreeOpen', path: there.path } },
+    ]);
+    // Its folder is gone: there is nothing to open, and the double click opens the commit.
+    const missing = { ...repoThere, worktrees: [worktree({}), { ...there, prunable: true }] } as RepoState;
+    expect(openRemoteBranch(ref, missing)).toBeUndefined();
   });
 });
 

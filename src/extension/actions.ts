@@ -24,6 +24,7 @@ import {
   worktreePruneOp,
   worktreeRemoveOp,
   worktreeTrackOp,
+  checkoutLocalOp,
   checkoutOp,
   cherryPickManyOp,
   cherryPickOp,
@@ -57,7 +58,7 @@ import {
   type ResetMode,
 } from '../git/ops';
 import type { Action, RepoState, Worktree } from '../shared/protocol';
-import { isHome, refArg } from '../shared/refs';
+import { isHome, refArg, worktreeOf } from '../shared/refs';
 
 function askName(title: string, state: RepoState, kind: 'branch' | 'tag', value = ''): Thenable<string | undefined> {
   const taken = new Set((kind === 'branch' ? state.branches : state.tags).map((ref) => ref.name));
@@ -97,7 +98,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
   switch (action.kind) {
     case 'checkout':
-      return checkoutOp(action.target, action.ref);
+      return action.target === 'remote' ? checkoutRemote(action.ref, action.rebase ?? false, state, repo) : checkoutOp(action.target, action.ref);
 
     case 'createBranch': {
       const name = await askName('Create branch', state, 'branch');
@@ -329,6 +330,41 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
     case 'abort':
       return abortOp(requireOperation(state));
   }
+}
+
+/**
+ * A remote branch is checked out in the local branch of its name, made to track it when there is none. One there
+ * already is checked out and brought up to it; when each has commits the other has not, the user picks between
+ * rebasing the local ones onto it and leaving the branch as it is. One that another worktree has opens there.
+ */
+async function checkoutRemote(ref: string, rebase: boolean, state: RepoState, repo: Repo): Promise<GitOp | undefined> {
+  const remote = ref.replace(/^refs\/remotes\//, '');
+  const name = withoutRemote(remote, state.remotes);
+  const branch = state.branches.find((candidate) => candidate.name === name);
+  if (!branch) return checkoutOp('remote', ref);
+  // Git checks it out nowhere but in the worktree that has it, which opens instead, to work on it there.
+  const worktree = worktreeOf(name, state);
+  if (worktree?.prunable) throw new Error(`The worktree of ${name} is missing from ${worktree.path}: prune the worktrees to free the branch.`);
+  if (worktree) {
+    await openWorktree(worktree.path, openIn(state));
+    return;
+  }
+  const local = { name, current: branch.current, ...(await repo.divergence(`refs/heads/${name}`, ref)) };
+  if (rebase || !local.ahead || !local.behind) {
+    if (local.current && !local.behind) {
+      void vscode.window.showInformationMessage(`${name} is checked out already, with everything ${remote} has.`);
+      return;
+    }
+    return checkoutLocalOp(ref, local, rebase && local.behind > 0);
+  }
+  const commits = (count: number) => (count === 1 ? '1 commit' : `${count} commits`);
+  const choice = await pick(`${name} has ${commits(local.ahead)} that ${remote} has not, which has ${commits(local.behind)} of its own`, [
+    { label: `Check out ${name} and rebase it onto ${remote}`, description: `Replay its ${commits(local.ahead)} on top`, value: true },
+    { label: `Check out ${name} as it is`, description: 'Leave the two apart', value: false },
+  ]);
+  if (choice === undefined) return;
+  if (!choice && local.current) return;
+  return checkoutLocalOp(ref, local, choice);
 }
 
 /** The command that opens the Agents window of VS Code. It is not part of the documented API, hence the fallback. */

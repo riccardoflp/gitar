@@ -21,6 +21,8 @@ import {
   cherryPickMany,
   commitMenu,
   dropMenu,
+  openBranch,
+  openRemoteBranch,
   remoteBranchMenu,
   selectionMenu,
   tagMenu,
@@ -315,6 +317,13 @@ export function App({ compact = false }: { compact?: boolean }) {
     else onRowMenu(event, row);
   };
 
+  // A branch is checked out as it is where it is listed; tags and the marks of a bisect open their commit.
+  const labelOpen = (label: Label) => {
+    const branch = label.kind === 'branch' && state.branches.find((candidate) => candidate.name === label.name);
+    const remote = label.kind === 'remote' && state.remoteBranches.find((candidate) => candidate.name === label.name);
+    return branch ? openBranch(branch, state) : remote ? openRemoteBranch(remote, state) : undefined;
+  };
+
   return (
     <div className="app">
       <Toolbar
@@ -388,6 +397,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           reveal={reveal}
           onSelect={onRowSelect}
           onOpen={(hash) => post({ type: 'openCommit', hash })}
+          labelOpen={labelOpen}
           tall={compact}
           onRowMenu={onRowMenu}
           onLabelMenu={onLabelMenu}

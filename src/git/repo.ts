@@ -598,6 +598,12 @@ export class Repo {
     return [...new Set(result.stdout.split('\0').slice(1).filter(Boolean))];
   }
 
+  /** The commits `ours` has that `theirs` has not, and the other way round. */
+  async divergence(ours: string, theirs: string): Promise<{ ahead: number; behind: number }> {
+    const [ahead, behind] = (await this.read(['rev-list', '--left-right', '--count', `${ours}...${theirs}`, '--'])).trim().split(/\s+/).map(Number);
+    return { ahead, behind };
+  }
+
   /** Commits reachable from `theirs` but not from HEAD, newest first: what a force push over `theirs` would throw away. */
   async commitsOnlyIn(theirs: string, limit: number): Promise<string[]> {
     const out = await this.read(['log', `--max-count=${limit}`, '--format=%h %s', `HEAD..${theirs}`], true);

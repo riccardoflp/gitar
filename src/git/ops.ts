@@ -156,6 +156,37 @@ export function checkoutOp(target: 'branch' | 'remote' | 'detached', ref: string
   return { title: `Check out ${short(ref)}`, commands: [['checkout', ...flags, arg(ref)]] };
 }
 
+/** The local branch named after a remote one, as it stands against it: the commits each has that the other has not. */
+export interface LocalOfRemote {
+  name: string;
+  current: boolean;
+  ahead: number;
+  behind: number;
+}
+
+/**
+ * Checks out a remote branch in the local branch that already has its name, and brings that up to it: by a
+ * fast-forward when the local branch has no commits of its own, or, with `rebase`, by replaying them onto it. A local
+ * branch with commits of its own is otherwise checked out as it is.
+ */
+export function checkoutLocalOp(remote: string, local: LocalOfRemote, rebase = false): GitOp {
+  // By its bare name: given as `refs/heads/…`, git would check out its commit on a detached HEAD.
+  const name = arg(local.name);
+  if (rebase) {
+    // Git checks the branch out first, and puts aside what is not committed for the while.
+    return {
+      title: `Check out ${local.name} and rebase it onto ${remote}`,
+      commands: [['rebase', '--autostash', arg(remote), name]],
+    };
+  }
+  const commands = local.current ? [] : [['checkout', name]];
+  if (local.behind > 0 && local.ahead === 0) {
+    commands.push(['merge', '--ff-only', arg(remote)]);
+    return { title: `Check out ${local.name} and fast-forward it to ${remote}`, commands };
+  }
+  return { title: `Check out ${local.name}`, commands };
+}
+
 export function createBranchOp(name: string, at: string, checkout: boolean): GitOp {
   const command = checkout ? ['checkout', '-b', arg(name), arg(at)] : ['branch', arg(name), arg(at)];
   return { title: `Create branch ${name}`, commands: [command] };

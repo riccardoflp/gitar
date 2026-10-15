@@ -320,7 +320,11 @@ export type DiffSource =
 
 /** Something the user asked for in the UI. The extension asks for any missing input, then turns it into git commands. */
 export type Action =
-  | { kind: 'checkout'; target: 'branch' | 'remote' | 'detached'; ref: string }
+  /**
+   * A remote branch is checked out in the local branch of its name. One there already with commits of its own has them
+   * rebased onto the remote branch with `rebase`; without it, the user is asked.
+   */
+  | { kind: 'checkout'; target: 'branch' | 'remote' | 'detached'; ref: string; rebase?: boolean }
   | { kind: 'createBranch'; at: string }
   | { kind: 'renameBranch'; name: string }
   | { kind: 'deleteBranch'; name: string }

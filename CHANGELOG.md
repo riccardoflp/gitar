@@ -2,6 +2,13 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Changed
+
+- A double click on the label of a branch in the graph checks the branch out, as a double click does where the branches are listed, instead of opening its commit; on a remote branch, it checks it out in a local branch. Elsewhere on the row it still opens the commit.
+- Checking out a remote branch when a local branch of its name is there already checks that one out, where git refused: fast-forwarded to the remote branch when it has no commits of its own. When each has commits the other has not, you choose between rebasing the local ones onto the remote branch and leaving the branch as it is; the context menu of the remote branch also has **Check out `<branch>` and rebase it onto this** then. When another worktree has that local branch, its worktree opens instead, where it is worked on, and the context menu of the remote branch opens it.
+
 ## 0.2.0 - 2026-10-15
 
 ### Added
