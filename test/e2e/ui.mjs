@@ -323,10 +323,14 @@ try {
             top: line.getBoundingClientRect().top,
             label: before ? before.content.replace(/^"|"$/g, '').replace(/\u00a0/g, ' ') : null,
             width: before ? Math.round(parseFloat(before.width)) : 0,
-            lit: before ? !['rgba(0, 0, 0, 0)', 'transparent'].includes(before.backgroundColor) : false,
+            // Over the room kept for it, it is on the background of the editor, and what stands out is on another over it.
+            lit: before
+              ? before.backgroundImage.includes('gradient') || (before.position !== 'absolute' && !['rgba(0, 0, 0, 0)', 'transparent'].includes(before.backgroundColor))
+              : false,
             bar: before ? before.borderLeftWidth + ' ' + before.borderLeftColor : null,
             height: Math.round(line.getBoundingClientRect().height),
-            text: line.textContent,
+            // Without the spaces of the hint that keeps room for what is beside it.
+            text: line.textContent.replace(/^ +/, ''),
           };
         })
         .sort((one, other) => one.top - other.top)`);
@@ -374,7 +378,8 @@ try {
       fs.writeFileSync(file, `${original}three\nfour\n`);
       // Said once for the lines that follow each other.
       await until('the lines written', async () => (await beside()).map((line) => line.label).slice(2, 4).join('|') === 'Not committed yet| ');
-      assert((await lit()) === 'one', `standing out: ${await lit()}`);
+      // Once the hints that keep the room are asked for again: until then the editor may have run them together.
+      await until('the same commit standing out', async () => (await lit()) === 'one');
       await clickText('.editor-instance .view-line', 'three');
       await until('the lines of no commit standing out', async () => (await lit()) === 'three,four');
       await shot('file-blame-commit');
@@ -420,6 +425,42 @@ try {
     await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]').click()`);
     await until('the lines alone', async () => (await beside()).every((line) => line.label === null));
     await until('the button that shows it alone', async () => (await about()).join() === 'Show File Blame');
+  });
+
+  await step('a line too long for the editor folds inside it while the file shows who changed its lines beside them', async () => {
+    const file = path.join(app, 'a.txt');
+    const original = fs.readFileSync(file, 'utf8');
+    const long = Array.from({ length: 90 }, (_, index) => `word${index}`).join(' ');
+    /** The lines in sight, as the editor folds them: where each ends, against where the editor does. */
+    const folded = () =>
+      page.evaluate(`(() => {
+        const edge = document.querySelector('.editor-instance .editor-scrollable').getBoundingClientRect().right;
+        const lines = [...document.querySelectorAll('.editor-instance .view-line')].filter((line) => line.textContent.includes('word'));
+        return {
+          lines: lines.length,
+          past: lines.map((line) => Math.max(...[...line.querySelectorAll('span span')].map((span) => span.getBoundingClientRect().right)) - edge).filter((past) => past > 1),
+          beside: [...document.querySelectorAll('.editor-instance .view-line span span')].some((span) => getComputedStyle(span, '::before').content.includes('Gitardo')),
+        };
+      })()`);
+    setting('editor.wordWrap', 'on');
+    try {
+      fs.writeFileSync(file, `${original}${long}\n`);
+      await until('the long line folded', async () => (await folded()).lines > 1);
+      await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Show File Blame"]').click()`);
+      // The room for what is beside the lines is kept by the editor, which folds the line again with it.
+      let seen;
+      const now = await until('the blame beside the folded line, and every part of it inside the editor', async () => {
+        seen = await folded();
+        return seen.beside && !seen.past.length ? seen : null;
+      }).catch((error) => assert(false, `${error.message}: ${JSON.stringify(seen)}`));
+      await shot('file-blame-wrapped');
+      assert(now.lines > 1, `folded: ${JSON.stringify(now)}`);
+      await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]').click()`);
+      await until('the lines alone', async () => !(await folded()).beside);
+    } finally {
+      setting('editor.wordWrap', undefined);
+      fs.writeFileSync(file, original);
+    }
   });
 
   await step('the search counts what it finds and steps through it, in the loaded commits and in the whole history', async () => {

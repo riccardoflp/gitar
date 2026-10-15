@@ -4,7 +4,7 @@ import type { BlameLine } from '../git/parse';
 import type { Repo } from '../git/repo';
 import { DEFAULT_AGE, DEFAULT_FORMAT, ageColor, blameLabels, parseFormat, type AgeColors, type FormatPart } from '../shared/blameFormat';
 import { ignoresWhitespace, type Blamable, type BlameSource } from './blame';
-import { revisionUri } from './content';
+import { SCHEME, revisionUri } from './content';
 
 /** How long a file is left alone after it changes before it is blamed again. */
 const DELAY = 400;
@@ -16,6 +16,15 @@ const SPACE = String.fromCharCode(0xa0);
 const STYLE = 'none; white-space: pre; overflow: hidden; text-overflow: ellipsis; vertical-align: top; padding: 0 1ch';
 /** The line at the left of what stands beside a line, in the color of its age. */
 const BAR = '3px';
+/**
+ * How much wider than what is beside the lines the room kept for it is, in characters: the padding on either side,
+ * the bar, and a gap before the text.
+ */
+const ROOM = 4;
+/** Between what is beside a line and its text. */
+const GAP = '1.5ch';
+/** What stands beside the lines of the commit of the line under the cursor is on this. */
+const LIT = 'var(--vscode-gitardo-blameHighlightBackground)';
 
 /** What a line that was typed is taken to be until git is asked again. */
 const UNCOMMITTED: BlameLine = { hash: '0'.repeat(40), author: '', date: 0, summary: '', committed: false };
@@ -97,7 +106,6 @@ export class FileBlame implements vscode.Disposable {
       color: new vscode.ThemeColor('editorCodeLens.foreground'),
       fontStyle: 'normal',
       fontWeight: 'normal',
-      margin: '0 1.5ch 0 0',
       textDecoration: STYLE,
     },
   });
@@ -107,6 +115,14 @@ export class FileBlame implements vscode.Disposable {
     overviewRulerLane: vscode.OverviewRulerLane.Center,
   });
   private readonly subscriptions: vscode.Disposable[];
+  /**
+   * What is beside the lines is drawn before them, and VS Code does not count it when it folds the lines that are
+   * too long: the first part of each would go past the edge. Room is kept for it with an inlay hint of spaces at the
+   * start of each line, which VS Code counts, and what is beside the line is drawn over that room. This says how many
+   * spaces each file is given, by the URI of its document.
+   */
+  private readonly room = new Map<string, number>();
+  private readonly roomChanged = new vscode.EventEmitter<void>();
   private settings = readSettings();
   /** The files that show their blame, by the URI of their document. */
   private readonly shown = new Map<string, Shown>();
@@ -125,6 +141,11 @@ export class FileBlame implements vscode.Disposable {
     this.subscriptions = [
       this.decoration,
       this.marks,
+      this.roomChanged,
+      vscode.languages.registerInlayHintsProvider([{ scheme: 'file' }, { scheme: SCHEME }], {
+        onDidChangeInlayHints: this.roomChanged.event,
+        provideInlayHints: (document, range) => this.hints(document, range),
+      }),
       vscode.window.onDidChangeVisibleTextEditors(() => {
         this.render();
         this.follow();
@@ -135,7 +156,9 @@ export class FileBlame implements vscode.Disposable {
       vscode.workspace.onDidSaveTextDocument((document) => this.schedule(document)),
       vscode.workspace.onDidCloseTextDocument((document) => this.forget(document.uri)),
       vscode.workspace.onDidChangeConfiguration(
-        (event) => (event.affectsConfiguration('gitardo.fileBlame') || event.affectsConfiguration('gitardo.blame')) && this.configured(),
+        (event) =>
+          ['gitardo.fileBlame', 'gitardo.blame', 'editor.inlayHints', 'editor.fontSize'].some((section) => event.affectsConfiguration(section)) &&
+          this.configured(),
       ),
     ];
     this.tell();
@@ -286,6 +309,7 @@ export class FileBlame implements vscode.Disposable {
         if (!shown.auto) continue;
         clearTimeout(shown.timer);
         this.shown.delete(key);
+        this.makeRoom(vscode.Uri.parse(key), 0);
       }
       this.hidden.clear();
     }
@@ -299,6 +323,7 @@ export class FileBlame implements vscode.Disposable {
     if (!shown) return;
     clearTimeout(shown.timer);
     this.shown.delete(uri.toString());
+    this.makeRoom(uri, 0);
     this.render();
     this.tell();
   }
@@ -331,6 +356,8 @@ export class FileBlame implements vscode.Disposable {
       shown.lines.splice(range.start.line, taken, ...Array<BlameLine>(put).fill(UNCOMMITTED));
     }
     this.render();
+    // An edit moves the hints with the text, and a file read again from the disk runs them all into its first line.
+    this.roomChanged.fire();
     this.schedule(event.document);
   }
 
@@ -344,6 +371,8 @@ export class FileBlame implements vscode.Disposable {
       // Hidden in the meantime, asked again in the meantime, or no longer a file git knows: what is shown stays.
       if (!read || this.shown.get(document.uri.toString()) !== shown || request !== shown.request) return;
       shown.lines = read.lines;
+      // What the hints say of each line, too.
+      this.roomChanged.fire();
       this.render();
     }, DELAY);
   }
@@ -372,45 +401,58 @@ export class FileBlame implements vscode.Disposable {
       const commit = this.under(editor);
       this.highlighted.set(editor, commit);
       if (!shown) {
+        this.makeRoom(editor.document.uri, 0);
         editor.setDecorations(this.decoration, []);
         editor.setDecorations(this.marks, []);
         continue;
       }
       const hovers = new Map<BlameLine, vscode.MarkdownString>();
-      const bars = new Map<string, string>();
+      const styles = new Map<string, string>();
       const options: vscode.DecorationOptions[] = [];
       const marks: vscode.Range[] = [];
       // Every line has something before it, if only room, for the text to stay in one column: as wide as the longest.
       const labels = blameLabels(shown.lines, editor.document.lineCount, { format, group, now });
-      const width = `${labels.reduce((longest, text) => Math.max(longest, text.length), 1)}ch`;
-      /** The color of the age of a line, at the left of what is beside it; a line git said nothing of has the room of it. */
-      const bar = (line: BlameLine | undefined) => {
-        if (!age) return undefined;
-        if (!line) return `${STYLE}; border-left: ${BAR} solid transparent`;
-        let style = bars.get(line.hash);
+      const chars = labels.reduce((longest, text) => Math.max(longest, text.length), 1);
+      const room = roomFor(editor.document, chars);
+      // Over the room, as wide as it all, with the gap before the text in it.
+      const width = room ? `${chars + ROOM}ch` : `${chars}ch`;
+      this.makeRoom(editor.document.uri, room);
+      /**
+       * How what is beside a line is drawn: over the room kept for it, on the background of the editor that hides the
+       * one of the hint, or before the line when there is no room; with the color of the age of the line at its left,
+       * where a line git said nothing of has the room of it.
+       */
+      const style = (line: BlameLine | undefined, stands: boolean) => {
+        const key = `${line?.hash ?? ''} ${stands}`;
+        let text = styles.get(key);
+        if (text) return text;
+        const parts = [STYLE];
+        if (room) {
+          const lit = stands ? `linear-gradient(to right, ${LIT} calc(100% - ${GAP}), transparent 0), ` : '';
+          parts.push(`position: absolute; left: 0; box-sizing: border-box; background: ${lit}var(--vscode-editor-background)`);
+        } else parts.push(`margin-right: ${GAP}`);
         // A line that is in no commit was changed now.
-        if (!style) bars.set(line.hash, (style = `${STYLE}; border-left: ${BAR} solid ${ageColor(line.committed ? line.date : now, now, age)}`));
-        return style;
+        if (age) parts.push(`border-left: ${BAR} solid ${line ? ageColor(line.committed ? line.date : now, now, age) : 'transparent'}`);
+        styles.set(key, (text = parts.join('; ')));
+        return text;
       };
       // What the line under the cursor has beside it stands out, as it does beside the other lines of its commit.
-      const lit = {
-        color: new vscode.ThemeColor('gitardo.blameHighlightForeground'),
-        backgroundColor: new vscode.ThemeColor('gitardo.blameHighlightBackground'),
-      };
+      const lit = { color: new vscode.ThemeColor('gitardo.blameHighlightForeground') };
+      const litBefore = room ? lit : { ...lit, backgroundColor: new vscode.ThemeColor('gitardo.blameHighlightBackground') };
       for (const [index, label] of labels.entries()) {
         const line = shown.lines[index];
         let hoverMessage: vscode.MarkdownString | undefined;
-        if (line?.committed) {
+        // Over the room, the hint has it.
+        if (line?.committed && !room) {
           hoverMessage = hovers.get(line);
           if (!hoverMessage) hovers.set(line, (hoverMessage = hover(line, shown.root)));
         }
         const stands = line !== undefined && line.hash === commit;
-        const textDecoration = bar(line);
         options.push({
           range: new vscode.Range(index, 0, index, 0),
           hoverMessage,
           renderOptions: {
-            before: { contentText: label ? label.replace(/ /g, SPACE) : SPACE, width, ...(textDecoration ? { textDecoration } : {}), ...(stands ? lit : {}) },
+            before: { contentText: label ? label.replace(/ /g, SPACE) : SPACE, width, textDecoration: style(line, stands), ...(stands ? litBefore : {}) },
           },
         });
         if (!stands) continue;
@@ -423,4 +465,54 @@ export class FileBlame implements vscode.Disposable {
       editor.setDecorations(this.marks, marks);
     }
   }
+
+  /**
+   * The room kept at the start of the lines of a document in sight. What is drawn over it is not what the pointer
+   * is on: the hint is, and says what the decoration would have said.
+   */
+  private hints(document: vscode.TextDocument, range: vscode.Range): vscode.InlayHint[] {
+    const key = document.uri.toString();
+    const spaces = this.room.get(key);
+    const shown = this.shown.get(key);
+    if (!spaces || !shown) return [];
+    const said = new Map<BlameLine, vscode.MarkdownString>();
+    const hints: vscode.InlayHint[] = [];
+    for (let index = range.start.line; index <= range.end.line; index++) {
+      const hint = new vscode.InlayHint(new vscode.Position(index, 0), SPACE.repeat(spaces));
+      const line = shown.lines[index];
+      if (line?.committed) {
+        let tooltip = said.get(line);
+        if (!tooltip) said.set(line, (tooltip = hover(line, shown.root)));
+        hint.tooltip = tooltip;
+      }
+      hints.push(hint);
+    }
+    return hints;
+  }
+
+  /** Keeps that many spaces at the start of each line of a document, or none, and has VS Code ask again when it changes. */
+  private makeRoom(uri: vscode.Uri, spaces: number): void {
+    const key = uri.toString();
+    if ((this.room.get(key) ?? 0) === spaces) return;
+    if (spaces) this.room.set(key, spaces);
+    else this.room.delete(key);
+    this.roomChanged.fire();
+  }
+}
+
+/**
+ * How many spaces of an inlay hint make room for what is that many characters wide beside the lines of a document;
+ * none when its hints cannot be counted on: when they are switched off, written in a font of their own, whose spaces
+ * are not as wide as the ones of the text, or cut at a length shorter than the room.
+ */
+function roomFor(document: vscode.TextDocument, chars: number): number {
+  const hints = vscode.workspace.getConfiguration('editor.inlayHints', document);
+  if (!['on', 'onUnlessPressed'].includes(hints.get<string>('enabled') ?? 'on') || hints.get<string>('fontFamily')) return 0;
+  // They are written in the size of the text, unless a smaller one is asked for.
+  const size = vscode.workspace.getConfiguration('editor', document).get<number>('fontSize') ?? 14;
+  const asked = hints.get<number>('fontSize') ?? 0;
+  const scale = asked >= 5 && asked < size ? size / asked : 1;
+  const spaces = Math.ceil((chars + ROOM) * scale);
+  const longest = hints.get<number>('maximumLength') ?? 43;
+  return longest > 0 && spaces > longest ? 0 : spaces;
 }

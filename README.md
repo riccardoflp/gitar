@@ -250,6 +250,7 @@ The button with a person at the top right of an editor shows it for the whole fi
 - Lines that are in no commit yet say so, and have the color of what was just changed. What you type says so at once, and git is asked again a moment after you stop, with the text as it is in the editor, saved or not.
 - A file that is in no commit has no one to name: Gitardo says so and shows nothing.
 - The button is there for files on disk, whenever the workspace has a repository.
+- With word wrap on, a long line is folded inside the editor with what is beside it. VS Code does not count what an extension draws before a line when it folds it, so Gitardo keeps the room with an inlay hint of spaces at the start of each line, which it does count, and draws over it. With inlay hints switched off (`editor.inlayHints.enabled`), written in a font of their own (`editor.inlayHints.fontFamily`) or cut shorter than the room (`editor.inlayHints.maximumLength`), what is beside a line is drawn before it instead, and the first part of a folded line goes past the edge of the editor.
 
 ### Reflog
 
@@ -405,6 +406,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
 - the button of the editor puts beside each line who changed it and when, in one column, with a bar in the color of its age and the lines of the commit under the cursor standing out, and takes it away again; the buttons beside it change state when pressed, and the file opens as it was before the commit of a line, with its own blame;
+- with word wrap on, a line too long for the editor is folded inside it with the blame beside it;
 - the search counts the commits it finds and steps through them with the keys and the arrows, goes to a commit by its hash even when no branch reaches it, highlights in the graph what git finds in the whole history or lists it alone, and counts a commit made meanwhile;
 - the branches shown in the graph are chosen from the list under the button, with one click or one by one, with the box that narrows the list, and from the context menu of a branch; the graph of the side bar has the same button;
 - a branch dragged onto the checked out commit offers to merge or rebase;
