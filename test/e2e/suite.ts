@@ -257,6 +257,53 @@ export async function run(): Promise<void> {
     assert.equal(state().branches.length, 4);
   });
 
+  await step('creates a worktree by name, renames it with its branch and removes both', async () => {
+    const branches = state().branches.length;
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    assert.equal(typeof state().agentsWindow, 'boolean');
+    try {
+      asked.length = 0;
+      answer = () => undefined;
+      inputs = ['agents/first'];
+      choose = byLabel('main');
+      await controller.action({ kind: 'worktreeAdd' });
+      const created = state().worktrees.find((worktree) => worktree.branch === 'agents/first');
+      assert.ok(created, JSON.stringify(state().worktrees));
+      assert.equal(created.path.toLowerCase(), `${home}/agents-first`.toLowerCase());
+      assert.ok(!created.main && !created.current);
+      assert.ok(state().worktrees.find((worktree) => worktree.current)?.main);
+      // It offers to open it, in the Agents window where VS Code has one.
+      const offer = await until('the offer to open it', () => asked.find((question) => /^Worktree created in /.test(question.message)));
+      assert.deepEqual(offer.items, [...(state().agentsWindow ? ['Open in Agents Window'] : []), 'Open in New Window']);
+
+      // Renamed, with the branch taking the name as it was typed.
+      inputs = ['agents-two', 'agents-two'];
+      choose = byLabel('Rename the branch agents/first too');
+      await controller.action({ kind: 'worktreeRename', path: created.path });
+      const renamed = state().worktrees.find((worktree) => worktree.branch === 'agents-two');
+      assert.ok(renamed, JSON.stringify(state().worktrees));
+      assert.equal(renamed.path.toLowerCase(), `${home}/agents-two`.toLowerCase());
+      assert.ok(!fs.existsSync(created.path));
+
+      // The main worktree cannot be renamed, which is said rather than tried.
+      errors.length = 0;
+      await controller.action({ kind: 'worktreeRename', path: state().worktrees.find((worktree) => worktree.main)!.path });
+      assert.ok(errors.some((text) => /cannot move the main worktree/.test(text)), JSON.stringify(errors));
+      errors.length = 0;
+
+      // Removed with its branch, which is merged: it was made from main and has nothing of its own.
+      choose = byLabel(/and delete agents-two/);
+      answer = run;
+      await controller.action({ kind: 'worktreeRemove', path: renamed.path });
+      assert.equal(state().worktrees.length, 1);
+      assert.equal(state().branches.length, branches);
+      assert.ok(!fs.existsSync(renamed.path));
+    } finally {
+      answer = () => undefined;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   await step('serves file contents at a commit and in the index, and opens diffs', async () => {
     const head = state().head!;
     const at = async (ref: string) => (await vscode.workspace.openTextDocument(contentUri(state().root, ref, 'a.txt'))).getText();

@@ -46,7 +46,7 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
-import { resolveAction } from './actions';
+import { AGENTS_WINDOW, resolveAction } from './actions';
 import { draftCommitMessage } from './ai';
 import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
@@ -83,6 +83,8 @@ interface RunResult {
 }
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+const hasCommand = async (id: string) => (await vscode.commands.getCommands(true)).includes(id);
 
 /**
  * Identifies the rows of a state: two states with the same key have the same rows.
@@ -130,6 +132,8 @@ export class Controller implements vscode.Disposable {
   private pendingCompare?: Comparing;
   /** Every repository of the workspace; `repo` is the one being shown. */
   private repos: RepoInfo[] = [];
+  /** Whether this VS Code has the Agents window, which is looked up once: it comes and goes with VS Code itself. */
+  private agentsWindow?: Promise<boolean>;
   private readonly views = new Map<vscode.Webview, ViewKind>();
   /** The tabs of the commits, by repository and hash, and the repository each is of: not always the one being shown. */
   private readonly commitTabs = new Map<string, vscode.WebviewPanel>();
@@ -226,6 +230,7 @@ export class Controller implements vscode.Disposable {
           repos: this.repos,
           github: this.github,
           pulls: this.pulls,
+          agentsWindow: await (this.agentsWindow ??= hasCommand(AGENTS_WINDOW)),
         });
       }
     } catch (error) {

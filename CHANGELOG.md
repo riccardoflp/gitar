@@ -6,6 +6,9 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- Worktrees you name: the **+** on the Worktrees section and **Gitardo: Create Worktree…** ask for a name and a branch to start from, and make a new branch of that name in a folder of that name, in the folder that the new setting `gitardo.worktrees.folder` names (`${repo}.worktrees` next to the repository by default). **Create worktree…** on a branch or a commit asks for a name instead of a whole path.
+- **Open in Agents Window** for a worktree, once it is created and in its context menu: VS Code's Agents window opens on it, so that agent sessions work in it. Where VS Code has no Agents window it is not offered, and if it fails to open the worktree opens in a new window.
+- **Rename…**, **Open in terminal** and **Reveal in File Explorer** in the context menu of a worktree. Renaming moves its folder with `git worktree move` and can rename its branch too; **Remove…** can delete its branch along with it.
 - **Fast-forward to `<upstream>`** in the context menu of a local branch that is not checked out: it fetches the upstream and moves the branch up to it, without leaving the branch you are on. Git only does it when the branch has no commits of its own.
 
 ### Changed

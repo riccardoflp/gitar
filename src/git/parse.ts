@@ -89,7 +89,7 @@ const samePath = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() =
 /** Parses `git worktree list --porcelain`. */
 export function parseWorktrees(out: string, root: string): Worktree[] {
   const worktrees: Worktree[] = [];
-  for (const block of out.split(/\r?\n\r?\n/)) {
+  for (const [index, block] of out.split(/\r?\n\r?\n/).entries()) {
     const fields = new Map<string, string>();
     for (const line of block.split(/\r?\n/)) {
       const space = line.indexOf(' ');
@@ -102,6 +102,8 @@ export function parseWorktrees(out: string, root: string): Worktree[] {
       hash: fields.get('HEAD') ?? '',
       branch: fields.get('branch')?.replace(/^refs\/heads\//, '') ?? null,
       current: samePath(path, root),
+      // Git lists the main worktree first. In a bare repository that is the repository itself, skipped above.
+      main: index === 0,
       prunable: fields.has('prunable'),
     });
   }

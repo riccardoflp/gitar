@@ -24,6 +24,9 @@ import {
   refNameProblem,
   undoOp,
   worktreeAddOp,
+  worktreeDir,
+  worktreeFolderName,
+  worktreeMoveOp,
   worktreeRemoveOp,
   resetOp,
   revertOp,
@@ -127,10 +130,12 @@ describe('parsers', () => {
   it('parses worktrees and marks the current one', () => {
     const out = 'worktree C:/prj/app\nHEAD aaa\nbranch refs/heads/main\n\nworktree C:/prj/app-fix\nHEAD bbb\ndetached\n\n';
     expect(parseWorktrees(`${out}worktree C:/prj/gone\nHEAD ccc\nbranch refs/heads/x\nprunable gitdir file points to non-existent location\n\n`, 'c:/prj/app')).toEqual([
-      { path: 'C:/prj/app', hash: 'aaa', branch: 'main', current: true, prunable: false },
-      { path: 'C:/prj/app-fix', hash: 'bbb', branch: null, current: false, prunable: false },
-      { path: 'C:/prj/gone', hash: 'ccc', branch: 'x', current: false, prunable: true },
+      { path: 'C:/prj/app', hash: 'aaa', branch: 'main', current: true, main: true, prunable: false },
+      { path: 'C:/prj/app-fix', hash: 'bbb', branch: null, current: false, main: false, prunable: false },
+      { path: 'C:/prj/gone', hash: 'ccc', branch: 'x', current: false, main: false, prunable: true },
     ]);
+    // A bare repository is listed first, and has no main worktree.
+    expect(parseWorktrees(`worktree C:/prj/app.git\nbare\n\n${out}`, 'c:/prj/app-fix').map((worktree) => worktree.main)).toEqual([false, false]);
   });
 
   it('cuts a file diff into hunks that are each a complete patch', () => {
@@ -494,6 +499,10 @@ describe('operations', () => {
     const worktree = worktreeRemoveOp('C:/prj/app-fix');
     expect(worktree.fallback?.when.test("fatal: 'C:/prj/app-fix' contains modified or untracked files, use --force to delete it")).toBe(true);
     expect(worktree.fallback?.op.commands).toEqual([['worktree', 'remove', '--force', 'C:/prj/app-fix']]);
+    // With its branch, which goes only if it is merged, forced or not.
+    const both = worktreeRemoveOp('C:/prj/app-fix', false, 'fix');
+    expect(both.commands).toEqual([['worktree', 'remove', 'C:/prj/app-fix'], ['branch', '-d', 'fix']]);
+    expect(both.fallback?.op.commands).toEqual([['worktree', 'remove', '--force', 'C:/prj/app-fix'], ['branch', '-d', 'fix']]);
   });
 
   it('rebases the current branch or another one', () => {
@@ -519,8 +528,29 @@ describe('operations', () => {
 
   it('creates worktrees for an existing branch, a new branch or a detached commit', () => {
     expect(worktreeAddOp('../wt', 'feature', null, false).commands).toEqual([['worktree', 'add', '../wt', 'feature']]);
-    expect(worktreeAddOp('../wt', hash, 'fix', true).commands).toEqual([['worktree', 'add', '-b', 'fix', '../wt', hash]]);
+    expect(worktreeAddOp('../wt', hash, 'fix', true).commands).toEqual([['worktree', 'add', '--no-track', '-b', 'fix', '../wt', hash]]);
     expect(worktreeAddOp('../wt', hash, null, true).commands).toEqual([['worktree', 'add', '--detach', '../wt', hash]]);
+  });
+
+  it('puts new worktrees in the folder the setting names, each in a folder named after it', () => {
+    expect(worktreeDir('C:/prj/app', '${repo}.worktrees', 'feature/login')).toBe('C:/prj/app.worktrees/feature-login');
+    expect(worktreeDir('C:\\prj\\app\\', '', 'fix')).toBe('C:/prj/app.worktrees/fix');
+    expect(worktreeDir('/home/me/app', './trees/${repo}', 'fix')).toBe('/home/me/trees/app/fix');
+    expect(worktreeDir('/home/me/app', '/tmp/wt/', 'fix')).toBe('/tmp/wt/fix');
+    expect(worktreeDir('C:/prj/app', 'D:\\wt', 'fix')).toBe('D:/wt/fix');
+    expect(worktreeFolderName('-odd name!/')).toBe('odd-name');
+    expect(worktreeFolderName('///')).toBe('worktree');
+  });
+
+  it('renames a worktree, and its branch when asked', () => {
+    expect(worktreeMoveOp('C:/prj/wt/fix', 'C:/prj/wt/auth').commands).toEqual([['worktree', 'move', 'C:/prj/wt/fix', 'C:/prj/wt/auth']]);
+    expect(worktreeMoveOp('C:/prj/wt/fix', 'C:/prj/wt/auth', { from: 'fix', to: 'auth' })).toMatchObject({
+      title: 'Rename worktree to auth and branch fix to auth',
+      commands: [
+        ['worktree', 'move', 'C:/prj/wt/fix', 'C:/prj/wt/auth'],
+        ['branch', '-m', 'fix', 'auth'],
+      ],
+    });
   });
 
   it('undoes a checkout by going back, and anything else by moving the branch back', () => {

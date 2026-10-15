@@ -317,6 +317,7 @@ export class Repo {
       repos: [],
       github: null,
       pulls: {},
+      agentsWindow: false,
     };
   }
 

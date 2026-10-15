@@ -383,30 +383,71 @@ export function hunkOp(kind: 'stageHunk' | 'unstageHunk' | 'discardHunk', file: 
   };
 }
 
+/** The folder a new worktree goes in, by its name: a branch such as `feature/login` makes `feature-login`. */
+export function worktreeFolderName(name: string): string {
+  return name.replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60) || 'worktree';
+}
+
+/**
+ * Where a new worktree named `name` goes. `folder` is the setting: `${repo}` in it is the name of the main worktree's
+ * folder, and a relative path starts from the folder that holds the main worktree.
+ */
+export function worktreeDir(main: string, folder: string, name: string): string {
+  // With forward slashes, as git lists worktrees on every system.
+  const slashes = (text: string) => text.replace(/\\/g, '/').replace(/\/+$/, '');
+  const home = slashes(main);
+  const repo = home.slice(home.lastIndexOf('/') + 1);
+  const where = slashes((folder.trim() || '${repo}.worktrees').replace(/\$\{repo\}/g, repo));
+  const absolute = /^([a-zA-Z]:)?\//.test(where);
+  const base = absolute ? where : `${home.slice(0, home.lastIndexOf('/'))}/${where.replace(/^\.\//, '')}`;
+  return `${base}/${worktreeFolderName(name)}`;
+}
+
 export function worktreeAddOp(dir: string, ref: string, newBranch: string | null, detach: boolean): GitOp {
   const command = ['worktree', 'add'];
-  if (newBranch) command.push('-b', arg(newBranch));
+  // A new branch starts a line of work of its own: one made from a remote branch would otherwise push to it.
+  if (newBranch) command.push('--no-track', '-b', arg(newBranch));
   else if (detach) command.push('--detach');
   command.push(arg(dir), arg(ref));
   return { title: `Create worktree for ${newBranch ?? short(ref)}`, commands: [command] };
 }
 
-/** Git refuses to remove a worktree with uncommitted changes; the forced variant is offered when that happens. */
-export function worktreeRemoveOp(dir: string, force = false): GitOp {
+/**
+ * Git refuses to remove a worktree with uncommitted changes; the forced variant is offered when that happens.
+ * `branch` is deleted after it, and only when merged: `git branch -d` keeps one whose commits are on no other branch.
+ */
+export function worktreeRemoveOp(dir: string, force = false, branch?: string): GitOp {
+  const deleteBranch = branch ? [['branch', '-d', arg(branch)]] : [];
+  const also = branch ? ` and branch ${branch}` : '';
+  const kept = branch
+    ? `The branch ${branch} is deleted too if it is merged; if it is not, git keeps it and says so.`
+    : 'Its branch and commits stay in the repository.';
   if (force) {
     return {
-      title: `Remove worktree ${dir} (force)`,
-      commands: [['worktree', 'remove', '--force', arg(dir)]],
+      title: `Remove worktree ${dir}${also} (force)`,
+      commands: [['worktree', 'remove', '--force', arg(dir)], ...deleteBranch],
       danger: true,
-      note: 'This worktree has modified or untracked files. They will be deleted with it.',
+      note: `This worktree has modified or untracked files. They will be deleted with it. ${kept}`,
     };
   }
   return {
-    title: `Remove worktree ${dir}`,
-    commands: [['worktree', 'remove', arg(dir)]],
+    title: `Remove worktree ${dir}${also}`,
+    commands: [['worktree', 'remove', arg(dir)], ...deleteBranch],
     confirm: true,
-    note: 'The directory is deleted. Its branch and commits stay in the repository.',
-    fallback: { when: /modified or untracked files|--force/, op: worktreeRemoveOp(dir, true) },
+    note: `The directory is deleted. ${kept}`,
+    fallback: { when: /modified or untracked files|--force/, op: worktreeRemoveOp(dir, true, branch) },
+  };
+}
+
+/** Moves a worktree to another folder, and renames its branch along with it when `branch` says to. */
+export function worktreeMoveOp(dir: string, to: string, branch?: { from: string; to: string }): GitOp {
+  const commands = [['worktree', 'move', arg(dir), arg(to)]];
+  if (branch) commands.push(['branch', '-m', arg(branch.from), arg(branch.to)]);
+  const name = to.replace(/\\/g, '/').split('/').pop();
+  return {
+    title: `Rename worktree to ${name}${branch ? ` and branch ${branch.from} to ${branch.to}` : ''}`,
+    commands,
+    note: 'Git cannot move a folder that another program has open, such as another VS Code window or a terminal in it.',
   };
 }
 

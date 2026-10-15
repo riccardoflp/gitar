@@ -295,13 +295,26 @@ export function stashMenu(stash: Stash): MenuEntry[] {
   ];
 }
 
+/** What VS Code calls showing a file in the file manager of the system. */
+const REVEAL = /Windows/.test(navigator.userAgent)
+  ? 'Reveal in File Explorer'
+  : /Mac/.test(navigator.userAgent)
+    ? 'Reveal in Finder'
+    : 'Open containing folder';
+
 export function worktreeMenu(worktree: Worktree, state: RepoState): MenuEntry[] {
   const { path } = worktree;
+  const there = !worktree.prunable;
   return [
-    !worktree.current && !worktree.prunable && { label: 'Open in new window', run: () => act({ kind: 'worktreeOpen', path }) },
+    there && state.agentsWindow && { label: 'Open in Agents Window', run: () => act({ kind: 'worktreeOpen', path, where: 'agents' }) },
+    there && !worktree.current && { label: 'Open in new window', run: () => act({ kind: 'worktreeOpen', path, where: 'window' }) },
+    there && { label: 'Open in terminal', run: () => act({ kind: 'worktreeTerminal', path }) },
+    there && { label: REVEAL, run: () => act({ kind: 'worktreeReveal', path }) },
+    'separator',
+    there && !worktree.main && !worktree.current && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
     { label: 'Copy path', run: () => copy(path) },
     'separator',
-    !worktree.current && { label: 'Remove', danger: true, run: () => act({ kind: 'worktreeRemove', path }) },
+    !worktree.current && !worktree.main && { label: 'Remove…', danger: true, run: () => act({ kind: 'worktreeRemove', path }) },
     state.worktrees.some((candidate) => candidate.prunable) && {
       label: 'Prune missing worktrees',
       run: () => act({ kind: 'worktreePrune' }),

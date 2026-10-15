@@ -70,7 +70,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | Remote branch | Check out as a local tracking branch, merge, rebase onto, compare, show only its history or add it to the ones shown, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show only its history or add it to the ones shown, push, delete |
 | Stash | Apply, pop, create branch, drop |
-| Worktree | Open in a new window (also by double-click), remove, prune missing ones |
+| Worktree | Open in the Agents window, open in a new window (also by double-click), open a terminal in it, reveal it in the file manager, rename, copy its path, remove (with its branch, if you want), prune missing ones |
 
 ### Several commits at once
 
@@ -116,7 +116,7 @@ Gitardo has no icon of its own in the activity bar: its views are in the **Sourc
 Three other views show what the graph of Gitardo shows, each on its own:
 
 - **Gitardo Graph** is the graph without the references: the search, the commits with their lines and labels, and the details of the selected commit under the list instead of beside it. Its header has the buttons the toolbar of the graph has: fetch, pull, push and compare, with the other ways to pull and push, undo and the reflog under **…**. A list this narrow gives each commit two lines: its message, and under it its labels with their names, who made it and when. A commit with more than three labels names two of them, what is checked out first, and counts the others: hover the count to read them.
-- **Branches** is the references tree: the recent branches and the favorites, local branches, remote branches, tags and worktrees, with the same context menus, and only the branches the graph is narrowed to while it is. Its header names the branch that is checked out and has the buttons to create a branch and to compare. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
+- **Branches** is the references tree: the recent branches and the favorites, local branches, remote branches, tags and worktrees, with the same context menus, and only the branches the graph is narrowed to while it is. Its header names the branch that is checked out and has the buttons to create a branch and to compare; the title of its Worktrees section has one to create a worktree. Selecting a reference selects its commit in the Commits view and in the graph, if they are open.
 - **Stashes** lists the stashes, and its header counts them. Unfold one to see the files it holds, untracked ones included, and select a file to open its diff. Apply, pop and drop are on each row; the button in the header stashes all changes.
 
 The fifth, **Gitardo Changes**, stages and commits: see [Changes](#changes). VS Code already has a view for that right above, so this one is hidden until you ask for it, with **Gitardo: Show Changes** or by ticking it in the **…** menu of the side bar, and stays until you hide it again. The number on the icon of the side bar is the one VS Code counts.
@@ -259,6 +259,24 @@ The button with a person at the top right of an editor shows it for the whole fi
 ### Branch cleanup
 
 **Gitardo: Clean Up Branches** lists the local branches that are merged into the current one, or whose upstream branch was deleted from the remote. Merged branches are ticked and deleted with `git branch -d`, which refuses to lose commits. Branches that are not merged are left unticked; if you tick them they are deleted with `git branch -D`, after a warning. The current branch and branches checked out in a worktree are never listed.
+
+### Worktrees
+
+A worktree is another folder checked out from the same repository, on a branch of its own: a place to work on something else, or to let an agent work, without touching the folder you are in.
+
+The **+** on the title of the Worktrees section, in the Branches view or beside the graph, and **Gitardo: Create Worktree…** ask for a name and the branch to start from. The name is that of a new branch, and of the worktree's folder: `feature/login` makes the branch `feature/login` in the folder `feature-login`. While you type, the box says where the folder goes. The new branch has no upstream until it is first pushed, even when it starts from a remote branch, so that it is not pushed onto the branch it came from. **Create worktree…** on a branch puts that branch in a new worktree, and on a commit makes a new branch there, or leaves the worktree on a detached HEAD if the name is left empty.
+
+New worktrees go in the folder that `gitardo.worktrees.folder` names, `${repo}.worktrees` next to the repository unless you change it: the worktree `fix-login` of `~/code/app` is `~/code/app.worktrees/fix-login`. `${repo}` is the name of the repository's folder, a relative path starts from the folder that holds it, and `~` is your home folder.
+
+Once it is created, Gitardo offers to open it:
+
+- **Open in Agents Window** opens the Agents window of VS Code on the worktree, so that the agent sessions started there work in it, on its branch. It is offered when this VS Code has the Agents window, which works only with its chat agents turned on. Gitardo opens it with a command of VS Code that is not part of its documented API: if it is missing or fails, the worktree opens in a new window instead, and Gitardo says why.
+- **Open in New Window** opens it as the folder of a VS Code window of its own.
+
+The same are in the context menu of a worktree, with **Open in terminal**, **Reveal in File Explorer** (**Reveal in Finder** on macOS), and:
+
+- **Rename…** gives the folder another name where it is, with `git worktree move`, and offers to rename its branch along with it with `git branch -m`. Git cannot move the main worktree, the folder the repository was created in, nor, on Windows, a folder that another program has open, such as another VS Code window or a terminal: close them first. The worktree open in this window is renamed from another one.
+- **Remove…** asks whether to delete its branch too. The folder is removed with `git worktree remove`, which asks again with `--force` when it has changes that are not committed, and the branch with `git branch -d`, which keeps a branch that is not merged and says so.
 
 ### Remotes
 

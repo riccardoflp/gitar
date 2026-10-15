@@ -343,6 +343,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "gitardo.createWorktree",
+        "title": "Create Worktree…",
+        "category": "Gitardo"
+      },
+      {
         "command": "gitardo.openCommits",
         "title": "Show Commits in the Side Bar",
         "category": "Gitardo"
@@ -536,6 +541,11 @@
           "command": "gitardo.compare",
           "when": "view == gitardo.branches",
           "group": "navigation@2"
+        },
+        {
+          "command": "gitardo.createWorktree",
+          "when": "view == gitardo.branches",
+          "group": "0_create@1"
         },
         {
           "command": "gitardo.cleanupBranches",
@@ -744,6 +754,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Whether the **Pull** button puts your commits that are not pushed on top of what comes in, instead of merging the two: `git pull --rebase`. With `#gitardo.pull.autostash#` it runs `git pull --rebase --autostash`. Switched off, the button leaves the choice to the configuration of Git, which merges unless told otherwise. The menu beside the button has every way to pull, whatever is set here."
+        },
+        "gitardo.worktrees.folder": {
+          "type": "string",
+          "default": "${repo}.worktrees",
+          "markdownDescription": "Where **Create Worktree** puts new worktrees, each in a folder named after it. `${repo}` is the name of the folder of the repository, and a relative path starts from the folder that holds it: with the default, the worktree `fix-login` of `~/code/app` goes in `~/code/app.worktrees/fix-login`."
         },
         "gitardo.conflicts.autoResolve": {
           "type": "boolean",

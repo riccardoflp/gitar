@@ -37,6 +37,13 @@ interface Item {
   pull?: PullRequest;
 }
 
+/** A button beside the title of a section, for what adds to it. */
+interface SectionAction {
+  icon: string;
+  title: string;
+  run(): void;
+}
+
 const CHECKS = { success: 'checks passed', failure: 'checks failed', pending: 'checks running' };
 /** How many entries of a section are listed before asking. */
 const SECTION_LIMIT = 100;
@@ -66,7 +73,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
   };
 
   /** `optional` is a section that is not there at all while it has nothing to list. */
-  const section = (id: SectionId, title: string, icon: string, all: Item[], optional = false): ReactNode => {
+  const section = (id: SectionId, title: string, icon: string, all: Item[], optional = false, action?: SectionAction): ReactNode => {
     if (sections && !sections.includes(id)) return null;
     if (optional && !all.length) return null;
     const items = needle ? all.filter((item) => item.label.toLowerCase().includes(needle)) : all;
@@ -78,12 +85,19 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     if (current && !listed.includes(current)) listed.push(current);
     return (
       <section key={id} data-section={id}>
-        <button className="section" onClick={() => toggle(id)} aria-expanded={open}>
-          <Icon name={open ? 'chevron-down' : 'chevron-right'} />
-          <Icon name={icon} />
-          <span className="grow">{title}</span>
-          <span className="count">{needle ? `${items.length} of ${all.length}` : all.length}</span>
-        </button>
+        <div className="section-head">
+          <button className="section" onClick={() => toggle(id)} aria-expanded={open}>
+            <Icon name={open ? 'chevron-down' : 'chevron-right'} />
+            <Icon name={icon} />
+            <span className="grow">{title}</span>
+            <span className="count">{needle ? `${items.length} of ${all.length}` : all.length}</span>
+          </button>
+          {action && (
+            <button className="section-action" onClick={action.run} title={action.title} aria-label={action.title}>
+              <Icon name={action.icon} />
+            </button>
+          )}
+        </div>
         {open &&
           listed.map((item) => (
             <button
@@ -250,8 +264,10 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           title: worktree.path,
           current: worktree.current,
           menu: () => worktreeMenu(worktree, state),
-          open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path }),
+          open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path, where: 'window' }),
         })),
+        false,
+        { icon: 'add', title: 'Create worktree…', run: () => act({ kind: 'worktreeAdd' }) },
       )}
     </nav>
   );

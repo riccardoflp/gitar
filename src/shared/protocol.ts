@@ -61,6 +61,8 @@ export interface Worktree {
   hash: string;
   branch: string | null;
   current: boolean;
+  /** The one the repository was cloned or created in, which git cannot move or remove. */
+  main: boolean;
   /** Its directory is gone, so `git worktree prune` would forget it. */
   prunable: boolean;
 }
@@ -183,6 +185,8 @@ export interface RepoState {
   github: { owner: string; repo: string } | null;
   /** Open pull requests by the name of their branch. Empty until the user signs in to GitHub. */
   pulls: Record<string, PullRequest>;
+  /** Whether this VS Code has the Agents window, where a worktree can be opened for agent sessions. */
+  agentsWindow: boolean;
 }
 
 /** The commits of what is checked out, for the view that lists them apart from the graph. */
@@ -318,8 +322,11 @@ export type Action =
   /** `steps` are oldest first; `base` is the commit they sit on, or null when they start at the root. */
   | { kind: 'rebaseInteractive'; base: string | null; steps: RebaseStep[] }
   | { kind: 'undo' }
-  | { kind: 'worktreeAdd'; ref: string; isBranch: boolean }
-  | { kind: 'worktreeRemove' | 'worktreeOpen'; path: string }
+  /** On an existing branch or at a commit, or, without `ref`, on a new branch from a base asked for. */
+  | { kind: 'worktreeAdd'; ref?: string; isBranch?: boolean }
+  /** In a new window, or in the Agents window of VS Code, which starts agent sessions in it. */
+  | { kind: 'worktreeOpen'; path: string; where: 'window' | 'agents' }
+  | { kind: 'worktreeRemove' | 'worktreeRename' | 'worktreeTerminal' | 'worktreeReveal'; path: string }
   | { kind: 'worktreePrune' }
   | { kind: 'stageHunk' | 'unstageHunk' | 'discardHunk'; path: string; patch: string }
   | { kind: 'cherryPick'; hash: string; isMerge: boolean }

@@ -48,6 +48,8 @@ import {
   unstageAllOp,
   unstageOp,
   worktreeAddOp,
+  worktreeDir,
+  worktreeMoveOp,
   worktreeRemoveOp,
   type GitOp,
 } from '../src/git/ops';
@@ -408,6 +410,31 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     await run(remove.fallback!.op);
     expect((await state()).worktrees).toHaveLength(1);
     expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it('creates a worktree on a new branch, renames it with its branch and removes both', async () => {
+    write('a.txt', 'one\n');
+    await commitAll('First commit');
+    const dir = worktreeDir(root, '', 'feature/login');
+    await run(worktreeAddOp(dir, 'main', 'feature/login', false));
+    let worktrees = (await state()).worktrees;
+    expect(worktrees).toMatchObject([
+      { main: true, current: true, branch: 'main' },
+      { main: false, current: false, branch: 'feature/login', path: dir },
+    ]);
+    expect((await state()).branches.find((branch) => branch.name === 'feature/login')?.upstream).toBeFalsy();
+
+    const moved = worktreeDir(root, '', 'auth');
+    await run(worktreeMoveOp(dir, moved, { from: 'feature/login', to: 'auth' }));
+    worktrees = (await state()).worktrees;
+    expect(worktrees[1]).toMatchObject({ path: moved, branch: 'auth' });
+    expect(fs.existsSync(dir)).toBe(false);
+
+    await run(worktreeRemoveOp(moved, false, 'auth'));
+    const after = await state();
+    expect(after.worktrees).toHaveLength(1);
+    expect(after.branches.map((branch) => branch.name)).toEqual(['main']);
+    fs.rmSync(path.dirname(moved), { recursive: true, force: true });
   });
 
   it('reads commit details and file contents at a commit and in the index', async () => {

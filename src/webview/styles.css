@@ -629,6 +629,25 @@ input:focus-visible,
   font-weight: 600;
 }
 
+.section-head {
+  display: flex;
+}
+
+.refs .section-head .section {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Beside the count, for what adds to the section. */
+.refs .section-head .section-action {
+  flex: none;
+  justify-content: center;
+  width: 22px;
+  margin-right: 4px;
+  border-radius: 3px;
+  color: var(--vscode-icon-foreground);
+}
+
 /* Said above the names while the graph is narrowed to some branches, which are then the ones listed. */
 .refs-scope {
   display: flex;
