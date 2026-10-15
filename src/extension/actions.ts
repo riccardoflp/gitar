@@ -43,6 +43,7 @@ import {
   deleteBranchOp,
   deleteRemoteBranchOp,
   deleteTagOp,
+  discardChangesOp,
   discardOp,
   fastForwardOp,
   mergeOp,
@@ -364,6 +365,10 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
         state.working.unstaged.map((file) => file.path),
         state.working,
       );
+    case 'discardChanges':
+      // Going back to the last commit in the middle of a merge or a rebase would leave it to commit nothing.
+      if (!action.paths && state.operation) throw new Error(`Abort the ${state.operation} to discard all of it.`);
+      return discardChangesOp(action.paths ?? null, state.working, hasHead);
 
     case 'commit': {
       const message = action.message.trim();

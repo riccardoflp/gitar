@@ -3,20 +3,44 @@ import { said } from '../shared/message';
 import { WORKTREE, type CommitDetail, type DiffSource, type FileChange, type FilesLayout } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
-import { FileRow } from './FileRow';
+import { ActionButtons, FileRow, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
+import { act } from './menus';
 import { fullDate, shortHash } from './util';
 import { loadUiState, post, saveUiState } from './vscode';
 
 interface Props {
   hash: string;
   detail: CommitDetail | null;
+  /** For the changes that are not committed: whether they can be stashed, and all discarded at once. */
+  changes?: { stash: boolean; discardAll: boolean };
   onJump(hash: string): void;
   onClose(): void;
 }
 
 const NONE: ReadonlySet<string> = new Set();
+
+/** A file renamed is passed with its old name, which git needs to put it back or set it aside. */
+const pathsOf = (file: FileChange) => (file.oldPath ? [file.path, file.oldPath] : [file.path]);
+
+/** Ticks every file, or none: half ticked when some are. */
+function PickAll({ picked, of, onPick }: { picked: number; of: number; onPick(all: boolean): void }) {
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = picked > 0 && picked < of;
+  }, [picked, of]);
+  return (
+    <input
+      ref={box}
+      type="checkbox"
+      className="pick"
+      checked={picked === of}
+      aria-label="Select all files"
+      onChange={(event) => onPick(event.target.checked)}
+    />
+  );
+}
 
 /**
  * What a message says under its title. A long one shows its first lines, which leaves the files in sight, and
@@ -52,7 +76,7 @@ function Said({ text }: { text: string }) {
   );
 }
 
-export function Detail({ hash, detail, onJump, onClose }: Props) {
+export function Detail({ hash, detail, changes, onJump, onClose }: Props) {
   const worktree = hash === WORKTREE;
   const message = useMemo(() => (detail ? said(detail.subject, detail.body) : null), [detail]);
   const source: DiffSource = worktree
@@ -65,10 +89,51 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
   const tree = useMemo(() => (layout === 'tree' ? fileTree(files, (file) => file.path) : []), [layout, files]);
   // The directories of another commit are other directories.
   useEffect(() => setFolded(NONE), [hash]);
+  // The uncommitted files ticked to stash or discard together, by their paths; the ones gone are let go.
+  const [picked, setPicked] = useState(NONE);
+  useEffect(() => setPicked(NONE), [hash]);
+  useEffect(() => {
+    const present = new Set(detail?.files.map((file) => file.path));
+    setPicked((current) => ([...current].every((path) => present.has(path)) ? current : new Set([...current].filter((path) => present.has(path)))));
+  }, [detail]);
+  const chosen = worktree ? (detail?.files ?? []).filter((file) => picked.has(file.path)) : [];
+  const pick = (file: FileChange, on: boolean) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (on) next.add(file.path);
+      else next.delete(file.path);
+      return next;
+    });
 
   const choose = (wanted: FilesLayout) => {
     setLayout(wanted);
     saveUiState({ detailFiles: wanted });
+  };
+  const fileActions = (file: FileChange): FileAction[] => {
+    const history = { icon: 'history', title: 'Show the history of this file', run: () => post({ type: 'setFilter', filter: { kind: 'path', path: file.path } }) };
+    if (!worktree) return [history];
+    return [
+      file.status !== '?' && history,
+      changes?.stash && { icon: 'git-stash', title: 'Stash this file…', run: () => act({ kind: 'stashPush', paths: pathsOf(file) }) },
+      { icon: 'discard', title: 'Discard all changes in this file, staged too…', run: () => act({ kind: 'discardChanges', paths: pathsOf(file) }) },
+    ].filter((action): action is FileAction => Boolean(action));
+  };
+  // What the buttons above the files do: to the files ticked, or to all of them.
+  const changesActions = (): FileAction[] => {
+    const paths = chosen.flatMap(pathsOf);
+    const some = chosen.length === 1 ? '1 selected file' : `${chosen.length} selected files`;
+    return [
+      changes?.stash && {
+        icon: 'git-stash',
+        title: chosen.length ? `Stash ${some}…` : 'Stash all changes…',
+        run: () => act(chosen.length ? { kind: 'stashPush', paths } : { kind: 'stashPush' }),
+      },
+      (chosen.length > 0 || changes?.discardAll) && {
+        icon: 'discard',
+        title: chosen.length ? `Discard all changes in ${some}…` : 'Discard all changes…',
+        run: () => act(chosen.length ? { kind: 'discardChanges', paths } : { kind: 'discardChanges' }),
+      },
+    ].filter((action): action is FileAction => Boolean(action));
   };
   const row = (file: FileChange, depth?: number) => (
     <FileRow
@@ -76,13 +141,9 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
       file={file}
       depth={depth}
       onOpen={() => post({ type: 'openDiff', source, file })}
-      actions={[
-        {
-          icon: 'history',
-          title: 'Show the history of this file',
-          run: () => post({ type: 'setFilter', filter: { kind: 'path', path: file.path } }),
-        },
-      ]}
+      actions={fileActions(file)}
+      picked={picked.has(file.path)}
+      onPick={worktree ? (on) => pick(file, on) : undefined}
     />
   );
 
@@ -146,10 +207,19 @@ export function Detail({ hash, detail, onJump, onClose }: Props) {
             </dl>
           )}
           <h3>
+            {worktree && detail.files.length > 0 && (
+              <PickAll
+                picked={chosen.length}
+                of={detail.files.length}
+                onPick={(all) => setPicked(all ? new Set(detail.files.map((file) => file.path)) : NONE)}
+              />
+            )}
             <span className="grow">
               {detail.files.length} changed {detail.files.length === 1 ? 'file' : 'files'}
+              {chosen.length > 0 && <span className="muted">, {chosen.length} selected</span>}
               {detail.parents.length > 1 && <span className="muted"> against the first parent</span>}
             </span>
+            {worktree && detail.files.length > 0 && <ActionButtons actions={changesActions()} />}
             {detail.files.length > 0 && (
               <>
                 <button

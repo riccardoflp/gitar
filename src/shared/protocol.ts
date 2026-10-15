@@ -421,6 +421,11 @@ export type Action =
   /** Makes a file in conflict what one side has, whole: `ours` is what is checked out, `theirs` what is coming in. */
   | { kind: 'takeSide'; path: string; side: 'ours' | 'theirs' }
   | { kind: 'stageAll' | 'unstageAll' | 'discardAll' }
+  /**
+   * Takes files back to the last commit, staged or not, and deletes the untracked ones: all of them without `paths`.
+   * `discard` and `discardAll` leave what is staged alone.
+   */
+  | { kind: 'discardChanges'; paths?: string[] }
   | { kind: 'commit'; message: string; amend: boolean }
   /** Folds the staged changes, or all changes when nothing is staged, into an earlier commit. `isRoot`: that commit has no parent. */
   | { kind: 'fixup'; hash: string; isRoot: boolean }

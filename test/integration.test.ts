@@ -19,6 +19,7 @@ import {
   createBranchOp,
   createTagOp,
   deleteBranchOp,
+  discardChangesOp,
   discardOp,
   fastForwardOp,
   fetchRemoteOp,
@@ -145,6 +146,58 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await state()).changes).toBe(0);
     expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('one\n');
     expect(exists('new.txt')).toBe(false);
+  });
+
+  it('discards changes staged or not, one file at a time or all at once, and what was added since', async () => {
+    write('a.txt', 'one\n');
+    write('b.txt', 'bee\n');
+    write('old.txt', 'content that is long enough to be detected as a rename\n');
+    await commitAll('First commit');
+    write('a.txt', 'staged\n');
+    await git(root, ['add', 'a.txt']);
+    write('a.txt', 'staged and then some\n');
+    write('b.txt', 'unstaged\n');
+    await git(root, ['mv', 'old.txt', 'new.txt']);
+    write('added.txt', 'added\n');
+    await git(root, ['add', 'added.txt']);
+    write('untracked.txt', 'untracked\n');
+    fs.mkdirSync(path.join(root, 'folder'));
+    write('folder/inside.txt', 'untracked\n');
+
+    // One file goes back whole, its staged change too; the rename with both of its names.
+    let dirty = await state();
+    await run(discardChangesOp(['a.txt'], dirty.working, true));
+    expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('one\n');
+    dirty = await state();
+    const renamed = dirty.working.staged.find((file) => file.status === 'R')!;
+    const op = discardChangesOp([renamed.path, renamed.oldPath!, 'untracked.txt'], dirty.working, true);
+    expect(op.title).toBe('Discard all changes in 2 files');
+    expect(op.danger).toBe(true);
+    await run(op);
+    expect([exists('old.txt'), exists('new.txt'), exists('untracked.txt')]).toEqual([true, false, false]);
+
+    // All at once, untracked folders included.
+    dirty = await state();
+    const all = discardChangesOp(null, dirty.working, true);
+    expect(all.commands).toEqual([
+      ['restore', '--source=HEAD', '--staged', '--worktree', '--', '.'],
+      ['clean', '-f', '-d', '--', '.'],
+    ]);
+    expect(all.note).toBe('2 files go back to the last commit, staged changes included: they will be lost, and a file added since is deleted from disk. One untracked file will be deleted from disk.');
+    await run(all);
+    expect((await state()).changes).toBe(0);
+    expect([exists('added.txt'), exists('folder'), fs.readFileSync(path.join(root, 'b.txt'), 'utf8')]).toEqual([false, false, 'bee\n']);
+    expect(() => discardChangesOp(null, { staged: [], unstaged: [], conflicts: [] }, true)).toThrow('There is nothing to discard.');
+  });
+
+  it('discards everything before the first commit, staged files too', async () => {
+    write('a.txt', 'one\n');
+    await git(root, ['add', 'a.txt']);
+    write('b.txt', 'two\n');
+    const op = discardChangesOp(null, (await state()).working, false);
+    expect(op.commands[0]).toEqual(['rm', '-r', '--force', '--quiet', '--', '.']);
+    await run(op);
+    expect([exists('a.txt'), exists('b.txt')]).toEqual([false, false]);
   });
 
   it('unstages both sides of a staged rename', async () => {

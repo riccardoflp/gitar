@@ -19,6 +19,9 @@ interface Props {
   extra?: ReactNode;
   /** How far in the row is, in a tree. There its directory is left out: the rows above say it. */
   depth?: number;
+  /** Set when files can be picked to act on several at once: a box to tick before the name. */
+  onPick?(picked: boolean): void;
+  picked?: boolean;
 }
 
 const STATUS_TITLES: Record<string, string> = {
@@ -54,7 +57,7 @@ export function Status({ file }: { file: FileChange }) {
 
 export const fileTitle = (file: FileChange) => (file.oldPath ? `${file.oldPath} → ${file.path}` : file.path);
 
-export function FileRow({ file, onOpen, actions, expanded, onToggle, extra, depth }: Props) {
+export function FileRow({ file, onOpen, actions, expanded, onToggle, extra, depth, onPick, picked }: Props) {
   const slash = file.path.lastIndexOf('/');
   return (
     <div className="file" style={depth === undefined ? undefined : { paddingLeft: 12 + depth * INDENT }}>
@@ -62,6 +65,9 @@ export function FileRow({ file, onOpen, actions, expanded, onToggle, extra, dept
         <button className="twist" onClick={onToggle} aria-expanded={!!expanded} aria-label={`${expanded ? 'Hide' : 'Show'} hunks of ${file.path}`}>
           <Icon name={expanded ? 'chevron-down' : 'chevron-right'} />
         </button>
+      )}
+      {onPick && (
+        <input type="checkbox" className="pick" checked={!!picked} aria-label={`Select ${file.path}`} onChange={(event) => onPick(event.target.checked)} />
       )}
       <button className="file-open" title={fileTitle(file)} onClick={onOpen}>
         <Status file={file} />

@@ -1663,6 +1663,98 @@ try {
     assert(!fs.existsSync(path.join(app, '.git', 'modules', 'vendor', 'lib')), 'its clone is deleted');
     git(app, 'commit', '-m', 'Remove the submodule lib');
   });
+
+  await step('the changes that are not committed are stashed or discarded from their row in the graph, a file at a time, or the ones ticked in the details', async () => {
+    if (fs.existsSync(path.join(app, '.git', 'MERGE_HEAD'))) git(app, 'merge', '--abort');
+    await command('View: Close All Editors');
+    await command('Gitardo: Show Graph');
+    const graph = await webview('graph');
+    const a = fs.readFileSync(path.join(app, 'a.txt'), 'utf8');
+    const b = fs.readFileSync(path.join(app, 'b.txt'), 'utf8');
+    fs.writeFileSync(path.join(app, 'a.txt'), `${a}staged\n`);
+    git(app, 'add', 'a.txt');
+    fs.writeFileSync(path.join(app, 'b.txt'), `${b}unstaged\n`);
+    fs.writeFileSync(path.join(app, 'one.txt'), 'one\n');
+    fs.writeFileSync(path.join(app, 'two.txt'), 'two\n');
+    const files = () =>
+      graph.evaluate(`[...document.querySelectorAll('.detail .files .file')].map((row) => ({ name: row.querySelector('.name').textContent, picked: row.querySelector('.pick')?.checked ?? null }))`);
+    const names = async () => (await files()).map((file) => file.name);
+    /** A real click on something inside the row of a file in the details: its box, or a button that shows once it is there. */
+    const press = async (file, selector) => {
+      const at = await graph.evaluate(`(() => {
+        const row = [...document.querySelectorAll('.detail .files .file')].find((row) => row.querySelector('.name').textContent === ${JSON.stringify(file)});
+        const rect = row.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`);
+      await mouse(graph.frame.x + at.x, graph.frame.y + at.y);
+    };
+    const confirm = async (title) => {
+      const dialog = await until('the warning', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
+      assert(dialog.text.includes(`${title}?`), `dialog: ${JSON.stringify(dialog)}`);
+      return dialog;
+    };
+
+    // The menu of the row has what goes for all of them.
+    await graph.click('.row', 'Uncommitted changes', 'right');
+    const items = await until('the menu', () => graph.evaluate(`[...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)`));
+    await shot('changes-menu');
+    for (const wanted of ['Stash changes…', 'Stash staged changes…', 'Stage all changes', 'Unstage all changes', 'Discard all changes…']) {
+      assert(items.some((item) => item.startsWith(wanted)), `menu: ${items}`);
+    }
+    await key('Escape');
+
+    // The details list them, each with a box to tick.
+    await graph.click('.row', 'Uncommitted changes');
+    await until('the files in the details', async () => {
+      const listed = await names();
+      return ['a.txt', 'b.txt', 'one.txt', 'two.txt'].every((name) => listed.includes(name));
+    });
+    assert((await files()).every((file) => file.picked === false), `files: ${JSON.stringify(await files())}`);
+    await press('one.txt', '.pick');
+    await press('two.txt', '.pick');
+    await until('two ticked', () => graph.evaluate(`document.querySelector('.detail h3 .grow').textContent.includes(', 2 selected')`));
+    await shot('changes-ticked');
+    await graph.click('.detail h3 button[title="Discard all changes in 2 selected files…"]');
+    const dialog = await confirm('Discard all changes in 2 files');
+    assert(/git clean -f -- one\.txt two\.txt\s*$/.test(dialog.text) && dialog.text.includes('2 untracked files will be deleted'), `dialog: ${dialog.text}`);
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('the two gone', async () => !(await names()).some((name) => name === 'one.txt' || name === 'two.txt'));
+    assert(!fs.existsSync(path.join(app, 'one.txt')) && !fs.existsSync(path.join(app, 'two.txt')), 'deleted from disk');
+    assert(!(await graph.evaluate(`document.querySelector('.detail h3 .grow').textContent.includes('selected')`)), 'nothing ticked is left');
+
+    // Ticked, a file is stashed alone.
+    await press('b.txt', '.pick');
+    await graph.click('.detail h3 button[title="Stash 1 selected file…"]');
+    await until('the prompt for the message', async () => (await prompt())?.title === 'Stash b.txt');
+    await type('Only b');
+    await key('Enter');
+    await until('b stashed', async () => !(await names()).includes('b.txt'));
+    assert(fs.readFileSync(path.join(app, 'b.txt'), 'utf8') === b, 'b.txt is back to its commit');
+    assert(git(app, 'stash', 'list', '--format=%s').toString().includes('Only b'), 'the stash is there');
+
+    // The button of a file discards its staged change too.
+    await press('a.txt', '.pick');
+    await press('a.txt', 'button[title="Discard all changes in this file, staged too…"]');
+    await confirm('Discard all changes in a.txt');
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('a gone', async () => !(await names()).includes('a.txt'));
+    assert(fs.readFileSync(path.join(app, 'a.txt'), 'utf8') === a && !git(app, 'diff', '--cached', '--name-only').toString().trim(), 'a.txt is back to its commit');
+
+    // From the menu of the row, everything goes, untracked folders too.
+    fs.mkdirSync(path.join(app, 'more'), { recursive: true });
+    fs.writeFileSync(path.join(app, 'more', 'three.txt'), 'three\n');
+    fs.writeFileSync(path.join(app, 'b.txt'), `${b}again\n`);
+    await until('the changes back', async () => (await subjects(graph))[0]?.startsWith('Uncommitted changes'));
+    await graph.click('.row', 'Uncommitted changes', 'right');
+    await graph.click('[role="menuitem"]', 'Discard all changes…');
+    const all = await confirm('Discard all changes');
+    assert(all.text.includes('git restore --source=HEAD --staged --worktree -- .') && all.text.includes('git clean -f -d -- .'), `dialog: ${all.text}`);
+    await shot('changes-discard-all');
+    await clickText('.monaco-dialog-box .monaco-button', 'Run');
+    await until('no changes', async () => !(await subjects(graph))[0]?.startsWith('Uncommitted changes'));
+    assert(!git(app, 'status', '--porcelain').toString().trim(), 'git has nothing to commit');
+    git(app, 'stash', 'drop');
+  });
 } catch (error) {
   await finish(error);
 }

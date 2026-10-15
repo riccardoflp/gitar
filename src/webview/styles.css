@@ -1096,6 +1096,14 @@ input:focus-visible,
   display: inline-flex;
 }
 
+/* Ticks a file, or all of them above, to act on several at once. */
+.file .pick,
+.detail h3 .pick {
+  flex: none;
+  margin: 0 6px 0 0;
+  accent-color: var(--vscode-button-background);
+}
+
 .file .status {
   flex: none;
   width: 10px;

@@ -99,9 +99,25 @@ interface CommitMenuTools {
   onCompare(comparing: Comparing): void;
 }
 
+/** What can be done with the changes that are not committed, all at once. */
+export function changesMenu(state: RepoState): MenuEntry[] {
+  const { staged, unstaged, conflicts } = state.working;
+  return [
+    // Git has nothing to stash onto before the first commit.
+    state.head !== null && { label: 'Stash changes…', run: () => act({ kind: 'stashPush' }) },
+    state.head !== null && staged.length > 0 && { label: 'Stash staged changes…', run: () => act({ kind: 'stashPush', staged: true }) },
+    'separator',
+    // Staging everything would mark the conflicts resolved, markers and all.
+    unstaged.length > 0 && !conflicts.length && { label: 'Stage all changes', run: () => act({ kind: 'stageAll' }) },
+    staged.length > 0 && { label: 'Unstage all changes', run: () => act({ kind: 'unstageAll' }) },
+    'separator',
+    // In the middle of a merge or a rebase, aborting it is what goes back.
+    !state.operation && { label: 'Discard all changes…', danger: true, run: () => act({ kind: 'discardChanges' }) },
+  ];
+}
+
 export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): MenuEntry[] {
-  // Git has nothing to stash onto before the first commit.
-  if (row.hash === WORKTREE) return state.head ? [{ label: 'Stash changes…', run: () => act({ kind: 'stashPush' }) }] : [];
+  if (row.hash === WORKTREE) return changesMenu(state);
 
   const { hash } = row;
   const { selected, onInteractiveRebase, onCompare } = tools;

@@ -430,7 +430,15 @@ export function App({ compact = false }: { compact?: boolean }) {
             onClose={() => setComparing(null)}
           />
         ) : (
-          selected && <Detail hash={selected} detail={detail} onJump={jump} onClose={() => select(null)} />
+          selected && (
+            <Detail
+              hash={selected}
+              detail={detail}
+              changes={{ stash: state.head !== null, discardAll: !state.operation }}
+              onJump={jump}
+              onClose={() => select(null)}
+            />
+          )
         )}
         {rebase && <RebaseEditor range={rebase} branch={state.branch} onClose={() => setRebase(null)} />}
       </div>

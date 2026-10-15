@@ -5,7 +5,7 @@ import { changesText, upstreamHint, worktreeOf, worktreeStatus } from '../src/sh
 // The menus post what is chosen to the extension; here they are only read.
 const posted = vi.hoisted(() => [] as unknown[]);
 vi.mock('../src/webview/vscode', () => ({ post: (message: unknown) => posted.push(message) }));
-const { branchMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, worktreeMenu } = await import('../src/webview/menus');
+const { branchMenu, changesMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, worktreeMenu } = await import('../src/webview/menus');
 
 const worktree = (overrides: Partial<Worktree>): Worktree => ({
   path: 'C:/prj/app',
@@ -201,5 +201,31 @@ describe('the status of a worktree', () => {
     const repo = { ...state([worktree({}), there], [login]), remotes: ['origin'], github: { owner: 'me', repo: 'app' }, pulls: { 'feature/login': pull } } as RepoState;
     expect(worktreeStatus(there, repo)).toEqual({ branch: login, ahead: '↑2 ↓1', pull });
     expect(worktreeStatus({ ...there, branch: null }, repo)).toEqual({});
+  });
+});
+
+describe('menu of the changes that are not committed', () => {
+  const file = (status: string, path: string) => ({ status, path });
+  const changes = (working: RepoState['working'], more: Partial<RepoState> = {}) =>
+    labels(changesMenu({ ...state([], []), working, ...more } as RepoState));
+
+  it('stashes, stages, unstages and discards them all, as far as there is something to', () => {
+    expect(changes({ staged: [file('M', 'a.txt')], unstaged: [file('?', 'b.txt')], conflicts: [] })).toEqual([
+      'Stash changes…',
+      'Stash staged changes…',
+      'Stage all changes',
+      'Unstage all changes',
+      'Discard all changes…',
+    ]);
+    expect(changes({ staged: [], unstaged: [file('M', 'a.txt')], conflicts: [] })).toEqual(['Stash changes…', 'Stage all changes', 'Discard all changes…']);
+  });
+
+  it('leaves out stashing before the first commit, staging over conflicts, and discarding during a merge', () => {
+    expect(changes({ staged: [], unstaged: [file('?', 'a.txt')], conflicts: [] }, { head: null })).toEqual(['Stage all changes', 'Discard all changes…']);
+    expect(changes({ staged: [file('M', 'a.txt')], unstaged: [file('M', 'c.txt')], conflicts: [file('U', 'c.txt')] }, { operation: 'merge' })).toEqual([
+      'Stash changes…',
+      'Stash staged changes…',
+      'Unstage all changes',
+    ]);
   });
 });

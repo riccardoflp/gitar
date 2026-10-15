@@ -439,6 +439,47 @@ export function discardOp(paths: string[], working: WorkingState): GitOp {
   };
 }
 
+/**
+ * Takes files back to the last commit, staged changes too, and deletes the untracked ones: all of them when `paths` is
+ * null. A file added since is deleted as well. Before the first commit there is nothing to go back to, so the staged
+ * files are deleted with the rest.
+ */
+export function discardChangesOp(paths: string[] | null, working: WorkingState, hasHead: boolean): GitOp {
+  const changed = [...working.conflicts, ...working.staged, ...working.unstaged];
+  const untracked = new Set(working.unstaged.filter((file) => file.status === '?').map((file) => file.path));
+  const wanted = paths && new Set(paths);
+  const files = new Set(
+    changed.filter((file) => !wanted || wanted.has(file.path) || (file.oldPath && wanted.has(file.oldPath))).map((file) => file.path),
+  );
+  const restore = [...files].filter((file) => !untracked.has(file));
+  const remove = [...files].filter((file) => untracked.has(file));
+  // A file renamed goes back to its old name, which is passed along with it.
+  const tracked = paths ? paths.filter((file) => !untracked.has(file)) : ['.'];
+  const commands: string[][] = [];
+  if (restore.length) {
+    const specs = tracked.map((file) => (paths ? pathspec(file) : file));
+    commands.push(hasHead ? ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...specs] : ['rm', '-r', '--force', '--quiet', '--', ...specs]);
+  }
+  if (remove.length) commands.push(paths ? ['clean', '-f', '--', ...remove.map(pathspec)] : ['clean', '-f', '-d', '--', '.']);
+  if (!commands.length) throw new Error('There is nothing to discard.');
+
+  const count = (n: number, what: string) => (n === 1 ? `One ${what}` : `${n} ${what}s`);
+  const notes: string[] = [];
+  if (restore.length && hasHead) {
+    const go = restore.length === 1 ? 'One file goes' : `${restore.length} files go`;
+    notes.push(`${go} back to the last commit, staged changes included: they will be lost, and a file added since is deleted from disk.`);
+  }
+  if (restore.length && !hasHead) notes.push(`${count(restore.length, 'staged file')} will be deleted from disk.`);
+  if (remove.length) notes.push(`${count(remove.length, 'untracked file')} will be deleted from disk.`);
+  const [only] = files;
+  return {
+    title: !paths ? 'Discard all changes' : files.size === 1 ? `Discard all changes in ${only}` : `Discard all changes in ${files.size} files`,
+    commands,
+    danger: true,
+    note: notes.join(' '),
+  };
+}
+
 /** Applies one hunk of a file's diff, passed to `git apply` on standard input. */
 export function hunkOp(kind: 'stageHunk' | 'unstageHunk' | 'discardHunk', file: string, patch: string): GitOp {
   const header = patch.split('\n').find((line) => line.startsWith('@@')) ?? '';
