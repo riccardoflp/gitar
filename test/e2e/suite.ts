@@ -532,7 +532,11 @@ export async function run(): Promise<void> {
     } finally {
       commands.executeCommand = executeCommand;
       choose = () => undefined;
-      for (const worktree of state().worktrees.filter((each) => !each.main)) await git(app, ['worktree', 'remove', '--force', worktree.path]);
+      // Each removal makes the views refresh, which runs `git status` in the other worktrees: on Windows a folder that a process
+      // runs in cannot be deleted, so a removal can fail. What it leaves is deleted with retries and pruned below.
+      for (const worktree of state().worktrees.filter((each) => !each.main)) {
+        await git(app, ['worktree', 'remove', '--force', worktree.path]).catch(() => undefined);
+      }
       fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
       await git(app, ['worktree', 'prune']);
       await git(app, ['branch', '-D', 'remote/only']).catch(() => undefined);
