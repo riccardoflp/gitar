@@ -254,7 +254,7 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       return submoduleRecordOp(submodule, submodule.head);
     }
     case 'submoduleDeinit':
-      return submoduleDeinitOp(findSubmodule(action.path, state));
+      return lettingGoOf(submoduleDeinitOp(findSubmodule(action.path, state)), findSubmodule(action.path, state), state);
     case 'submoduleRemove': {
       const submodule = findSubmodule(action.path, state);
       // Its clone is in the git directory of the repository that has it, under its name, which comes from .gitmodules:
@@ -262,12 +262,12 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       const modules = path.join(await repo.gitDirAt(submodule.parent), 'modules');
       const gitDir = path.resolve(modules, submodule.name);
       const exists = gitDir.startsWith(modules + path.sep) && fs.existsSync(gitDir);
-      const op = submoduleRemoveOp(submodule, exists ? gitDir : null);
+      const op = lettingGoOf(submoduleRemoveOp(submodule, exists ? gitDir : null), submodule, state);
       if (exists) {
         op.finish = async (log) => {
           log.info(`> delete ${gitDir}`);
           try {
-            await fs.promises.rm(gitDir, { recursive: true, force: true, maxRetries: 3 });
+            await fs.promises.rm(gitDir, { recursive: true, force: true, maxRetries: 10, retryDelay: HELD_DELAY });
           } catch (error) {
             log.warn(`${gitDir} could not be deleted: ${error instanceof Error ? error.message : String(error)}`);
           }
@@ -770,6 +770,33 @@ export function recoverHeldWorktree(root: string): (args: string[], error: GitEr
     }
     return false;
   };
+}
+
+/**
+ * Has VS Code's Git extension close a submodule, and the ones inside it, before an operation empties or deletes its
+ * folder, which Windows would refuse while the extension watches it; a command it still stops on is run again for a
+ * while. Git checks and writes its index only once the folder is gone, so running it again is safe.
+ */
+function lettingGoOf(op: GitOp, submodule: Submodule, state: RepoState): GitOp {
+  const inside = state.submodules.filter((each) => each.path === submodule.path || each.path.startsWith(`${submodule.path}/`));
+  op.prepare = (log) => closeInVSCodeGit(inside.filter((each) => each.head !== null).map((each) => submoduleFolder(each, state)), log);
+  op.recover = async (args, error, log) => {
+    if (process.platform !== 'win32' || !/could not remove|Permission denied|Device or resource busy/.test(error.message)) return false;
+    log.warn(`${error.message.split('\n')[0]}: Windows holds the folder, so it is tried again.`);
+    for (let attempt = 0; attempt < HELD_RETRIES; attempt++) {
+      await wait(HELD_DELAY * 2);
+      try {
+        await git(state.root, args);
+        log.info(`> ${formatCommand(args)}`);
+        return true;
+      } catch {
+        // Still held, or failing for another reason: the last one says which.
+      }
+    }
+    return false;
+  };
+  if (op.fallback) lettingGoOf(op.fallback.op, submodule, state);
+  return op;
 }
 
 /** Removes an empty folder, trying again for a while when it is held. False when it is not empty, or not removed. */
