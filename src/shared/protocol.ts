@@ -309,6 +309,8 @@ export type Action =
   | { kind: 'createBranch'; at: string }
   | { kind: 'renameBranch'; name: string }
   | { kind: 'deleteBranch'; name: string }
+  /** Moves a branch that is not checked out up to its upstream, which is fetched first. */
+  | { kind: 'fastForward'; name: string }
   | { kind: 'deleteRemoteBranch'; name: string }
   | { kind: 'merge'; ref: string }
   /** Rebases `branch`, or the current branch when it is left out. */

@@ -16,6 +16,7 @@ import {
   deleteBranchOp,
   deleteRemoteBranchOp,
   discardOp,
+  fastForwardOp,
   hunkOp,
   rebaseInteractiveOp,
   rebaseOp,
@@ -54,7 +55,8 @@ import {
   parseWorktrees,
   recentBranches,
 } from '../src/git/parse';
-import type { Branch, RepoState, WorkingState } from '../src/shared/protocol';
+import type { Branch, RepoState, Upstream, WorkingState, Worktree } from '../src/shared/protocol';
+import { canFastForward } from '../src/shared/refs';
 
 const F = '\x1f';
 
@@ -322,6 +324,59 @@ describe('syncOp', () => {
   it('refuses to push without a branch or a remote', () => {
     expect(() => syncOp('push', state(null))).toThrow(/detached/);
     expect(() => syncOp('push', state({}, []))).toThrow(/no remote/);
+  });
+});
+
+describe('fast-forward', () => {
+  const upstream = (overrides: Partial<Upstream> = {}): Upstream => ({
+    name: 'up/main',
+    remote: 'up',
+    branch: 'main',
+    ahead: 0,
+    behind: 2,
+    gone: false,
+    ...overrides,
+  });
+  const state = (branch: Partial<Branch>, worktrees: Partial<Worktree>[] = []): RepoState =>
+    ({
+      branches: [
+        { name: 'work', hash: 'aaa', current: true },
+        { name: 'feature', hash: 'bbb', current: false, ...branch },
+      ],
+      worktrees,
+    }) as Partial<RepoState> as RepoState;
+  const offered = (branch: Partial<Branch>, worktrees: Partial<Worktree>[] = []) => {
+    const repo = state(branch, worktrees);
+    return canFastForward(repo.branches[1], repo);
+  };
+
+  it('fetches the remote branch of the upstream into the branch, named in full', () => {
+    expect(fastForwardOp('feature', state({ upstream: upstream() }))).toMatchObject({
+      title: 'Fast-forward feature to up/main',
+      commands: [['fetch', 'up', 'refs/heads/main:refs/heads/feature']],
+    });
+    // Without a `+`, git refuses anything but a fast-forward.
+    expect(fastForwardOp('feature', state({ upstream: upstream() })).commands[0][2]).not.toMatch(/^\+/);
+  });
+
+  it('fetches from this repository when the upstream is a local branch', () => {
+    const local = upstream({ name: 'main', remote: '.' });
+    expect(fastForwardOp('feature', state({ upstream: local })).commands).toEqual([['fetch', '.', 'refs/heads/main:refs/heads/feature']]);
+  });
+
+  it('is offered for a branch with no commits of its own, even when the last fetch saw nothing new', () => {
+    expect(offered({ upstream: upstream() })).toBe(true);
+    expect(offered({ upstream: upstream({ behind: 0 }) })).toBe(true);
+  });
+
+  it('is not offered for what git would refuse or what Pull already does', () => {
+    expect(offered({})).toBe(false);
+    expect(offered({ upstream: upstream({ ahead: 1 }) })).toBe(false);
+    expect(offered({ upstream: upstream({ gone: true }) })).toBe(false);
+    expect(offered({ current: true, upstream: upstream() })).toBe(false);
+    expect(offered({ upstream: upstream() }, [{ branch: 'feature', current: false }])).toBe(false);
+    expect(() => fastForwardOp('feature', state({ upstream: upstream({ ahead: 1 }) }))).toThrow(/cannot be fast-forwarded/);
+    expect(() => fastForwardOp('missing', state({ upstream: upstream() }))).toThrow(/cannot be fast-forwarded/);
   });
 });
 

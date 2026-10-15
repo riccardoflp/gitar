@@ -623,6 +623,35 @@ export async function run(): Promise<void> {
     assert.equal(state().branches.find((branch) => branch.current)!.upstream!.ahead, 0);
   });
 
+  await step('fast-forwards a branch that is not checked out to what its upstream has on the remote', async () => {
+    const start = state().head!;
+    const remote = path.join(workspace, '..', 'remote.git');
+    const other = path.join(workspace, '..', 'fast-forward');
+    await git(app, ['push', 'origin', `${start}:refs/heads/lagging`]);
+    await git(app, ['branch', '--track', 'lagging', 'origin/lagging']);
+    // Someone else pushes to it, and nothing is fetched here before the fast-forward.
+    await git(workspace, ['clone', '--branch', 'lagging', remote, other]);
+    fs.writeFileSync(path.join(other, 'lagging.txt'), 'theirs\n');
+    await git(other, ['add', '--all']);
+    await git(other, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitardo.invalid', 'commit', '-m', 'On lagging']);
+    await git(other, ['push', 'origin', 'lagging']);
+    const theirs = (await git(other, ['rev-parse', 'HEAD'])).stdout.trim();
+    await vscode.commands.executeCommand('gitardo.refresh');
+    try {
+      logged.length = 0;
+      await controller.action({ kind: 'fastForward', name: 'lagging' });
+      assert.ok(logged.includes('> git fetch origin refs/heads/lagging:refs/heads/lagging'), logged.join('\n'));
+      assert.equal(state().branches.find((branch) => branch.name === 'lagging')!.hash, theirs);
+      assert.equal(state().branch, 'main');
+      assert.equal(state().head, start);
+      assert.deepEqual(errors, []);
+    } finally {
+      await git(app, ['branch', '-D', 'lagging']);
+      await git(app, ['push', 'origin', '--delete', 'lagging']);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
+  });
+
   await step('the Pull button pulls the way the settings choose: with a rebase and the changes set aside, unless told otherwise', async () => {
     const setting = (name: string, value: boolean | undefined) =>
       vscode.workspace.getConfiguration('gitardo').update(name, value, vscode.ConfigurationTarget.Global);

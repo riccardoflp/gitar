@@ -11,7 +11,7 @@ import {
   type Stash,
   type Worktree,
 } from '../shared/protocol';
-import { refArg } from '../shared/refs';
+import { canFastForward, refArg } from '../shared/refs';
 import { scopeRefs, toggleScopeRef } from '../shared/scope';
 import type { MenuEntry } from './ContextMenu';
 import type { DragSource } from './drag';
@@ -225,6 +225,10 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
   const checkedOut = state.worktrees.some((worktree) => worktree.branch === name);
   return [
     !branch.current && { label: `Check out ${name}`, run: () => act({ kind: 'checkout', target: 'branch', ref: name }) },
+    canFastForward(branch, state) && {
+      label: `Fast-forward to ${branch.upstream?.name}`,
+      run: () => act({ kind: 'fastForward', name }),
+    },
     ...(branch.current ? [] : integrate(refArg('branch', name, state), branch.hash, state)),
     'separator',
     compareWithHead(name, branch.hash, state, onCompare),

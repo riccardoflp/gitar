@@ -1,4 +1,4 @@
-import type { RepoState } from './protocol';
+import type { Branch, RepoState } from './protocol';
 
 const KINDS = { branch: 'refs/heads/', remote: 'refs/remotes/', tag: 'refs/tags/' } as const;
 
@@ -10,4 +10,15 @@ export function refArg(kind: keyof typeof KINDS, name: string, state: RepoState)
   const lists = [state.branches, state.remoteBranches, state.tags];
   const namesakes = lists.filter((list) => list.some((ref) => ref.name === name)).length;
   return namesakes > 1 ? `${KINDS[kind]}${name}` : name;
+}
+
+/**
+ * Whether a branch that is not checked out can be moved up to its upstream without a merge: it has no commits of its own.
+ * How far behind it is counts only what the last fetch saw, so it is offered whatever that says: the fetch finds out.
+ */
+export function canFastForward(branch: Branch, state: RepoState): boolean {
+  const upstream = branch.upstream;
+  if (branch.current || !upstream || upstream.gone || upstream.ahead > 0) return false;
+  // Git refuses to move a branch that another worktree has checked out, as its files would no longer match.
+  return !state.worktrees.some((worktree) => worktree.branch === branch.name);
 }

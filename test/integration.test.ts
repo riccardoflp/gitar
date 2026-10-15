@@ -19,6 +19,7 @@ import {
   createTagOp,
   deleteBranchOp,
   discardOp,
+  fastForwardOp,
   fetchRemoteOp,
   fixupOp,
   hunkOp,
@@ -53,6 +54,7 @@ import {
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
 import { WORKTREE, type Filter, type Scope } from '../src/shared/protocol';
+import { canFastForward } from '../src/shared/refs';
 
 // Runs the real commands against a throwaway repository, the way the extension does.
 
@@ -858,6 +860,62 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       expect(await subjects()).toEqual(['My commit', 'Their commit', 'base']);
     } finally {
       fs.rmSync(remote, { recursive: true, force: true });
+    }
+  });
+
+  it('fast-forwards a branch that is not checked out, and refuses one with commits of its own', async () => {
+    write('a.txt', 'one\n');
+    const base = await commitAll('base');
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-clone-'));
+    try {
+      await git(remote, ['init', '--bare', '--initial-branch=main']);
+      await git(root, ['remote', 'add', 'origin', remote]);
+      await git(root, ['push', '-u', 'origin', 'main', 'main:feature']);
+      await git(root, ['branch', '--track', 'feature', 'origin/feature']);
+
+      // Someone else pushes to feature from a clone of their own, while this one stays on main with a change not committed.
+      await git(elsewhere, ['clone', '-q', '--branch', 'feature', remote, '.']);
+      fs.writeFileSync(path.join(elsewhere, 'theirs.txt'), 'theirs\n');
+      await git(elsewhere, ['add', '.']);
+      await git(elsewhere, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitardo.invalid', 'commit', '-q', '-m', 'Their commit']);
+      await git(elsewhere, ['push', '-q', 'origin', 'feature']);
+      const theirs = (await git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+      write('a.txt', 'not committed\n');
+
+      // Nothing has been fetched yet, so nothing says feature is behind: the fetch of the fast-forward finds it.
+      const before = await state();
+      expect(before.branches.find((branch) => branch.name === 'feature')!.upstream).toMatchObject({ ahead: 0, behind: 0 });
+      await run(fastForwardOp('feature', before));
+
+      const after = await state();
+      expect(after.branches.find((branch) => branch.name === 'feature')!.hash).toBe(theirs);
+      expect(after.remoteBranches.find((branch) => branch.name === 'origin/feature')!.hash).toBe(theirs);
+      expect(after.branch).toBe('main');
+      expect(after.head).toBe(base);
+      expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('not committed\n');
+      expect(exists('theirs.txt')).toBe(false);
+
+      // A commit of its own on feature, and one more from elsewhere: git will not throw either away.
+      await git(root, ['stash', '-q']);
+      await run(checkoutOp('branch', 'feature'));
+      write('mine.txt', 'mine\n');
+      const mine = await commitAll('My commit');
+      await run(checkoutOp('branch', 'main'));
+      fs.writeFileSync(path.join(elsewhere, 'more.txt'), 'more\n');
+      await git(elsewhere, ['add', '.']);
+      await git(elsewhere, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitardo.invalid', 'commit', '-q', '-m', 'More']);
+      await git(elsewhere, ['push', '-q', 'origin', 'feature']);
+
+      const ahead = await state();
+      expect(canFastForward(ahead.branches.find((branch) => branch.name === 'feature')!, ahead)).toBe(false);
+      // Had the menu been opened before that commit, git still says no.
+      const stale = { ...ahead, branches: ahead.branches.map((branch) => ({ ...branch, upstream: branch.upstream && { ...branch.upstream, ahead: 0 } })) };
+      await expect(run(fastForwardOp('feature', stale))).rejects.toThrow(/non-fast-forward|rejected/);
+      expect((await state()).branches.find((branch) => branch.name === 'feature')!.hash).toBe(mine);
+    } finally {
+      fs.rmSync(remote, { recursive: true, force: true });
+      fs.rmSync(elsewhere, { recursive: true, force: true });
     }
   });
 

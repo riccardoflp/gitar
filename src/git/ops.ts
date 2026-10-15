@@ -1,5 +1,5 @@
 import type { Operation, RebaseStep, RepoState, PullAction, Resolution, SyncAction, WorkingState } from '../shared/protocol';
-import { refArg } from '../shared/refs';
+import { canFastForward, refArg } from '../shared/refs';
 import type { FileWrite } from './exec';
 import type { ConflictPlan } from './repo';
 
@@ -130,6 +130,23 @@ export function remoteRemoveOp(name: string): GitOp {
 
 export function fetchRemoteOp(name: string): GitOp {
   return { title: `Fetch ${name}`, commands: [['fetch', '--prune', remoteName(name)]] };
+}
+
+/**
+ * Moves a branch that is not checked out up to its upstream, fetching it first: a fetch into the branch itself, which
+ * git only does when that is a fast-forward. Without a `+` it refuses when the branch has commits of its own.
+ */
+export function fastForwardOp(name: string, state: RepoState): GitOp {
+  const branch = state.branches.find((candidate) => candidate.name === name);
+  if (!branch?.upstream || !canFastForward(branch, state)) {
+    throw new Error(`${name} cannot be fast-forwarded: it needs an upstream, no commits of its own, and not to be checked out.`);
+  }
+  const { remote, branch: source, name: upstream } = branch.upstream;
+  // In full, so that a tag called the same is not taken for either branch.
+  const refspec = `refs/heads/${arg(source)}:refs/heads/${arg(name)}`;
+  // A branch that follows another local branch has `.` for its remote, this repository, which git fetches from as well.
+  const from = remote === '.' ? remote : remoteName(remote);
+  return { title: `Fast-forward ${name} to ${upstream}`, commands: [['fetch', from, refspec]] };
 }
 
 export function checkoutOp(target: 'branch' | 'remote' | 'detached', ref: string): GitOp {

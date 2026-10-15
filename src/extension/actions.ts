@@ -26,6 +26,7 @@ import {
   deleteRemoteBranchOp,
   deleteTagOp,
   discardOp,
+  fastForwardOp,
   mergeOp,
   pushTagOp,
   rebaseOp,
@@ -105,6 +106,9 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
 
     case 'deleteBranch':
       return deleteBranchOp(action.name);
+
+    case 'fastForward':
+      return fastForwardOp(action.name, state);
 
     case 'deleteRemoteBranch':
       return deleteRemoteBranchOp(action.name, state);
