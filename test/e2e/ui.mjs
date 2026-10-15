@@ -1005,6 +1005,7 @@ try {
         sides: [...document.querySelectorAll('.compare-side .name')].map((side) => side.textContent),
         icons: [...document.querySelectorAll('.compare-pick .codicon:first-child')].map((icon) => icon.className.replace(/.*codicon-/, '')),
         summary: document.querySelector('.compare-summary')?.textContent ?? '',
+        groups: [...document.querySelectorAll('.compare-group')].map((group) => group.getAttribute('aria-label') + ': ' + group.querySelectorAll('.compare-commit').length),
         modes: [...document.querySelectorAll('.segmented .button')].map((button) => button.textContent + (button.classList.contains('on') ? ' (on)' : '')),
         files: [...document.querySelectorAll('.commit-files .file .name')].map((file) => file.textContent),
         diffs: document.querySelectorAll('.file-diff .diff-lines').length,
@@ -1018,6 +1019,9 @@ try {
     // A branch, and a revision that is followed.
     assert(seen.icons.join() === 'git-branch,target', `icons: ${seen.icons}`);
     assert(/ahead of feature|behind feature/.test(seen.summary), `summary: ${seen.summary}`);
+    // The commits HEAD~2 is behind by, which feature has and it has not.
+    const behind = Number(/(\d+) commits? behind/.exec(seen.summary)?.[1] ?? 0);
+    assert(seen.groups.join() === `Only in feature: ${behind}`, `commits: ${seen.groups}`);
     // Two names, followed: compared from where they diverged.
     assert(seen.modes.join() === 'Since they diverged (on),Everything that differs', `modes: ${seen.modes}`);
     await tab.click('.segmented .button', 'Everything that differs');

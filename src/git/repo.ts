@@ -28,6 +28,7 @@ import { resolveConflicts, type Conflict } from './conflicts';
 import { GitError, formatCommand, git, type GitResult } from './exec';
 import type { UndoInfo } from './ops';
 import {
+  COMPARE_FORMAT,
   DETAIL_FORMAT,
   LOG_FORMAT,
   REF_FORMAT,
@@ -38,6 +39,8 @@ import {
   parseBisectRefs,
   parseBlame,
   parseBlameLine,
+  parseCherryMarks,
+  parseCompareCommits,
   parseHunks,
   parseIdentity,
   parseReflog,
@@ -81,6 +84,10 @@ const SUBMODULE_DEPTH = 4;
  * files turned into text first or of submodules, which could be listed with their commits.
  */
 const PLAIN_DIFF = ['--no-color', '--no-ext-diff', '--no-textconv', '--submodule=short'];
+/** The most commits of a comparison listed in its tab, newest first. */
+const COMPARE_COMMITS = 2000;
+/** Past this many commits on the two sides together they are not matched with each other: git reads every change. */
+const CHERRY_COMMITS = 2000;
 
 export interface BlameOptions {
   /** The text of the file when it has unsaved edits. */
@@ -319,8 +326,15 @@ export class Repo {
     if (!isHash(from) || !isHash(to)) return null;
     const [base, { ahead, behind }] = await Promise.all([this.mergeBase(from, to), this.divergence(to, from)]);
     const since = mode === 'diverged' && base ? base : from;
-    const files = parseNameStatus(await this.read(['diff', '--name-status', '-z', '-M', since, to]));
-    return { base, since, ahead, behind, files };
+    const matched = ahead + behind <= CHERRY_COMMITS;
+    const range = `${from}...${to}`;
+    const [files, log, marks] = await Promise.all([
+      this.read(['diff', '--name-status', '-z', '-M', since, to]),
+      this.read(['log', '--left-right', `--max-count=${COMPARE_COMMITS}`, `--format=${COMPARE_FORMAT}`, range, '--']),
+      matched ? this.read(['rev-list', '--cherry-mark', range, '--']) : '',
+    ]);
+    const commits = parseCompareCommits(log, parseCherryMarks(marks));
+    return { base, since, ahead, behind, commits, matched, files: parseNameStatus(files) };
   }
 
   /**

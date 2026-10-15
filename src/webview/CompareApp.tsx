@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { CompareMode, CompareSide, CompareView, DiffSource, FilePatch, FilesLayout, RepoState } from '../shared/protocol';
+import { CompareCommits } from './CompareCommits';
 import { FileChanges } from './FileChanges';
 import { Icon } from './Icon';
 import { shortHash } from './util';
@@ -182,6 +183,8 @@ export function CompareApp({ root, layout: remembered }: Props) {
           )}
         </div>
       </header>
+
+      <CompareCommits key={`${from.hash} ${to.hash}`} view={view} />
 
       {/* Other sides are another list: what was folded or unfolded in it does not carry over. */}
       <FileChanges

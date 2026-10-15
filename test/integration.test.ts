@@ -61,7 +61,7 @@ import {
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
 import { foldersToLink, previewSetup, scanIgnored, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
-import { WORKTREE, type Filter, type Scope } from '../src/shared/protocol';
+import { WORKTREE, type CompareCommit, type Filter, type Scope } from '../src/shared/protocol';
 import { canFastForward } from '../src/shared/refs';
 
 // Runs the real commands against a throwaway repository, the way the extension does.
@@ -965,14 +965,24 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     const base = (await git(root, ['rev-parse', 'main~1'])).stdout.trim();
     write('b.txt', 'b\n');
     const main = await commitAll('Add b');
+    /** Which side has each commit, by its subject: the ones made in the same second come in any order. */
+    const sides = (commits: CompareCommit[]) => commits.map((commit) => [commit.side, commit.subject, commit.equivalent]).sort();
+    const apart = [
+      ['from', 'Add b', false],
+      ['from', 'main change', false],
+      ['to', 'other change', false],
+    ];
 
     // What the other branch changed since it left main, as a pull request shows it.
-    const diverged = await repo.compareSides(main, other, 'diverged');
-    expect(diverged).toEqual({ base, since: base, ahead: 1, behind: 2, files: [{ status: 'M', path: 'a.txt' }] });
-    const patch = await repo.comparePatch(diverged!.files, base, other, 1000);
+    const { commits, ...diverged } = (await repo.compareSides(main, other, 'diverged'))!;
+    expect(diverged).toEqual({ base, since: base, ahead: 1, behind: 2, matched: true, files: [{ status: 'M', path: 'a.txt' }] });
+    expect(sides(commits)).toEqual(apart);
+    const patch = await repo.comparePatch(diverged.files, base, other, 1000);
     expect(patch!.map((file) => [file.file.path, file.added, file.removed, file.hunks?.[0].lines])).toEqual([['a.txt', 1, 1, ['-base', '+other']]]);
     // Everything that differs, what main did since as well.
-    expect(await repo.compareSides(main, other, 'direct')).toEqual({
+    const direct = (await repo.compareSides(main, other, 'direct'))!;
+    expect(sides(direct.commits)).toEqual(apart);
+    expect(direct).toMatchObject({
       base,
       since: main,
       ahead: 1,
@@ -983,7 +993,7 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       ],
     });
     // A commit the other already has changed nothing since they diverged.
-    expect(await repo.compareSides(other, base, 'diverged')).toEqual({ base, since: base, ahead: 0, behind: 1, files: [] });
+    expect(await repo.compareSides(other, base, 'diverged')).toMatchObject({ base, since: base, ahead: 0, behind: 1, files: [] });
 
     // Histories that never meet are compared directly.
     await git(root, ['checkout', '--orphan', 'alone']);
@@ -992,7 +1002,9 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     fs.rmSync(path.join(root, 'b.txt'));
     write('c.txt', 'c\n');
     const alone = await commitAll('Alone');
-    expect(await repo.compareSides(main, alone, 'diverged')).toEqual({
+    const unrelated = (await repo.compareSides(main, alone, 'diverged'))!;
+    expect(sides(unrelated.commits)).toEqual([['from', 'Add b', false], ['from', 'base', false], ['from', 'main change', false], ['to', 'Alone', false]]);
+    expect(unrelated).toMatchObject({
       base: null,
       since: main,
       ahead: 1,
@@ -1005,6 +1017,30 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     });
     expect(await repo.mergeBase(main, alone)).toBeNull();
     expect(await repo.compareSides('HEAD; rm -rf', main, 'direct')).toBeNull();
+  });
+
+  it('marks the commits of a comparison whose change the other side has too, cherry-picked or rebased', async () => {
+    write('a.txt', 'base\n');
+    await commitAll('base');
+    await run(createBranchOp('other', 'HEAD', true));
+    write('b.txt', 'b\n');
+    const picked = await commitAll('Add b');
+    write('c.txt', 'c\n');
+    const other = await commitAll('Add c');
+    await run(checkoutOp('branch', 'main'));
+    write('a.txt', 'main\n');
+    await commitAll('main change');
+    await git(root, ['cherry-pick', picked]);
+    const main = (await state()).head!;
+
+    const { commits, matched } = (await repo.compareSides(main, other, 'diverged'))!;
+    expect(matched).toBe(true);
+    expect(commits.map((commit) => [commit.side, commit.subject, commit.equivalent]).sort()).toEqual([
+      ['from', 'Add b', true],
+      ['from', 'main change', false],
+      ['to', 'Add b', true],
+      ['to', 'Add c', false],
+    ]);
   });
 
   it('lists the branches that were checked out last, without the one that is checked out', async () => {

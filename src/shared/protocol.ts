@@ -307,6 +307,17 @@ export interface CompareSide {
   gone?: boolean;
 }
 
+/** A commit that one side of a comparison has and the other has not. */
+export interface CompareCommit {
+  hash: string;
+  subject: string;
+  author: string;
+  date: number;
+  side: 'from' | 'to';
+  /** The other side has the same change in a commit of its own: it was cherry-picked, or rebased. */
+  equivalent: boolean;
+}
+
 /** What the tab of a comparison shows, but the lines of its files. */
 export interface CompareView {
   from: CompareSide;
@@ -319,6 +330,10 @@ export interface CompareView {
   /** The commits `to` has that `from` has not, and the other way round. */
   ahead: number;
   behind: number;
+  /** The commits each side has that the other has not, newest first: no more than a few thousand of them. */
+  commits: CompareCommit[];
+  /** Whether the commits were matched with those of the other side, which is not done when there are too many. */
+  matched: boolean;
   files: FileChange[];
 }
 

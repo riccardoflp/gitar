@@ -55,6 +55,8 @@ import {
   parseBisectRefs,
   parseBlame,
   parseBlameLine,
+  parseCherryMarks,
+  parseCompareCommits,
   unquotePath,
   parseIdentity,
   parseHunks,
@@ -72,6 +74,19 @@ import { canFastForward } from '../src/shared/refs';
 const F = '\x1f';
 
 describe('parsers', () => {
+  it('parses the commits of a comparison, with the side of each and the ones whose change the other side has too', () => {
+    const R = '\x1e';
+    const out = [`>${F}h3${F}Ann${F}1700000300${F}Fix: a${F}b`, `\n<${F}h2${F}Bob${F}1700000200${F}Main`, `\n>${F}h1${F}Ann${F}1700000100${F}`].join(R) + `${R}\n`;
+    const marks = parseCherryMarks('+h3\n=h2\n=h1\n');
+    expect([...marks]).toEqual(['h2', 'h1']);
+    expect(parseCompareCommits(out, marks)).toEqual([
+      { hash: 'h3', subject: `Fix: a${F}b`, author: 'Ann', date: 1700000300, side: 'to', equivalent: false },
+      { hash: 'h2', subject: 'Main', author: 'Bob', date: 1700000200, side: 'from', equivalent: true },
+      { hash: 'h1', subject: '', author: 'Ann', date: 1700000100, side: 'to', equivalent: true },
+    ]);
+    expect(parseCompareCommits('')).toEqual([]);
+  });
+
   it('parses log records, including root commits and empty subjects', () => {
     const out = [`h2${F}h1 h0${F}Ann${F}ann@x.io${F}1700000000${F}Merge it`, `h1${F}${F}Bob${F}bob@x.io${F}1600000000${F}`].join('\0');
     expect(parseLog(out + '\0')).toEqual([

@@ -2048,6 +2048,106 @@ input:focus-visible,
   margin: 12px 0 0;
 }
 
+/* The commits each side has that the other has not. */
+.compare-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 2px;
+  font-size: 1em;
+  font-weight: 400;
+  user-select: none;
+}
+
+.compare-group .twist {
+  height: 22px;
+  margin-left: 0;
+}
+
+.compare-group-title {
+  text-align: left;
+}
+
+.compare-list {
+  margin: 0 -12px 8px;
+}
+
+.compare-commit {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content max-content 7em;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 12px 0 34px;
+  text-align: left;
+}
+
+.compare-commit:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.compare-commit .hash {
+  color: var(--vscode-textLink-foreground);
+}
+
+.compare-commit .subject,
+.compare-commit .author {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.compare-commit .author {
+  max-width: 14em;
+}
+
+.compare-commit .date {
+  text-align: right;
+}
+
+/* A change the other side has too: it is not what tells the two apart. */
+.compare-commit.equivalent .subject {
+  color: var(--vscode-descriptionForeground);
+}
+
+.compare-commit .same {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 16em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+  font-size: 0.9em;
+}
+
+/* With no badge, the column of the badge stays empty: the authors and the dates stay in line. */
+.compare-commit:not(.equivalent) .subject {
+  grid-column: span 2;
+}
+
+.compare-note {
+  margin: 4px 12px 0 34px;
+}
+
+@media (max-width: 600px) {
+  .compare-commit {
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+  }
+
+  .compare-commit .author,
+  .compare-commit .date {
+    display: none;
+  }
+
+  .compare-commit:not(.equivalent) .subject {
+    grid-column: span 2;
+  }
+}
+
 /* Buttons side by side, of which one is chosen. */
 .segmented {
   display: inline-flex;

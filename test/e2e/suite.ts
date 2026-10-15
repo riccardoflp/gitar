@@ -991,6 +991,12 @@ export async function run(): Promise<void> {
     const shown = await until('the comparison', () => told(tab));
     assert.ok(shown.view);
     assert.deepEqual([shown.view.base, shown.view.since, shown.view.ahead, shown.view.behind], [base, base, ahead, behind]);
+    // And the commits each has that the other has not, matched with the other side's.
+    const onlyIn = (side: 'from' | 'to') => shown.view!.commits.filter((commit) => commit.side === side).map((commit) => commit.hash);
+    const only = async (range: string) => (await git(app, ['rev-list', range])).stdout.trim().split('\n').filter(Boolean);
+    assert.deepEqual(onlyIn('to').sort(), (await only('feature..main')).sort());
+    assert.deepEqual(onlyIn('from').sort(), (await only('main..feature')).sort());
+    assert.ok(shown.view.matched);
     const changed = (await git(app, ['diff', '--name-only', base, head])).stdout.trim().split('\n');
     assert.deepEqual(shown.view.files.map((file) => file.path), changed);
     const lines = await until('the lines', () => posted.find((outgoing, at) => outgoing.type === 'comparePatch' && addressed[at] === tab.panel.webview));

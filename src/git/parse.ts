@@ -2,6 +2,7 @@ import type {
   Bisect,
   Branch,
   Commit,
+  CompareCommit,
   FileChange,
   FileHunks,
   FilePatch,
@@ -233,6 +234,29 @@ export interface ReflogEntry {
   /** Such as `HEAD@{3}`. */
   selector: string;
   date: number;
+}
+
+/** The commits of a comparison: which side has each (`<` the first, `>` the second), then the commit. */
+export const COMPARE_FORMAT = ['%m', '%H', '%an', '%at', '%s'].join('%x1f') + '%x1e';
+
+/**
+ * Parses `git log --left-right --format=COMPARE_FORMAT from...to`. `equivalent` are the commits git marks with `=`
+ * in `git rev-list --cherry-mark from...to`: their change is on the other side too.
+ */
+export function parseCompareCommits(out: string, equivalent: ReadonlySet<string> = new Set()): CompareCommit[] {
+  return out
+    .split('\x1e')
+    .map((record) => record.replace(/^\n/, ''))
+    .filter(Boolean)
+    .map((record) => {
+      const [mark, hash, author = '', date = '0', ...subject] = record.split(FIELD);
+      return { hash, subject: subject.join(FIELD), author, date: Number(date), side: mark === '<' ? 'from' : 'to', equivalent: equivalent.has(hash) };
+    });
+}
+
+/** The commits `git rev-list --cherry-mark` marks with `=`: their change is on the other side too. */
+export function parseCherryMarks(out: string): Set<string> {
+  return new Set(out.split('\n').filter((line) => line.startsWith('=')).map((line) => line.slice(1).trim()));
 }
 
 export const REFLOG_FORMAT = ['%H', '%gs', '%gd', '%ct'].join('%x1f');
