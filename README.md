@@ -377,6 +377,17 @@ The **Gitardo Changes** view, shown with **Gitardo: Show Changes**:
 - Below the commit box is the name and email the commit will be made with. Click it to switch identity.
 - A list of more than 300 files shows the first 300 and a **Show all** link, here and in the details of a commit or of a comparison. The counts and the buttons on the header still speak for the whole list.
 
+### Flow Diff
+
+Another way to look at the diff of a file, beside the diff editor of VS Code. The **Open in Flow Diff** button (⇄) in the title of a diff editor opens the same diff in its place, and the same button in the Flow Diff goes back to the diff editor. It works on the diffs Gitardo opens and on those of the Source Control view of VS Code: a file against `HEAD`, the index or a commit, the index against `HEAD`, a commit against its parent. Nothing opens in it unless you ask.
+
+- The two versions side by side in two editors with the colors of your theme and your `editor.*` settings, kept level by blank filler lines, and a band in the gutter between them joining each change to where it lands: green where lines were added, red where they were removed, blue where they changed. Within a changed line, the words that changed are marked.
+- The two sides scroll together: line for line through what did not change, and through a long change the shorter side stays in the middle of the screen.
+- `F7` and `Shift`+`F7`, or the arrows of the toolbar, go from one change to the next, with how many there are. Past the last one, `F7` again goes on to the next changed file. Long runs of unchanged lines fold into a bar that unfolds them, keeping 3 lines around each change: the toolbar switches that for each diff, the setting `gitardo.flowDiff.collapseUnchanged` for the new ones.
+- The buttons in the gutter, on each change: revert it in the file, stage it, or unstage it once it is staged. A change already in the index is drawn dimmed. Staging and unstaging run as Gitardo's operations, in its log and, with the preview on, shown first.
+- The file can be edited where it is shown: what is typed goes into the file, unsaved until `Ctrl`+`S`. `F4` opens the file at the line of the cursor.
+- The title has **Open File**, the previous and next change, and **Stage File**, **Unstage File** and **Discard Changes** where they apply.
+
 ### Identities
 
 **Gitardo: Switch Identity** sets the name and email used for commits in the current repository, with `git config user.name` and `git config user.email`. Choose among the profiles listed in the `gitardo.identities` setting, type a new one, or go back to your global identity:

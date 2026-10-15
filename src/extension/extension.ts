@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { FlowDiff } from '../flow/flowDiff';
 import { discoverRepos } from '../git/discover';
 import type { RepoState, SyncAction, ViewKind } from '../shared/protocol';
 import { BlameAnnotator, BlameSource } from './blame';
@@ -18,6 +19,7 @@ export interface GitardoApi {
   controller: Controller;
   log: vscode.LogOutputChannel;
   fileBlame: FileBlame;
+  flowDiff: FlowDiff;
 }
 
 export function activate(context: vscode.ExtensionContext): GitardoApi {
@@ -28,6 +30,8 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     open: (hash, repo) => controller.openCommit(hash, repo),
     reveal: (hash) => controller.reveal(hash),
   });
+  // What it stages and unstages runs as Gitardo's own operations, and what Gitardo reads again may have moved it.
+  const flowDiff = new FlowDiff(context.extensionUri, (root, op) => controller.runIn(root, op));
 
   const graphProvider: vscode.WebviewViewProvider = {
     resolveWebviewView(view) {
@@ -88,6 +92,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     controller.onDidChangeState((state) => {
       if (!state) return;
       hasRepository(true);
+      flowDiff.repositoryChanged(state.root);
       // A commit made since gives its name to the lines that had none.
       fileBlame.refresh();
     }),
@@ -116,6 +121,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
   context.subscriptions.push(
     log,
     controller,
+    flowDiff,
     status,
     shown,
     new BlameAnnotator(blameSource),
@@ -203,7 +209,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     ...syncActions.map((action) => command(`gitardo.${action}`, () => (action === 'pull' ? controller.pull() : controller.sync(action)))),
     command('gitardo.pullPlain', () => controller.sync('pull')),
   );
-  return { controller, log, fileBlame };
+  return { controller, log, fileBlame, flowDiff };
 }
 
 export function deactivate(): void {}

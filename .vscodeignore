@@ -8,3 +8,6 @@
 !dist/webview.js
 !dist/webview.css
 !dist/codicon.ttf
+!dist/flow/**
+dist/flow/**/*.map
+!dist/flowWorker.js

@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { CONFLICT, INDEX, contentUri } from '../../src/extension/content';
 import type { GitardoApi } from '../../src/extension/extension';
+import { type DiffDescriptor, describeDiff } from '../../src/flow/sides';
 import { git } from '../../src/git/exec';
 import { samePath } from '../../src/git/parse';
 import { Repo } from '../../src/git/repo';
@@ -77,7 +78,7 @@ export async function run(): Promise<void> {
   // By its name, whoever publishes it.
   const extension = vscode.extensions.all.find((candidate) => candidate.packageJSON.name === 'gitardo') as vscode.Extension<GitardoApi> | undefined;
   assert.ok(extension, 'the extension is installed');
-  const { controller, log, fileBlame } = await extension.activate();
+  const { controller, log, fileBlame, flowDiff } = await extension.activate();
   const internals = controller as unknown as Internals;
   const state = () => {
     assert.ok(internals.state, 'a repository is loaded');
@@ -740,6 +741,61 @@ export async function run(): Promise<void> {
     await controller.action({ kind: 'unstageAll' });
     answer = run;
     await controller.action({ kind: 'discardAll' });
+  });
+
+  await step('switches a diff between the diff editor and the Flow Diff, which stages and unstages a change of it', async () => {
+    interface Panel {
+      descriptor: DiffDescriptor;
+      currentModel: { chunks: { staged?: boolean }[] } | undefined;
+      initSent: boolean;
+      onMessage(message: { type: string; chunkId?: number }): void;
+    }
+    const index = async () => (await git(app, ['show', ':a.txt'])).stdout;
+    const diffTabs = () => vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.input instanceof vscode.TabInputTextDiff);
+    write('a.txt', 'one\ntwo\nthree\n');
+    try {
+      await fromWebview({ type: 'openDiff', source: { kind: 'worktree' }, file: { status: 'M', path: 'a.txt' } });
+      await until('the diff editor', () => diffTabs().length === 1);
+
+      await vscode.commands.executeCommand('gitardo.openInFlowDiff');
+      const panel = await until('the Flow Diff', () => flowDiff.panels()[0] as unknown as Panel | undefined);
+      assert.equal(diffTabs().length, 0, 'the Flow Diff takes the place of the diff editor');
+      // Gitardo names HEAD by its hash: it is HEAD again, which lets the index take part.
+      assert.deepEqual(panel.descriptor.left, { kind: 'commit', ref: 'HEAD' });
+      assert.deepEqual(panel.descriptor.right, { kind: 'worktree' });
+      // The page says it is ready once its module ran, which proves the Monaco bundle loads under the content security policy.
+      await until('the Flow Diff page to load', () => panel.initSent);
+
+      panel.onMessage({ type: 'stageChunk', chunkId: 0 });
+      await until('the change to show as staged', () => panel.currentModel?.chunks[0]?.staged === true);
+      assert.equal(await index(), 'one\ntwo\nthree\n');
+      // As Gitardo's own operations: in its log, exactly as it ran.
+      assert.ok(logged.includes('> git apply --cached --unidiff-zero --whitespace=nowarn -'));
+
+      panel.onMessage({ type: 'unstageChunk', chunkId: 0 });
+      await until('the change to show as unstaged again', () => panel.currentModel?.chunks[0]?.staged === false);
+      assert.equal(await index(), 'one\ntwo\n');
+
+      await vscode.commands.executeCommand('gitardo.flowDiff.openInDiffEditor');
+      const [tab] = await until('the diff editor again', () => (diffTabs().length ? diffTabs() : undefined));
+      assert.equal(flowDiff.panels().length, 0);
+      const input = tab.input as vscode.TabInputTextDiff;
+      assert.equal(input.original.scheme, 'gitardo');
+      assert.equal(input.modified.fsPath, path.join(app, 'a.txt'));
+
+      // A diff of the Source Control view of VS Code: the index against the file.
+      const fromGit = vscode.Uri.from({ scheme: 'git', path: input.modified.path, query: JSON.stringify({ path: input.modified.fsPath, ref: '~' }) });
+      const described = await describeDiff(fromGit, input.modified);
+      assert.deepEqual(described && { left: described.left, right: described.right, path: described.path }, {
+        left: { kind: 'index' },
+        right: { kind: 'worktree' },
+        path: 'a.txt',
+      });
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      answer = run;
+      await controller.action({ kind: 'discardAll' });
+    }
   });
 
   await step('answers the webviews: commit details, hunks and comparisons', async () => {

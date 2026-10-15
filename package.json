@@ -376,6 +376,54 @@
         "command": "gitardo.openStashes",
         "title": "Show Stashes",
         "category": "Gitardo"
+      },
+      {
+        "command": "gitardo.openInFlowDiff",
+        "title": "Open in Flow Diff",
+        "category": "Gitardo",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "gitardo.flowDiff.openInDiffEditor",
+        "title": "Open in Diff Editor",
+        "category": "Gitardo",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "gitardo.flowDiff.openFile",
+        "title": "Open File",
+        "category": "Gitardo",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gitardo.flowDiff.previousChange",
+        "title": "Previous Change",
+        "category": "Gitardo",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "gitardo.flowDiff.nextChange",
+        "title": "Next Change",
+        "category": "Gitardo",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "gitardo.flowDiff.stageFile",
+        "title": "Stage File",
+        "category": "Gitardo",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitardo.flowDiff.unstageFile",
+        "title": "Unstage File",
+        "category": "Gitardo",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "gitardo.flowDiff.discardFile",
+        "title": "Discard Changes",
+        "category": "Gitardo",
+        "icon": "$(discard)"
       }
     ],
     "menus": {
@@ -423,6 +471,38 @@
         {
           "command": "gitardo.scmStashAll",
           "when": "false"
+        },
+        {
+          "command": "gitardo.openInFlowDiff",
+          "when": "isInDiffEditor && !isInEmbeddedDiffEditor && resourceScheme =~ /^(file|git|gitardo)$/"
+        },
+        {
+          "command": "gitardo.flowDiff.openInDiffEditor",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.flowDiff.openFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.flowDiff.previousChange",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.flowDiff.nextChange",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.flowDiff.stageFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.flowDiff.unstageFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.flowDiff.discardFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff"
         }
       ],
       "explorer/context": [
@@ -613,6 +693,46 @@
           "command": "gitardo.blameChosenFiles",
           "when": "gitardo.fileBlame && resourceScheme =~ /^(file|gitardo)$/ && config.gitardo.fileBlame.everyFile",
           "group": "navigation@92"
+        },
+        {
+          "command": "gitardo.openInFlowDiff",
+          "when": "isInDiffEditor && !isInEmbeddedDiffEditor && resourceScheme =~ /^(file|git|gitardo)$/",
+          "group": "navigation@80"
+        },
+        {
+          "command": "gitardo.flowDiff.openInDiffEditor",
+          "when": "activeWebviewPanelId == gitardo.flowDiff",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gitardo.flowDiff.openFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitardo.flowDiff.previousChange",
+          "when": "activeWebviewPanelId == gitardo.flowDiff",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitardo.flowDiff.nextChange",
+          "when": "activeWebviewPanelId == gitardo.flowDiff",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitardo.flowDiff.stageFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff && gitardo.flowDiffSide == worktree",
+          "group": "navigation@4"
+        },
+        {
+          "command": "gitardo.flowDiff.discardFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff && gitardo.flowDiffSide == worktree",
+          "group": "navigation@5"
+        },
+        {
+          "command": "gitardo.flowDiff.unstageFile",
+          "when": "activeWebviewPanelId == gitardo.flowDiff && gitardo.flowDiffSide == index",
+          "group": "navigation@4"
         }
       ],
       "scm/resourceGroup/context": [
@@ -668,6 +788,16 @@
         "key": "shift+alt+b",
         "mac": "ctrl+shift+alt+b",
         "when": "editorTextFocus && gitardo.hasRepository"
+      },
+      {
+        "command": "gitardo.flowDiff.nextChange",
+        "key": "f7",
+        "when": "activeWebviewPanelId == gitardo.flowDiff"
+      },
+      {
+        "command": "gitardo.flowDiff.previousChange",
+        "key": "shift+f7",
+        "when": "activeWebviewPanelId == gitardo.flowDiff"
       }
     ],
     "configuration": {
@@ -889,6 +1019,11 @@
             "experimental"
           ],
           "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitardo shows what it would write before writing it, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
+        },
+        "gitardo.flowDiff.collapseUnchanged": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the Flow Diff folds long runs of unchanged lines, keeping 3 lines around each change. Its toolbar switches it for each diff."
         }
       }
     },
@@ -927,15 +1062,23 @@
     "preview": "node dist/dev-server.js"
   },
   "devDependencies": {
+    "@shikijs/engine-javascript": "^4.2.0",
+    "@shikijs/langs": "^4.2.0",
+    "@shikijs/monaco": "^4.2.0",
+    "@shikijs/themes": "^4.2.0",
+    "@types/diff": "^7.0.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/vscode": "~1.100.0",
     "@vscode/codicons": "^0.0.46-24",
     "@vscode/vsce": "^4.0.0",
+    "diff": "^7.0.0",
     "esbuild": "^0.28.2",
+    "monaco-editor": "^0.55.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "shiki": "^4.2.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }

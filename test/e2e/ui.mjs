@@ -1501,6 +1501,86 @@ try {
     await until('the banner gone', () => graph.evaluate(`!document.querySelector('.banner:not(.bisect)')`));
     setting('gitardo.conflicts.autoResolve', undefined);
   });
+
+  await step('a diff opens in the Flow Diff from the button of the diff editor, stages a change there, and goes back', async () => {
+    const lines = (...each) => `${each.join('\n')}\n`;
+    const file = path.join(app, 'sample.ts');
+    fs.writeFileSync(
+      file,
+      lines(
+        'export function add(a: number, b: number): number {',
+        '  return a + b;',
+        '}',
+        '',
+        'export function greet(name: string): string {',
+        "  return 'Hello, ' + name;",
+        '}',
+        '',
+        'export const answer = 42;',
+      ),
+    );
+    git(app, 'add', 'sample.ts');
+    git(app, 'commit', '-m', 'Add sample');
+    fs.writeFileSync(
+      file,
+      lines(
+        'export function add(a: number, b: number): number {',
+        '  return a + b + 0;',
+        '}',
+        '',
+        'export function greet(name: string): string {',
+        '  return `Hello, ${name}!`;',
+        '}',
+        '',
+        'export function twice(n: number): number {',
+        '  return n * 2;',
+        '}',
+      ),
+    );
+    /** The middle of a button of the editors' title, by its name. */
+    const titleButton = (label) =>
+      until(`the "${label}" button`, () =>
+        page.evaluate(`(() => {
+          const button = [...document.querySelectorAll('.editor-actions .action-label')].find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(label)});
+          const rect = button?.getBoundingClientRect();
+          return rect && rect.width ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : null;
+        })()`),
+      );
+    const diffEditor = () => page.evaluate(`!!document.querySelector('.editor-instance .monaco-diff-editor')`);
+    try {
+      const changes = await webview('changes');
+      await changes.click('.group .file', 'sample.ts');
+      await until('the diff editor', diffEditor);
+      await shot('flow-diff-editor-button');
+      const open = await titleButton('Open in Flow Diff');
+      await mouse(open.x, open.y);
+
+      const flow = await webview('flowDiff');
+      await until('both editors and the bands between them', () =>
+        flow.evaluate(`document.querySelectorAll('.monaco-editor').length === 2 && document.querySelectorAll('path.connector').length >= 2`),
+      );
+      assert(!(await diffEditor()), 'the Flow Diff takes the place of the diff editor');
+      // The colors of the theme come from shiki, which loads the grammar on its own.
+      await until('the code in colors', () => flow.evaluate(`document.querySelectorAll('.monaco-editor .view-line span[class*="mtk"]:not(.mtk1)').length > 0`));
+      await shot('flow-diff');
+
+      const bands = () => flow.evaluate(`document.querySelectorAll('path.connector').length`);
+      const before = await bands();
+      await flow.click('.chunk-btn.stageChunk');
+      await until('the change in the index', () => git(app, 'diff', '--cached', '--name-only').toString().includes('sample.ts'));
+      // The diff is of the index against the file: a change staged is on both sides, and leaves it.
+      await until('one change less', async () => (await bands()) === before - 1);
+      await shot('flow-diff-staged');
+
+      const back = await titleButton('Open in Diff Editor');
+      await mouse(back.x, back.y);
+      await until('the diff editor again', diffEditor);
+      await shot('flow-diff-back');
+    } finally {
+      git(app, 'reset', '-q');
+      git(app, 'checkout', '--', 'sample.ts');
+    }
+  });
 } catch (error) {
   await finish(error);
 }

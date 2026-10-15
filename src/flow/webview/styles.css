@@ -1,0 +1,227 @@
+:root {
+  --bd-added-line: var(--vscode-diffEditor-insertedLineBackground, rgba(155, 185, 85, 0.2));
+  --bd-removed-line: var(--vscode-diffEditor-removedLineBackground, rgba(255, 0, 0, 0.2));
+  --bd-added-text: var(--vscode-diffEditor-insertedTextBackground, rgba(155, 185, 85, 0.35));
+  --bd-removed-text: var(--vscode-diffEditor-removedTextBackground, rgba(255, 0, 0, 0.35));
+  --bd-modified-line: color-mix(
+    in srgb,
+    var(--vscode-editorGutter-modifiedBackground, #1b81a8) 14%,
+    transparent
+  );
+  --bd-gutter-width: 28px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ── Header with pane labels ─────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex: 0 0 auto;
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+
+.pane-label {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 8px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gutter-spacer {
+  flex: 0 0 var(--bd-gutter-width);
+}
+
+/* ── Two Monaco editors bridged by the gutter ────────────────────────── */
+
+.diff-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.editor-host {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.gutter {
+  flex: 0 0 var(--bd-gutter-width);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Diff decorations inside Monaco ──────────────────────────────────── */
+
+.bd-line-added {
+  background: var(--bd-added-line);
+}
+
+.bd-line-removed {
+  background: var(--bd-removed-line);
+}
+
+.bd-line-modified {
+  background: var(--bd-modified-line);
+}
+
+.bd-inline-added {
+  background: var(--bd-added-text);
+  border-radius: 2px;
+}
+
+.bd-inline-removed {
+  background: var(--bd-removed-text);
+  border-radius: 2px;
+}
+
+/* staged chunks: faded line backgrounds (the div sits behind the text, so
+   opacity never dims the code itself) */
+.bd-staged {
+  opacity: 0.3;
+}
+
+/* inline spans wrap the text, so fade the background color instead */
+.bd-inline-added.bd-inline-staged {
+  background: color-mix(in srgb, var(--bd-added-text) 35%, transparent);
+}
+
+.bd-inline-removed.bd-inline-staged {
+  background: color-mix(in srgb, var(--bd-removed-text) 35%, transparent);
+}
+
+/* boundary marker on the side where a pure insertion/deletion has no lines:
+   a horizontal divider between the row above and the row below, meeting the
+   thin edge of the gutter connector */
+.bd-divider-top {
+  border-top: 1px solid var(--bd-divider-color);
+}
+
+.bd-divider-bottom {
+  border-bottom: 1px solid var(--bd-divider-color);
+}
+
+.bd-divider-added {
+  --bd-divider-color: var(--vscode-editorGutter-addedBackground, #487e02);
+}
+
+.bd-divider-removed {
+  --bd-divider-color: var(--vscode-editorGutter-deletedBackground, #f14c4c);
+}
+
+.bd-divider-modified {
+  --bd-divider-color: var(--vscode-editorGutter-modifiedBackground, #1b81a8);
+}
+
+/* the divider div carries only the border, so opacity fades just the line */
+.bd-divider-staged {
+  opacity: 0.35;
+}
+
+.bd-active-chunk {
+  box-shadow: inset 2px 0 0 var(--vscode-focusBorder, #007fd4);
+}
+
+/* ── Floating navigation toolbar ─────────────────────────────────────── */
+
+.toolbar {
+  position: fixed;
+  top: 34px;
+  right: 16px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  z-index: 10;
+}
+
+.toolbar button {
+  border: none;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+.toolbar button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+
+.toolbar .counter {
+  min-width: 5ch;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.toolbar button.toggled {
+  background: var(--vscode-inputOption-activeBackground, rgba(0, 127, 212, 0.4));
+}
+
+.toolbar .codicon {
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+/* "press F7 again" hint under the toolbar */
+.toolbar-hint {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  z-index: 10;
+}
+
+.toolbar-hint[hidden] {
+  display: none;
+}
+
+/* ── Collapsed unchanged regions ─────────────────────────────────────── */
+
+.bd-collapsed {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  background: var(--vscode-diffEditor-unchangedRegionBackground, rgba(128, 128, 128, 0.12));
+  cursor: pointer;
+}
+
+.bd-collapsed:hover {
+  color: var(--vscode-foreground);
+}

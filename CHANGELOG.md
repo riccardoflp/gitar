@@ -2,6 +2,12 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- The Flow Diff, from the Flow Diff extension: the diff of a file side by side in two editors, joined by bands that show where each change lands, with buttons to revert, stage and unstage each change, the file editable in place, and `F7` from one change to the next. The **Open in Flow Diff** button in the title of a diff editor opens the same diff in it, in place of the editor, and its own button goes back. Nothing opens in it unless asked.
+
 ## 0.2.0 - 2026-10-15
 
 ### Added

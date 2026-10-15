@@ -1401,9 +1401,15 @@ export class Controller implements vscode.Disposable {
     }
   }
 
+  /** Runs an operation that another part of Gitardo, such as the Flow Diff, made for a repository: not always the one shown. */
+  async runIn(root: string, op: GitOp): Promise<boolean> {
+    const repo = this.repo && samePath(this.repo.root, root) ? this.repo : new Repo(root, (command) => this.log.debug(command));
+    return (await this.run(op, { repo })).ok;
+  }
+
   /** Runs an operation, first showing its exact commands when the user asked for that or when it can lose work. */
-  private async run(op: GitOp, options: { silent?: boolean; asked?: boolean } = {}): Promise<RunResult> {
-    const repo = this.repo;
+  private async run(op: GitOp, options: { silent?: boolean; asked?: boolean; repo?: Repo } = {}): Promise<RunResult> {
+    const repo = options.repo ?? this.repo;
     if (!repo || this.running) return { ok: false };
 
     const preview = vscode.workspace.getConfiguration('gitardo').get<string>('commandPreview') === 'all';
