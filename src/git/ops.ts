@@ -1,6 +1,6 @@
 import type { Operation, RebaseStep, RepoState, PullAction, Resolution, SyncAction, WorkingState } from '../shared/protocol';
 import { canFastForward, refArg } from '../shared/refs';
-import type { FileWrite } from './exec';
+import type { FileWrite, GitError } from './exec';
 import type { ConflictPlan } from './repo';
 
 /** A user-visible operation: one or more git commands that change the repository or a remote. */
@@ -24,6 +24,11 @@ export interface GitOp {
    * does besides making folders goes to the log; when it throws, no command runs.
    */
   prepare?(log: OpLog): void | Promise<void>;
+  /**
+   * Called when one of the commands fails, to get past what is passing, such as a folder that Windows holds for a
+   * moment, saying in the log what it does. True when what the command was to do is done: the next command runs.
+   */
+  recover?(args: string[], error: GitError, log: OpLog): Promise<boolean>;
   /** What Gitardo does itself once the commands have succeeded, saying each step in the log. It must not throw. */
   finish?(log: OpLog): Promise<void>;
   /** Called once all commands have succeeded. */

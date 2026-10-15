@@ -50,7 +50,7 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
-import { AGENTS_WINDOW, SETUP_OFFERED, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
+import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, recoverHeldWorktree, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
 import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
@@ -215,13 +215,16 @@ export class Controller implements vscode.Disposable {
     // A read already under way may have started before what the caller just did: it is followed by another,
     // and the caller waits for that one too.
     this.dirty = true;
+    // Nothing is read while an operation runs: it reads once it is done. Reading runs git in every worktree, and on
+    // Windows a folder git runs in can be neither moved nor removed.
+    if (this.running) return this.loading;
     this.loading ??= this.load(this.repo);
     return this.loading;
   }
 
   private async load(first: Repo): Promise<void> {
     try {
-      for (let repo: Repo | undefined = first; repo && this.dirty; repo = this.repo) {
+      for (let repo: Repo | undefined = first; repo && this.dirty && !this.running; repo = this.repo) {
         this.dirty = false;
         const operations = this.operations;
         const scope = this.scope;
@@ -773,9 +776,13 @@ export class Controller implements vscode.Disposable {
     const op = cleanupBranchesOp(names(true), names(false), worktrees);
     if (worktrees.length) {
       op.prepare = async (log) => {
+        await closeInVSCodeGit(worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path), log);
         for (const worktree of worktrees) if (!worktree.prunable) await unlinkFolderLinks(worktree.path, log);
       };
-      op.onSuccess = () => worktrees.forEach((worktree) => removeEmptyParents(worktree.path, state));
+      op.recover = recoverHeldWorktree(state.root);
+      op.finish = async () => {
+        for (const worktree of worktrees) await removeEmptyParents(worktree.path, state);
+      };
     }
     await this.run(op);
   }
@@ -1410,6 +1417,8 @@ export class Controller implements vscode.Disposable {
     this.operations++;
     this.post({ type: 'busy', title: op.title });
     try {
+      // A read under way is let finish first, for the git it runs in the worktrees; what it read is dropped.
+      await this.loading;
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Window, title: `Gitardo: ${op.title}` },
         async () => {
@@ -1422,9 +1431,14 @@ export class Controller implements vscode.Disposable {
             const input = index === op.commands.length - 1 ? op.input : undefined;
             this.log.info(`> ${formatCommand(args)}`);
             if (input) this.log.info(`standard input:\n${input}`);
-            const result = await git(repo.root, args, { input });
-            const output = (result.stdout + result.stderr).trim();
-            if (output) this.log.info(output);
+            try {
+              const result = await git(repo.root, args, { input });
+              const output = (result.stdout + result.stderr).trim();
+              if (output) this.log.info(output);
+            } catch (failure) {
+              // What git said goes to the log as the error, unless the operation gets past it, which says so itself.
+              if (!(failure instanceof GitError) || !(await op.recover?.(args, failure, this.log))) throw failure;
+            }
           }
           await op.finish?.(this.log);
         },

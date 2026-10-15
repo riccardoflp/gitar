@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { CONFLICT, INDEX, contentUri } from '../../src/extension/content';
 import type { GitardoApi } from '../../src/extension/extension';
 import { git } from '../../src/git/exec';
+import { samePath } from '../../src/git/parse';
 import { Repo } from '../../src/git/repo';
 import type { Filter, HostMessage, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
 
@@ -38,6 +39,18 @@ async function until<T>(what: string, check: () => T | undefined | null | false,
     if (Date.now() > end) throw new Error(`Timed out waiting for ${what}`);
     await sleep(100);
   }
+}
+
+/** The API of VS Code's Git extension, which opens worktrees as repositories of their own. */
+interface VSCodeGitApi {
+  repositories: { rootUri: vscode.Uri }[];
+  openRepository(root: vscode.Uri): Promise<unknown>;
+}
+
+async function vscodeGit(): Promise<VSCodeGitApi> {
+  const extension = vscode.extensions.getExtension<{ getAPI(version: 1): VSCodeGitApi }>('vscode.git');
+  assert.ok(extension, "VS Code's Git extension");
+  return (await extension.activate()).getAPI(1);
 }
 
 export async function run(): Promise<void> {
@@ -447,15 +460,22 @@ export async function run(): Promise<void> {
       assert.ok(!fs.lstatSync(path.join(made, '.env')).isSymbolicLink());
       assert.equal(fs.readFileSync(path.join(made, '.env'), 'utf8'), 'SECRET=1\n');
 
+      // VS Code's Git extension opens worktrees as repositories, and watches their folders, which Windows then keeps:
+      // it closes this one first.
+      const vscodeRepos = await vscodeGit();
+      await vscodeRepos.openRepository(vscode.Uri.file(made));
+      const openInGit = () => vscodeRepos.repositories.some((repository) => samePath(repository.rootUri.fsPath, made!));
+      await until('the worktree open in VS Code', () => openInGit());
       // Git for Windows would delete what is in the junction with the worktree, in this checkout: it goes first.
       logged.length = 0;
       answer = run;
       await controller.action({ kind: 'worktreeRemove', path: made, deleteBranch: true });
-      if (process.platform === 'win32') {
-        assert.equal(logged.find((line) => line.startsWith('> '))?.toLowerCase(), `> unlink ${made}/node_modules`.toLowerCase());
-      }
+      const removal = logged.filter((line) => /^> (git\.close|unlink|git worktree remove) /.test(line)).map((line) => line.toLowerCase());
+      const unlinked = process.platform === 'win32' ? [`> unlink ${made}/node_modules`] : [];
+      assert.deepEqual(removal, [`> git.close ${made}`, ...unlinked, `> git worktree remove ${made}`].map((line) => line.toLowerCase()));
+      assert.ok(!openInGit());
       assert.ok(!state().worktrees.some((worktree) => worktree.branch === 'linked/one'));
-      assert.ok(!fs.existsSync(made));
+      assert.ok(!fs.existsSync(made), JSON.stringify({ logged, errors }));
       assert.equal(fs.readFileSync(path.join(app, 'node_modules/pkg/index.js'), 'utf8'), 'module\n');
       assert.equal(state().branches.length, branches);
     } finally {
@@ -545,7 +565,7 @@ export async function run(): Promise<void> {
       assert.ok(logged.includes('node_modules is in the worktree already.'), JSON.stringify(logged));
 
       await controller.action({ kind: 'worktreeRemove', path: made, deleteBranch: true });
-      assert.ok(!fs.existsSync(made));
+      assert.ok(!fs.existsSync(made), JSON.stringify({ logged, errors }));
       assert.equal(fs.readFileSync(path.join(app, 'node_modules/pkg/index.js'), 'utf8'), 'module\n');
 
       // Taken out of the workspace folder, nothing is set there any more.

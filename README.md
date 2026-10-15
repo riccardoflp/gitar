@@ -325,6 +325,8 @@ The same are in the context menu of a worktree, with **Open in terminal**, **Rev
 - **Remove…** asks whether to delete its branch too. The folder is removed with `git worktree remove`, which asks again with `--force` when it has changes that are not committed, and the branch with `git branch -d`, which keeps a branch that is not merged and says so.
 - **Bring ignored files…** links and copies into it what new worktrees get (see [What git ignores, in a new worktree](#what-git-ignores-in-a-new-worktree)), leaving what it has already.
 
+VS Code's own Git extension opens the worktrees of the repositories it has as repositories of its own, and keeps watching their folders, which on Windows can then be neither moved nor deleted. So before renaming or removing a worktree, or cleaning up branches with theirs, Gitardo has it close the ones it has open, each said in the log as `git.close <path>`. A folder can still be held for a moment after: a move that fails for it is tried again for a few seconds, and when `git worktree remove` could not delete the folder, which git no longer counts as a worktree by then, Gitardo deletes what is left of it, said as `delete <path>`, and goes on with the branch.
+
 #### The branch of a worktree
 
 Git checks a branch out in one worktree at a time, so a branch that another worktree has is worked on there. Gitardo treats it that way:
@@ -443,7 +445,7 @@ A few operations do more than run commands:
 
 - Resolving conflicts automatically, which is experimental and off by default, writes the files itself, and then runs `git add`. The confirmation lists the files before the command, and the log has a `write <file>` line for each.
 - Creating a worktree, when `gitardo.worktrees.linkFolders` and `gitardo.worktrees.copyFiles`, or VS Code's `git.worktreeSymlinkFolders` and `git.worktreeIncludeFiles`, ask for something, links and copies it after `git worktree add`, with a `symlink <folder>` or `copy <path>` line in the log for each (see [What git ignores, in a new worktree](#what-git-ignores-in-a-new-worktree)). **Bring ignored files…** does the same in a worktree that is there already, and runs no git command that changes anything.
-- Removing a worktree, on Windows, first takes out of it the links to folders outside it, with an `unlink <path>` line for each.
+- Renaming or removing a worktree first has VS Code's Git extension close it, when it has it open, with a `git.close <path>` line. On Windows, removing one also takes out of it the links to folders outside it, with an `unlink <path>` line for each, and when Windows held the folder so that git could not delete it, deletes what is left, with a `delete <path>` line (see [Worktrees](#worktrees)).
 
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
 

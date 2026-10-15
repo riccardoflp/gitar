@@ -58,7 +58,8 @@ import {
   type OpLog,
   type ResetMode,
 } from '../git/ops';
-import { samePath } from '../git/parse';
+import { formatCommand, git, type GitError } from '../git/exec';
+import { parseWorktrees, samePath } from '../git/parse';
 import { setUpWorktree, unlinkFolderLinks } from '../git/worktreeSetup';
 import type { SetupPatterns } from '../shared/worktreeSetup';
 import { setupPatterns } from './worktreeSettings';
@@ -188,8 +189,12 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
       const worktree = findWorktree(action.path, state);
       if (isHome(worktree.path, state)) throw new Error('This worktree is the folder open in this window: remove it from another one.');
       const leaveNoEmptyFolders = (op: GitOp): GitOp => {
-        op.prepare = (log) => unlinkFolderLinks(action.path, log);
-        op.onSuccess = () => removeEmptyParents(action.path, state);
+        op.prepare = async (log) => {
+          await closeInVSCodeGit([action.path], log);
+          await unlinkFolderLinks(action.path, log);
+        };
+        op.recover = recoverHeldWorktree(state.root);
+        op.finish = () => removeEmptyParents(action.path, state);
         if (op.fallback) leaveNoEmptyFolders(op.fallback.op);
         return op;
       };
@@ -518,15 +523,108 @@ export function worktreesFolder(state: RepoState): string {
   return worktreesRoot(main, folder);
 }
 
-/** After a worktree is moved or removed, the folders that held only it go too, up to where the worktrees are. */
-export function removeEmptyParents(dir: string, state: RepoState): void {
+/**
+ * After a worktree is moved or removed, the folders that held only it go too, up to where the worktrees are. On Windows
+ * a folder that a process has just left, or that something else looks into, can be held for a moment: it is tried again.
+ */
+export async function removeEmptyParents(dir: string, state: RepoState): Promise<void> {
   const { main, folder } = worktreesHome(state);
   const home = worktreesRoot(main, folder);
   for (let parent = path.posix.dirname(dir.replace(/\\/g, '/')); parent.startsWith(`${home}/`); parent = path.posix.dirname(parent)) {
+    if (!(await removeFolder(parent))) return;
+  }
+}
+
+/** The little of the API of VS Code's Git extension that Gitardo uses. */
+interface VSCodeGit {
+  getAPI(version: 1): { repositories: { rootUri: vscode.Uri }[] };
+}
+
+/**
+ * VS Code's Git extension opens the worktrees of the repositories it has as repositories of their own, runs git in
+ * them and watches their folders: on Windows a folder that is watched, or that git runs in, can be neither moved nor
+ * removed. Before Gitardo moves or removes worktrees, the extension closes the ones it has open.
+ */
+export async function closeInVSCodeGit(dirs: string[], log: OpLog): Promise<void> {
+  const extension = vscode.extensions.getExtension<VSCodeGit>('vscode.git');
+  if (!extension?.isActive) return;
+  let repositories: { rootUri: vscode.Uri }[];
+  try {
+    ({ repositories } = extension.exports.getAPI(1));
+  } catch {
+    return;
+  }
+  for (const dir of dirs) {
+    // Only one open as that very folder: given another, the command closes the repository that holds it, or asks which.
+    const open = repositories.find((repository) => samePath(repository.rootUri.fsPath, dir));
+    if (!open) continue;
+    log.info(`> git.close ${dir}`);
     try {
-      fs.rmdirSync(parent);
-    } catch {
-      return;
+      await vscode.commands.executeCommand('git.close', open);
+    } catch (error) {
+      log.warn(`VS Code's Git extension did not close ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+/** How many times, and how far apart, a folder that Windows holds is tried again. */
+const HELD_RETRIES = 20;
+const HELD_DELAY = 100;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Gets past `git worktree remove` and `git worktree move` failing on a folder that Windows holds, as it does for a
+ * moment after VS Code's Git extension closes it or a git process in it ends. A move changed nothing, and is run again.
+ * A removal cannot be: git lets go of the worktree even when it could not delete its folder, so what is left is deleted.
+ */
+export function recoverHeldWorktree(root: string): (args: string[], error: GitError, log: OpLog) => Promise<boolean> {
+  return async (args, error, log) => {
+    if (process.platform !== 'win32' || args[0] !== 'worktree') return false;
+    const said = error.message.split('\n')[0];
+    if (args[1] === 'move' && /failed to move .*: (Permission denied|Invalid argument|Device or resource busy)/.test(error.message)) {
+      log.warn(`${said}: Windows holds the folder, so it is tried again.`);
+      for (let attempt = 0; attempt < HELD_RETRIES; attempt++) {
+        await wait(HELD_DELAY * 2);
+        try {
+          await git(root, args);
+          log.info(`> ${formatCommand(args)}`);
+          return true;
+        } catch {
+          // Still held, or failing for another reason: the last one says which.
+        }
+      }
+      return false;
+    }
+    if (args[1] === 'remove' && /failed to delete '/.test(error.message)) {
+      const dir = args[args.length - 1];
+      const { stdout } = await git(root, ['worktree', 'list', '--porcelain'], { readOnly: true });
+      if (parseWorktrees(stdout, root).some((worktree) => samePath(worktree.path, dir))) return false;
+      log.warn(`${said}: Windows held the folder. It is no longer a worktree, and Gitardo deletes what is left of it.`);
+      log.info(`> delete ${dir}`);
+      try {
+        // Links are deleted, not followed: the ones to this checkout went before git ran. Each retry waits longer.
+        await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: HELD_DELAY });
+        return true;
+      } catch (failure) {
+        log.warn(`${dir} was not deleted: ${failure instanceof Error ? failure.message : String(failure)}`);
+        return false;
+      }
+    }
+    return false;
+  };
+}
+
+/** Removes an empty folder, trying again for a while when it is held. False when it is not empty, or not removed. */
+async function removeFolder(dir: string): Promise<boolean> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.rmdirSync(dir);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= HELD_RETRIES || (code !== 'EBUSY' && code !== 'EPERM' && code !== 'EACCES')) return false;
+      await new Promise((resolve) => setTimeout(resolve, HELD_DELAY));
     }
   }
 }
@@ -791,7 +889,11 @@ async function renameWorktree(worktree: Worktree, state: RepoState): Promise<Git
   }
   const op = worktreeMoveOp(worktree.path, to, branch);
   // Git moves a worktree into a folder that is there already.
-  op.prepare = () => void fs.mkdirSync(path.dirname(to), { recursive: true });
-  op.onSuccess = () => removeEmptyParents(dir, state);
+  op.prepare = async (log) => {
+    await closeInVSCodeGit([worktree.path], log);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+  };
+  op.recover = recoverHeldWorktree(state.root);
+  op.finish = () => removeEmptyParents(dir, state);
   return op;
 }
