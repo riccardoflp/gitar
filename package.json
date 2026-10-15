@@ -6,10 +6,10 @@
   "publisher": "RiccardoFilippozzi",
   "license": "MIT",
   "icon": "media/icon.png",
-  "repository": "https://github.com/riccardoflp/gitar",
-  "homepage": "https://github.com/riccardoflp/gitar#readme",
+  "repository": "https://github.com/riccardoflp/gitardo",
+  "homepage": "https://github.com/riccardoflp/gitardo#readme",
   "bugs": {
-    "url": "https://github.com/riccardoflp/gitar/issues"
+    "url": "https://github.com/riccardoflp/gitardo/issues"
   },
   "private": true,
   "engines": {
