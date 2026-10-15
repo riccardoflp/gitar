@@ -47,13 +47,11 @@ export function BranchesApp() {
       } else if (message.type === 'comparison') {
         const { from, to } = message.comparison;
         if (from === comparingRef.current?.from && to === comparingRef.current.to) setComparison(message.comparison);
-      } else if (message.type === 'compare') {
-        compare(message.comparing);
       }
     });
     post({ type: 'ready' });
     return stop;
-  }, [compare]);
+  }, []);
 
   if (!state) return <Placeholder loaded={loaded} />;
 

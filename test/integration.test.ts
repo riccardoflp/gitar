@@ -960,6 +960,53 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     for (const nothing of ['', 'no-such-thing', '--all', 'other..HEAD', `${next}:new.txt`]) expect(await repo.resolve(nothing)).toBeNull();
   });
 
+  it('compares two branches from where they diverged, or directly, with the commits each has that the other has not', async () => {
+    const other = await divergent();
+    const base = (await git(root, ['rev-parse', 'main~1'])).stdout.trim();
+    write('b.txt', 'b\n');
+    const main = await commitAll('Add b');
+
+    // What the other branch changed since it left main, as a pull request shows it.
+    const diverged = await repo.compareSides(main, other, 'diverged');
+    expect(diverged).toEqual({ base, since: base, ahead: 1, behind: 2, files: [{ status: 'M', path: 'a.txt' }] });
+    const patch = await repo.comparePatch(diverged!.files, base, other, 1000);
+    expect(patch!.map((file) => [file.file.path, file.added, file.removed, file.hunks?.[0].lines])).toEqual([['a.txt', 1, 1, ['-base', '+other']]]);
+    // Everything that differs, what main did since as well.
+    expect(await repo.compareSides(main, other, 'direct')).toEqual({
+      base,
+      since: main,
+      ahead: 1,
+      behind: 2,
+      files: [
+        { status: 'M', path: 'a.txt' },
+        { status: 'D', path: 'b.txt' },
+      ],
+    });
+    // A commit the other already has changed nothing since they diverged.
+    expect(await repo.compareSides(other, base, 'diverged')).toEqual({ base, since: base, ahead: 0, behind: 1, files: [] });
+
+    // Histories that never meet are compared directly.
+    await git(root, ['checkout', '--orphan', 'alone']);
+    await git(root, ['rm', '-r', '--quiet', '--cached', '.']);
+    fs.rmSync(path.join(root, 'a.txt'));
+    fs.rmSync(path.join(root, 'b.txt'));
+    write('c.txt', 'c\n');
+    const alone = await commitAll('Alone');
+    expect(await repo.compareSides(main, alone, 'diverged')).toEqual({
+      base: null,
+      since: main,
+      ahead: 1,
+      behind: 3,
+      files: [
+        { status: 'D', path: 'a.txt' },
+        { status: 'D', path: 'b.txt' },
+        { status: 'A', path: 'c.txt' },
+      ],
+    });
+    expect(await repo.mergeBase(main, alone)).toBeNull();
+    expect(await repo.compareSides('HEAD; rm -rf', main, 'direct')).toBeNull();
+  });
+
   it('lists the branches that were checked out last, without the one that is checked out', async () => {
     write('a.txt', 'one\n');
     await commitAll('first');

@@ -11,7 +11,7 @@ import { type DiffDescriptor, describeDiff } from '../../src/flow/sides';
 import { git } from '../../src/git/exec';
 import { samePath } from '../../src/git/parse';
 import { Repo } from '../../src/git/repo';
-import type { Filter, HostMessage, RebaseStep, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
+import type { CompareMode, CompareSide, Filter, HostMessage, RebaseStep, RepoState, ViewKind, WebviewMessage } from '../../src/shared/protocol';
 
 /** The parts of the controller that are private to everyone but these tests. */
 interface Internals {
@@ -20,8 +20,17 @@ interface Internals {
   limit: number;
   filter: Filter | null;
   views: Map<unknown, ViewKind>;
+  compareTabs: Map<unknown, CompareTab>;
   onMessage(webview: unknown, message: WebviewMessage): Promise<void>;
   post(message: HostMessage, to?: unknown): void;
+}
+
+/** A comparison open in a tab, as the controller keeps it. */
+interface CompareTab {
+  panel: vscode.WebviewPanel;
+  from: CompareSide;
+  to: CompareSide;
+  mode: CompareMode;
 }
 
 interface Result {
@@ -917,22 +926,34 @@ export async function run(): Promise<void> {
     }
   });
 
-  await step('compares branches, tags and typed revisions, in the view that asked or in the graph', async () => {
+  await step('compares branches, tags and typed revisions in a tab of their own, which follows the branches as they move', async () => {
     const head = state().head!;
     const hashOf = (name: string) => state().branches.find((branch) => branch.name === name)!.hash;
     const tag = state().tags[0];
-    /** The comparison that was sent, and the view it was sent to. */
+    const tabs = () => [...internals.compareTabs.values()];
+    /** The sides of the comparison opened last, and how it compares them. */
     const compared = () => {
-      const index = posted.findIndex((outgoing) => outgoing.type === 'compare');
-      const outgoing = posted[index];
-      return outgoing?.type === 'compare' ? { ...outgoing.comparing, view: internals.views.get(addressed[index]) } : null;
+      const tab = tabs().at(-1);
+      return tab ? { from: tab.from, to: tab.to, mode: tab.mode } : null;
+    };
+    /** What the page of a comparison was told last. */
+    const told = (tab: CompareTab) => {
+      for (let at = posted.length - 1; at >= 0; at--) {
+        const outgoing = posted[at];
+        if (outgoing.type === 'compareView' && addressed[at] === tab.panel.webview) return outgoing;
+      }
+    };
+    const closeAll = async () => {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await until('the tabs to close', () => tabs().length === 0);
     };
     const forget = () => {
       posted.length = 0;
       addressed.length = 0;
     };
+    const revParse = async (revision: string) => (await git(app, ['rev-parse', revision])).stdout.trim();
 
-    // The command: both sides are asked, and the graph in the panel shows the answer.
+    // The command: both sides are asked, and a tab shows how they compare.
     const titles: string[] = [];
     let offered: string[] = [];
     choose = (items, options) => {
@@ -955,33 +976,103 @@ export async function run(): Promise<void> {
       'Tags',
       '$(tag) v1',
     ]);
-    assert.deepEqual(compared(), { from: hashOf('feature'), to: head, fromName: 'feature', toName: 'main', view: 'graph' });
+    const tab = await until('the tab of the comparison', () => tabs()[0]);
+    assert.equal(tab.panel.title, 'feature ↔ main');
+    assert.match(tab.panel.webview.html, /data-view="compare" data-root="[^"]+" data-files="tree"/);
+    // Two branches are followed, and compared from where they diverged.
+    assert.deepEqual(compared(), {
+      from: { name: 'feature', hash: hashOf('feature'), live: true },
+      to: { name: 'main', hash: head, live: true },
+      mode: 'diverged',
+    });
+    // The page asks for what it shows: how far apart the two are and the files that differ, then their lines.
+    const base = (await git(app, ['merge-base', 'feature', 'main'])).stdout.trim();
+    const [behind, ahead] = (await git(app, ['rev-list', '--left-right', '--count', 'feature...main'])).stdout.trim().split(/\s+/).map(Number);
+    const shown = await until('the comparison', () => told(tab));
+    assert.ok(shown.view);
+    assert.deepEqual([shown.view.base, shown.view.since, shown.view.ahead, shown.view.behind], [base, base, ahead, behind]);
+    const changed = (await git(app, ['diff', '--name-only', base, head])).stdout.trim().split('\n');
+    assert.deepEqual(shown.view.files.map((file) => file.path), changed);
+    const lines = await until('the lines', () => posted.find((outgoing, at) => outgoing.type === 'comparePatch' && addressed[at] === tab.panel.webview));
+    assert.ok(lines.type === 'comparePatch' && lines.patch?.length === changed.length);
 
-    // Asked by the branches, with something typed: they show it themselves.
+    // Everything that differs, and the other way round.
+    forget();
+    await internals.onMessage(tab.panel.webview, { type: 'setCompareMode', mode: 'direct' });
+    assert.equal(told(tab)?.view?.since, hashOf('feature'));
+    await internals.onMessage(tab.panel.webview, { type: 'swapCompare' });
+    assert.deepEqual([told(tab)?.view?.from.name, told(tab)?.view?.to.name, told(tab)?.view?.since], ['main', 'feature', head]);
+    assert.equal(tab.panel.title, 'main ↔ feature');
+    await internals.onMessage(tab.panel.webview, { type: 'swapCompare' });
+
+    // Asked for again, from the button of a comparison in a view, the two have their tab: that one is shown.
+    await internals.onMessage(view('branches'), { type: 'openCompare', from: { name: 'feature', hash: hashOf('feature') }, to: { name: 'main', hash: head } });
+    assert.equal(tabs().length, 1);
+
+    // One side chosen again in the page.
+    choose = (items, options) => {
+      titles.push(options.title ?? '');
+      return byLabel('$(git-branch) topic')(items);
+    };
+    await internals.onMessage(tab.panel.webview, { type: 'pickCompareSide', side: 'to' });
+    assert.equal(titles.at(-1), 'Compare feature with');
+    assert.deepEqual(compared()?.to, { name: 'topic', hash: hashOf('topic'), live: true });
+    assert.equal(told(tab)?.view?.to.name, 'topic');
+    assert.equal(tab.panel.title, 'feature ↔ topic');
+
+    // A branch that moves is followed; one that is deleted stays where it was.
+    const before = await revParse('HEAD~1');
+    await git(app, ['branch', 'compared', before]);
+    // Named by a branch that git gives another commit, a side is the commit it was chosen at.
+    await internals.onMessage(view('branches'), { type: 'openCompare', from: { name: 'feature', hash: hashOf('feature') }, to: { name: 'compared', hash: head } });
+    const fixed = await until('the tab of the comparison', () => tabs()[1]);
+    assert.deepEqual([fixed.to.live, fixed.mode], [false, 'direct']);
+    await internals.onMessage(view('branches'), { type: 'openCompare', from: { name: 'feature', hash: hashOf('feature') }, to: { name: 'compared', hash: before } });
+    const followed = await until('the other tab', () => tabs()[2]);
+    assert.deepEqual([followed.to.live, followed.mode], [true, 'diverged']);
+    await until('its comparison', () => told(followed));
+    await git(app, ['branch', '--force', 'compared', head]);
+    await controller.refresh();
+    await until('the comparison of where the branch is now', () => told(followed)?.view?.to.hash === head);
+    await git(app, ['branch', '--delete', '--force', 'compared']);
+    await controller.refresh();
+    await until('the branch to be gone', () => told(followed)?.view?.to.gone);
+    assert.equal(followed.to.hash, head);
+    // A tab closed while git answers for it is left alone.
+    errors.length = 0;
+    const answering = internals.onMessage(followed.panel.webview, { type: 'setCompareMode', mode: 'direct' });
+    followed.panel.dispose();
+    await answering;
+    assert.deepEqual(errors, []);
+    await closeAll();
+
+    // Asked by the branches, with something typed: a revision is followed as well.
     choose = (items, options) => byLabel(options.title === 'Compare' ? /Enter a hash/ : '$(git-branch) topic')(items);
     inputs = ['HEAD~1'];
-    forget();
     await internals.onMessage(view('branches'), { type: 'compare' });
     const parent = (await git(app, ['rev-parse', 'HEAD~1'])).stdout.trim();
-    assert.deepEqual(compared(), { from: parent, to: hashOf('topic'), fromName: 'HEAD~1', toName: 'topic', view: 'branches' });
+    await until('the tab', () => tabs().length === 1);
+    assert.deepEqual(compared(), {
+      from: { name: 'HEAD~1', hash: parent, live: true },
+      to: { name: 'topic', hash: hashOf('topic'), live: true },
+      mode: 'diverged',
+    });
 
-    // "Compare with…" in a menu gives one side; a hash that is typed is named by its short form.
+    // "Compare with…" in a menu gives one side; a hash that is typed is named by its short form, and stays that commit.
     choose = byLabel(/Enter a hash/);
     inputs = [parent];
-    forget();
     await internals.onMessage(view('sideGraph'), { type: 'compare', from: { name: tag.name, hash: tag.hash } });
-    assert.deepEqual(compared(), { from: tag.hash, to: parent, fromName: 'v1', toName: parent.slice(0, 7), view: 'sideGraph' });
-
-    // The stashes have no room for it: it goes to the graph.
-    choose = byLabel('$(git-branch) merged');
-    forget();
-    await internals.onMessage(view('stashes'), { type: 'compare', from: { name: 'main', hash: head } });
-    assert.deepEqual(compared(), { from: head, to: hashOf('merged'), fromName: 'main', toName: 'merged', view: 'graph' });
+    await until('the tab', () => tabs().length === 2);
+    assert.deepEqual(compared(), {
+      from: { name: 'v1', hash: tag.hash, live: true },
+      to: { name: parent.slice(0, 7), hash: parent, live: false },
+      mode: 'direct',
+    });
+    await closeAll();
 
     // What git does not know is said, and backing out does nothing.
     choose = byLabel(/Enter a hash/);
     inputs = ['no-such-thing'];
-    forget();
     asked.length = 0;
     await vscode.commands.executeCommand('gitardo.compare');
     assert.deepEqual(
@@ -990,7 +1081,7 @@ export async function run(): Promise<void> {
     );
     choose = () => undefined;
     await vscode.commands.executeCommand('gitardo.compare');
-    assert.equal(compared(), null);
+    assert.equal(tabs().length, 0);
 
     // A branch clicked in the side bar is shown where the commits are, and nowhere else.
     forget();

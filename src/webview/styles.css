@@ -1436,7 +1436,10 @@ input:focus-visible,
   color: var(--vscode-descriptionForeground);
 }
 
-.detail .swap {
+.detail .compare-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 8px;
 }
 
@@ -2007,6 +2010,68 @@ input:focus-visible,
 
 .hunk-lines + .hunk-lines {
   border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* Two branches, tags or commits compared in an editor tab */
+
+.compare-sides {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.compare-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.compare-label {
+  color: var(--vscode-descriptionForeground);
+}
+
+.compare-pick {
+  min-width: 0;
+  max-width: 360px;
+  height: 28px;
+}
+
+.compare-pick .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.compare-summary {
+  margin: 12px 0 0;
+}
+
+/* Buttons side by side, of which one is chosen. */
+.segmented {
+  display: inline-flex;
+}
+
+.segmented .button + .button {
+  margin-left: -1px;
+}
+
+.segmented .button:not(:first-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.segmented .button:not(:last-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.segmented .button.on,
+.segmented .button.on:hover:not(:disabled) {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border-color: var(--vscode-button-background);
 }
 
 /* The tab where what new worktrees get of what git ignores is chosen. */

@@ -40,10 +40,20 @@ export function Compare({ comparing, comparison, onSwap, onJump, onClose }: Prop
         <dt>To</dt>
         {side(toName, to)}
       </dl>
-      <button className="button swap" onClick={onSwap} title="Compare in the other direction">
-        <Icon name="arrow-swap" />
-        Swap
-      </button>
+      <div className="compare-buttons">
+        <button className="button swap" onClick={onSwap} title="Compare in the other direction">
+          <Icon name="arrow-swap" />
+          Swap
+        </button>
+        <button
+          className="button"
+          title="How far apart the two are, and every change, in an editor tab"
+          onClick={() => post({ type: 'openCompare', from: { name: fromName, hash: from }, to: { name: toName, hash: to } })}
+        >
+          <Icon name="link-external" />
+          Open in a tab
+        </button>
+      </div>
       {!comparison ? (
         <p className="muted">Loading…</p>
       ) : (

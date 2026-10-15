@@ -6,7 +6,10 @@ import {
   type Bisect,
   type BranchLog,
   type CommitDetail,
+  type CompareMode,
+  type CompareView,
   type Comparison,
+  type FileChange,
   type FileHunks,
   type FilePatch,
   type Filter,
@@ -73,6 +76,11 @@ const CONFLICT_BYTES = 2 * 1024 * 1024;
 const CONFLICT_FILES = 200;
 /** How deep submodules inside submodules are looked for. */
 const SUBMODULE_DEPTH = 4;
+/**
+ * A diff as plain as git prints it, whatever the configuration says of colors, of other programs to compare with, of
+ * files turned into text first or of submodules, which could be listed with their commits.
+ */
+const PLAIN_DIFF = ['--no-color', '--no-ext-diff', '--no-textconv', '--submodule=short'];
 
 export interface BlameOptions {
   /** The text of the file when it has unsaved edits. */
@@ -295,6 +303,33 @@ export class Repo {
   async compare(from: string, to: string): Promise<Comparison | null> {
     if (!isHash(from) || !isHash(to)) return null;
     return { from, to, files: parseNameStatus(await this.read(['diff', '--name-status', '-z', '-M', from, to], true)) };
+  }
+
+  /** The commit two others have in common, the nearest when there are several. Null when their histories never met. */
+  async mergeBase(a: string, b: string): Promise<string | null> {
+    if (!isHash(a) || !isHash(b)) return null;
+    return (await this.read(['merge-base', a, b], true)).trim() || null;
+  }
+
+  /**
+   * Two commits compared as the tab of a comparison shows them: the commits each has that the other has not, and the
+   * files that differ, from the commit the two have in common when `diverged`, or else from `from`.
+   */
+  async compareSides(from: string, to: string, mode: CompareMode): Promise<Omit<CompareView, 'from' | 'to' | 'mode'> | null> {
+    if (!isHash(from) || !isHash(to)) return null;
+    const [base, { ahead, behind }] = await Promise.all([this.mergeBase(from, to), this.divergence(to, from)]);
+    const since = mode === 'diverged' && base ? base : from;
+    const files = parseNameStatus(await this.read(['diff', '--name-status', '-z', '-M', since, to]));
+    return { base, since, ahead, behind, files };
+  }
+
+  /**
+   * What changed in each of these files from one commit to another: the files `compare` or `compareSides` listed, in
+   * the same order, and no more than `limit` lines of them. Null when the two do not match.
+   */
+  async comparePatch(files: FileChange[], since: string, to: string, limit: number): Promise<FilePatch[] | null> {
+    if (!isHash(since) || !isHash(to)) return null;
+    return parsePatch(files, await this.read(['diff', ...PLAIN_DIFF, '-M', since, to]), limit);
   }
 
   /**
@@ -683,15 +718,10 @@ export class Repo {
    */
   async commitPatch(detail: CommitDetail, limit: number): Promise<FilePatch[] | null> {
     if (!isHash(detail.hash)) return null;
-    // As plain as git prints it, whatever the configuration says of colors, of other programs to compare with, of
-    // files turned into text first or of submodules, which could be listed with their commits.
-    const plain = ['--no-color', '--no-ext-diff', '--no-textconv', '--submodule=short'];
     const [parent] = detail.parents;
     // The same two commands that list the files, asked for the lines this time.
-    const out = parent
-      ? await this.read(['diff', ...plain, '-M', parent, detail.hash])
-      : await this.read(['diff-tree', '--root', '--no-commit-id', '-r', '-p', ...plain, detail.hash]);
-    return parsePatch(detail.files, out, limit);
+    if (parent) return this.comparePatch(detail.files, parent, detail.hash, limit);
+    return parsePatch(detail.files, await this.read(['diff-tree', '--root', '--no-commit-id', '-r', '-p', ...PLAIN_DIFF, detail.hash]), limit);
   }
 
   /** The unstaged diff of a file, or its staged diff, split into hunks. */

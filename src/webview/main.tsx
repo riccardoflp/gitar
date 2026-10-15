@@ -8,6 +8,7 @@ import { BranchesApp } from './BranchesApp';
 import { ChangesApp } from './ChangesApp';
 import { CommitApp } from './CommitApp';
 import { CommitsApp } from './CommitsApp';
+import { CompareApp } from './CompareApp';
 import { MenuProvider } from './ContextMenu';
 import { StashesApp } from './StashesApp';
 import { WorktreeSetupApp } from './WorktreeSetupApp';
@@ -24,6 +25,7 @@ const VIEWS: Record<ViewKind, () => ReactNode> = {
   branches: () => <BranchesApp />,
   stashes: () => <StashesApp />,
   commit: () => <CommitApp hash={commit} root={root} layout={files === 'list' ? 'list' : 'tree'} />,
+  compare: () => <CompareApp root={root} layout={files === 'list' ? 'list' : 'tree'} />,
   worktreeSetup: () => <WorktreeSetupApp />,
 };
 const view = (VIEWS[kind as ViewKind] ?? VIEWS.graph)();

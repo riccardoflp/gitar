@@ -292,18 +292,48 @@ export interface ComparedRef {
 }
 
 /**
+ * How the tab of a comparison compares: `diverged` shows what `to` changed since it left `from`, from the commit the two
+ * have in common, as a pull request does (`git diff from...to`); `direct` everything that differs (`git diff from to`).
+ */
+export type CompareMode = 'diverged' | 'direct';
+
+/** One side of a comparison in its tab. */
+export interface CompareSide {
+  name: string;
+  hash: string;
+  /** Named by a branch, a tag or a revision: its commit is looked up again when the repository changes. */
+  live: boolean;
+  /** The name no longer stands for a commit, a branch that was deleted: the side stays where it was. */
+  gone?: boolean;
+}
+
+/** What the tab of a comparison shows, but the lines of its files. */
+export interface CompareView {
+  from: CompareSide;
+  to: CompareSide;
+  mode: CompareMode;
+  /** The commit the two have in common, null when their histories never met. */
+  base: string | null;
+  /** The commit the files are compared from: `base` when `diverged`, `from` when `direct` or when there is no base. */
+  since: string;
+  /** The commits `to` has that `from` has not, and the other way round. */
+  ahead: number;
+  behind: number;
+  files: FileChange[];
+}
+
+/**
  * What a view shows. `graph` is everything, in the panel or in an editor tab. `changes`, `commits`, `sideGraph`,
  * `branches` and `stashes` are the views of the side bar: `commits` lists the commits of what is checked out, each
  * with its files, apart from the graph, and `sideGraph` is the graph without the references beside it. `commit` is
- * one commit in an editor tab, with its message, its files and what it changed in them. `worktreeSetup` is the tab
- * where what new worktrees get of what git ignores is chosen.
+ * one commit in an editor tab, with its message, its files and what it changed in them. `compare` is two branches,
+ * tags or commits compared in an editor tab. `worktreeSetup` is the tab where what new worktrees get of what git
+ * ignores is chosen.
  */
-export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit' | 'worktreeSetup';
+export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit' | 'compare' | 'worktreeSetup';
 
 /** The views that show the graph, and so are sent its commits. */
 export const showsGraph = (kind: ViewKind) => kind === 'graph' || kind === 'sideGraph';
-/** The views that can show the files that differ between two commits. */
-export const showsComparisons = (kind: ViewKind) => kind === 'graph' || kind === 'sideGraph' || kind === 'branches';
 
 /** How the files of a commit are laid out in its editor tab: under their directories, or one after the other. */
 export type FilesLayout = 'tree' | 'list';
@@ -453,6 +483,13 @@ export type HostMessage =
   /** What a commit changed, file by file in the order of its details. Null when git and the list of files disagree. */
   | { type: 'patch'; hash: string; patch: FilePatch[] | null }
   | { type: 'comparison'; comparison: Comparison }
+  /** What the tab of a comparison shows. Null, with `error`, when git could not compare the two. */
+  | { type: 'compareView'; view: CompareView | null; error?: string }
+  /**
+   * The lines of the files of the comparison from `since` to `to`, in the order of its files. Null when git and the
+   * list of files disagree.
+   */
+  | { type: 'comparePatch'; since: string; to: string; patch: FilePatch[] | null }
   | { type: 'busy'; title: string | null }
   | { type: 'committed' }
   | { type: 'hunks'; path: string; staged: boolean; hunks: FileHunks | null }
@@ -463,8 +500,6 @@ export type HostMessage =
    * `failed` when git refused the search.
    */
   | { type: 'found'; search: Search; hashes: string[]; more: boolean; failed?: boolean }
-  /** Show the files that differ between two commits. */
-  | { type: 'compare'; comparing: Comparing }
   /** A commit message is being drafted, or has been (`message`). */
   | { type: 'drafting'; active: boolean; message?: string }
   /** What the tab of the setup of new worktrees shows. Null, with `error`, when it could not be read. */
@@ -503,8 +538,14 @@ export type WebviewMessage =
   /** The layout the tabs of the commits open with from now on. */
   | { type: 'setFilesLayout'; layout: FilesLayout }
   | { type: 'getComparison'; from: string; to: string }
-  /** Asks the user what to compare, or what to compare `from` with, and shows the comparison in this view. */
+  /** Asks the user what to compare, or what to compare `from` with, and opens the comparison in a tab. */
   | { type: 'compare'; from?: ComparedRef }
+  /** Opens the comparison of these two in a tab, or shows the tab it has. */
+  | { type: 'openCompare'; from: ComparedRef; to: ComparedRef }
+  /** In the tab of a comparison: asks for the user to choose one of its sides again. */
+  | { type: 'pickCompareSide'; side: 'from' | 'to' }
+  | { type: 'swapCompare' }
+  | { type: 'setCompareMode'; mode: CompareMode }
   /** Selects a commit in the views that list commits and are open, without opening one. */
   | { type: 'show'; hash: string }
   | { type: 'selectRepo'; root: string }

@@ -153,13 +153,22 @@ Each commit has one tab: asking for it again shows the one it has. A tab stays o
 
 **Gitardo: Compare Branches, Tags or Commits…**, also the compare button in the headers of the Gitardo Graph and Branches views and the first entry under **…** in the toolbar, asks for the two sides one after the other. Each is chosen from the list of branches, remote branches and tags, or typed with **Enter a hash or a revision…**: a commit hash, or anything else git turns into a commit, such as `HEAD~3`, `v1.0^` or `main@{yesterday}`. What git does not know is refused while you type.
 
-The files that differ between the two are listed in place of the commit details; selecting a file opens the diff, and the button next to the count opens all of them in one editor. **Swap** reverses the direction. The comparison shows in the view it was asked from: the graph, the Commits view, or the Branches view, under the tree. Asked from the command palette, it shows in the graph.
+The comparison opens in a tab of the editor, one for each pair: asking for the same two again shows the tab they have.
+
+- At the top are the two sides. A click on one chooses another branch, tag or commit in its place, the hash beside it opens that commit in its tab, and the arrows between them swap the two.
+- Under them, how far apart they are: how many commits the second has that the first has not, and the other way round, and the commit where they diverged, which opens in its tab.
+- **Since they diverged** shows what the second changed since it left the first, from the commit they have in common, as a pull request shows it (`git diff from...to`). **Everything that differs** shows all that differs between the two (`git diff from to`), what the first changed meanwhile included. Two branches, tags or revisions open with the first, a comparison with a commit given by its hash with the second; one whose histories never meet can only be compared directly.
+- Then the files, as a tree or as a list with the lines each gained and lost, and the diff of each in the page, as in the [tab of a commit](#a-commit-in-an-editor-tab). **Open in the diff editor** opens all of them in one editor of VS Code.
+
+A side named by a branch, a tag or a revision such as `HEAD~1` is followed: when the branch moves, the tab shows where it is now, while the views show its repository. A side given by its hash stays that commit, and so does a branch that is deleted, which the tab says.
 
 From the context menu of a commit, branch or tag:
 
 - **Compare with `<current branch>`** compares it with what is checked out.
-- **Compare with…** asks only for the other side.
+- **Compare with…** asks only for the other side, and opens the tab.
 - To compare two commits of the graph, select one, then right-click the other and choose **Compare with … selected before**.
+
+**Compare with `<current branch>`** and the comparison of two commits show the files that differ in place of the commit details, in the view they were asked from: the graph, or the Branches view under the tree. Selecting a file opens the diff, the button next to the count opens all of them in one editor, **Swap** reverses the direction, and **Open in a tab** opens the same comparison in a tab.
 
 ### Filter by branch
 
@@ -551,7 +560,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - a graph of twenty branches side by side keeps to its width by drawing them closer, gets narrower and wider when its edge is dragged, and a double click undoes it;
 - the Commits view of the side bar lists the commits of the branch and not those of the others, says which are pushed and how many are left to push, unfolds one to its files, and has its menu and the buttons of its header;
 - the graph of the side bar lists the commits on two lines each, with their labels named, the details under them, and its header has the buttons;
-- the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know;
+- the Branches view compares two branches from its context menu, and a branch with a revision typed in the real picker and input box, which refuses one git does not know; that comparison opens in a tab with the sides, how far apart they are and the diffs, compared from where they diverged and then directly, and the one in the view opens in a tab from its button;
 - the Stashes view unfolds a stash to its files, and its header counts the stashes;
 - the graph opens as an editor tab, with the details of a commit beside it;
 - the details keep a message of many lines to five that scroll, list the files with their directories or as a tree that folds, and in a narrow panel are sized by dragging the line over them;

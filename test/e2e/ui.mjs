@@ -998,9 +998,41 @@ try {
     await type('HEAD~2');
     await until('the revision to be accepted', async () => !(await prompt())?.message.includes(unknown));
     await key('Enter');
-    await until('the other comparison', async () => (await compared(branches)).sides[1]?.startsWith('HEAD~2'));
-    seen = await compared(branches);
-    assert(seen.sides[0].startsWith('feature') && seen.files.length > 0, `comparison: ${JSON.stringify(seen)}`);
+    // That one opens in a tab of its own: how far apart the two are, the files and their changes.
+    const tab = await webview('compare');
+    const inTab = () =>
+      tab.evaluate(`({
+        sides: [...document.querySelectorAll('.compare-side .name')].map((side) => side.textContent),
+        icons: [...document.querySelectorAll('.compare-pick .codicon:first-child')].map((icon) => icon.className.replace(/.*codicon-/, '')),
+        summary: document.querySelector('.compare-summary')?.textContent ?? '',
+        modes: [...document.querySelectorAll('.segmented .button')].map((button) => button.textContent + (button.classList.contains('on') ? ' (on)' : '')),
+        files: [...document.querySelectorAll('.commit-files .file .name')].map((file) => file.textContent),
+        diffs: document.querySelectorAll('.file-diff .diff-lines').length,
+      })`);
+    seen = await until('the comparison in its tab', async () => {
+      const now = await inTab();
+      return now.summary ? now : null;
+    });
+    await shot('compare-tab');
+    assert(seen.sides.join() === 'feature,HEAD~2', `sides: ${JSON.stringify(seen)}`);
+    // A branch, and a revision that is followed.
+    assert(seen.icons.join() === 'git-branch,target', `icons: ${seen.icons}`);
+    assert(/ahead of feature|behind feature/.test(seen.summary), `summary: ${seen.summary}`);
+    // Two names, followed: compared from where they diverged.
+    assert(seen.modes.join() === 'Since they diverged (on),Everything that differs', `modes: ${seen.modes}`);
+    await tab.click('.segmented .button', 'Everything that differs');
+    seen = await until('everything that differs', async () => {
+      const now = await inTab();
+      return now.modes[1].endsWith('(on)') && now.files.length && now.diffs ? now : null;
+    });
+    await shot('compare-tab-direct');
+    await command('View: Close Editor');
+
+    // The comparison in the view opens in a tab as well.
+    await branches.click('.detail .button', 'Open in a tab');
+    const opened = await webview('compare');
+    await until('the comparison of feature with main', async () => (await opened.evaluate(`[...document.querySelectorAll('.compare-side .name')].map((side) => side.textContent).join()`)) === 'feature,main');
+    await command('View: Close Editor');
     await branches.click('.detail .close');
   });
 
