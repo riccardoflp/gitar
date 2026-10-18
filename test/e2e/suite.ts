@@ -984,7 +984,8 @@ export async function run(): Promise<void> {
     ]);
     const tab = await until('the tab of the comparison', () => tabs()[0]);
     assert.equal(tab.panel.title, 'feature ↔ main');
-    assert.match(tab.panel.webview.html, /data-view="compare" data-root="[^"]+" data-files="tree"/);
+    // The page is told the session of VS Code, for what it remembers only until VS Code is closed.
+    assert.match(tab.panel.webview.html, new RegExp(`data-view="compare" data-session="${vscode.env.sessionId}" data-root="[^"]+" data-files="tree"`));
     // Two branches are followed, and compared from where they diverged.
     assert.deepEqual(compared(), {
       from: { name: 'feature', hash: hashOf('feature'), live: true },
@@ -1743,7 +1744,7 @@ export async function run(): Promise<void> {
     assert.equal(tab.label, `${short} Change a`);
     assert.ok(tab.isActive);
     const [webview] = commitViews();
-    assert.match(webview.html, new RegExp(`data-view="commit" data-commit="${hash}" data-root="[^"]+" data-files="tree"`));
+    assert.match(webview.html, new RegExp(`data-view="commit" data-session="${vscode.env.sessionId}" data-commit="${hash}" data-root="[^"]+" data-files="tree"`));
 
     // The page asks for its commit by itself: it loaded under the content security policy, and read which one it is of.
     await until('the page to ask for the changes', () => received.some((incoming) => incoming.type === 'getPatch' && incoming.hash === hash));
