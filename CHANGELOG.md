@@ -2,6 +2,12 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Changed
+
+- The sections of the Branches view are all closed when VS Code starts. The ones opened or closed since are remembered until VS Code is closed, also when the view is hidden and shown again. The references beside the graph remember theirs as before.
+
 ## 0.3.0 - 2026-10-16
 
 ### Added

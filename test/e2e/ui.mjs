@@ -942,7 +942,13 @@ try {
     await until('the view', async () => (await panes()).some((pane) => pane.title === 'Branches' && pane.open));
     await sleep(500);
     const branches = await webview('branches');
-    await until('the branches', () => branches.evaluate(`document.querySelectorAll('.refs .ref').length >= 4`));
+    // VS Code has just started: the sections are all closed.
+    await until('the sections', () => branches.evaluate(`document.querySelectorAll('.refs .section').length >= 3`));
+    const closed = await branches.evaluate(`[...document.querySelectorAll('.refs .section')].map((section) => section.getAttribute('aria-expanded'))`);
+    assert(closed.every((expanded) => expanded === 'false') && !(await branches.evaluate(`document.querySelectorAll('.refs .ref').length`)), `expanded: ${closed}`);
+    await branches.click('.refs .section', 'Recent');
+    await branches.click('.refs .section', 'Local');
+    await until('the branches', () => branches.evaluate(`document.querySelectorAll('.refs .ref').length >= 5`));
     const sections = await branches.evaluate(`[...document.querySelectorAll('.refs .section')].map((section) => section.textContent)`);
     // The stashes have a view of their own.
     assert(
@@ -1389,6 +1395,8 @@ try {
     await shot('branches-groups');
     // The Branches view of the side bar lists them the same way.
     const side = await webview('branches');
+    // A section that was not there before starts closed as the others did.
+    await side.click('.refs .section', 'Favorites');
     await until('the favorites in the side bar', async () => (await sections(side)).favorites?.join() === 'merged');
 
     // Narrowed to a branch, the graph leaves only that one here too, and says so with the way back.

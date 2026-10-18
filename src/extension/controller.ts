@@ -251,7 +251,8 @@ export class Controller implements vscode.Disposable {
   attach(webview: vscode.Webview, kind: ViewKind, data: Record<string, string> = {}): vscode.Disposable {
     const dist = vscode.Uri.joinPath(this.extensionUri, 'dist');
     webview.options = { enableScripts: true, localResourceRoots: [dist] };
-    webview.html = this.html(webview, dist, { view: kind, ...data });
+    // The session tells the page what it remembers from an earlier start of VS Code, for what is to start afresh each time.
+    webview.html = this.html(webview, dist, { view: kind, session: vscode.env.sessionId, ...data });
     this.views.set(webview, kind);
     const listener = webview.onDidReceiveMessage((message: WebviewMessage) => this.onMessage(webview, message));
     return new vscode.Disposable(() => {
