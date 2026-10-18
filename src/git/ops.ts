@@ -480,7 +480,9 @@ export function discardOp(paths: string[], working: WorkingState): GitOp {
  */
 export function discardChangesOp(paths: string[] | null, working: WorkingState, hasHead: boolean): GitOp {
   const changed = [...working.conflicts, ...working.staged, ...working.unstaged];
-  const untracked = new Set(working.unstaged.filter((file) => file.status === '?').map((file) => file.path));
+  // A file taken out of the index and left on disk is untracked too, but HEAD has it to go back to.
+  const staged = new Set(working.staged.map((file) => file.path));
+  const untracked = new Set(working.unstaged.filter((file) => file.status === '?' && !staged.has(file.path)).map((file) => file.path));
   const wanted = paths && new Set(paths);
   const files = new Set(
     changed.filter((file) => !wanted || wanted.has(file.path) || (file.oldPath && wanted.has(file.oldPath))).map((file) => file.path),

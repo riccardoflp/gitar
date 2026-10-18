@@ -795,7 +795,32 @@ export async function removeEmptyParents(dir: string, state: RepoState): Promise
 
 /** The little of the API of VS Code's Git extension that Gitardo uses. */
 interface VSCodeGit {
-  getAPI(version: 1): { repositories: { rootUri: vscode.Uri }[] };
+  getAPI(version: 1): { repositories: { rootUri: vscode.Uri; status(): Promise<void> }[] };
+}
+
+/** Whether VS Code's Git extension has this repository open, and so can serve the versions of its files. */
+export function inVSCodeGit(root: string): boolean {
+  const extension = vscode.extensions.getExtension<VSCodeGit>('vscode.git');
+  if (!extension?.isActive) return false;
+  try {
+    return extension.exports.getAPI(1).repositories.some((repository) => samePath(repository.rootUri.fsPath, root));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Has VS Code's Git extension read the status of the repository again, when it has it open. It serves the index of a
+ * file only while it knows the file is staged, and HEAD otherwise: after Gitardo staged it, it may not know that yet.
+ */
+export async function refreshVSCodeGit(root: string): Promise<void> {
+  const extension = vscode.extensions.getExtension<VSCodeGit>('vscode.git');
+  if (!extension?.isActive) return;
+  try {
+    await extension.exports.getAPI(1).repositories.find((repository) => samePath(repository.rootUri.fsPath, root))?.status();
+  } catch {
+    // the diff opens all the same
+  }
 }
 
 /**

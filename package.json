@@ -915,6 +915,19 @@
           "minimum": 1,
           "description": "After how many days a line has the color of the lines changed long ago. Recent days count more than old ones: a day and a week are further apart than a year and a year and a week."
         },
+        "gitardo.changes.openOnClick": {
+          "type": "string",
+          "enum": [
+            "file",
+            "diff"
+          ],
+          "enumDescriptions": [
+            "Open the file, as it is on disk. A deleted file opens its diff.",
+            "Open the diff of the file against the last commit, what is staged and what is not together."
+          ],
+          "default": "file",
+          "markdownDescription": "What a click on a file of the Gitardo Changes view opens. The buttons on its row open either one, whatever is set here. The list of changes of VS Code, in the Source Control view, is not affected."
+        },
         "gitardo.scm.stashButtons": {
           "type": "boolean",
           "default": true,

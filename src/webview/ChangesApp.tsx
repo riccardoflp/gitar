@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { hunkPatch, linesPatch } from '../git/parse';
-import type { DiffSource, FileChange, FileHunks, Hunk, RepoState } from '../shared/protocol';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { workingChanges, type WorkingChange } from '../git/parse';
+import type { FileChange, FilesLayout, RepoState } from '../shared/protocol';
+import { fileTree } from '../shared/tree';
 import { BisectBanner } from './BisectBanner';
 import { FILES_LIMIT, useCapped } from './Capped';
-import { ActionButtons, FileRow, type FileAction } from './FileRow';
+import { ActionButtons, Check, FileRow, type FileAction } from './FileRow';
+import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
 import { OperationBanner, resolvableConflicts } from './OperationBanner';
 import { RepoSelect } from './RepoSelect';
@@ -14,118 +16,43 @@ import { loadUiState, onMessage, post, saveUiState } from './vscode';
 /** A staged rename covers two paths: unstaging only the new one would leave the deletion of the old one staged. */
 const pathsOf = (file: FileChange) => (file.oldPath ? [file.path, file.oldPath] : [file.path]);
 
-/** Hunks of the files the user unfolded, keyed by list and path. Null while they load. */
-type OpenHunks = Record<string, FileHunks | null>;
+/** A diff as VS Code's list of changes opens it: what is not staged yet, or what is, when all of the file is. */
+const SOURCE = { kind: 'change' } as const;
 
-const hunkKey = (path: string, staged: boolean) => `${staged ? 'staged' : 'unstaged'}:${path}`;
+/** Where a file of the list is, for the tree. Stable, so that the tree is not made again at every render. */
+const changePath = (change: WorkingChange) => change.file.path;
 
-/** The changed lines the user clicked in one hunk, to stage, unstage or discard only those. */
-interface Picked {
-  key: string;
-  header: string;
-  lines: ReadonlySet<number>;
-}
+const PICK_TITLES: Record<WorkingChange['staged'], string> = {
+  all: 'Staged: click to unstage',
+  some: 'Partly staged: click to stage all of it',
+  none: 'Click to stage',
+};
 
-interface HunkListProps {
-  file: FileHunks | null;
-  /** `picked` is set when only some lines of the hunk are chosen. */
-  actions(hunk: Hunk, picked: ReadonlySet<number> | null): FileAction[];
-  pickedIn(hunk: Hunk): ReadonlySet<number> | null;
-  /** Absent when single lines cannot be chosen. */
-  onPick?(hunk: Hunk, index: number): void;
-}
-
-function HunkList({ file, actions, pickedIn, onPick }: HunkListProps) {
-  if (!file) return <p className="muted hunk-note">Loading…</p>;
-  if (file.binary) return <p className="muted hunk-note">Binary file</p>;
-  if (!file.hunks.length) return <p className="muted hunk-note">No text changes</p>;
-  return file.hunks.map((hunk) => {
-    const picked = pickedIn(hunk);
-    return (
-      <div className="hunk" key={hunk.header}>
-        <header>
-          <span className="grow mono">
-            {picked ? `${picked.size} ${picked.size === 1 ? 'line' : 'lines'} selected` : hunk.header}
-          </span>
-          <ActionButtons actions={actions(hunk, picked)} />
-        </header>
-        <pre>
-          {hunk.lines.map((line, index) => {
-            const changed = line[0] === '+' || line[0] === '-';
-            const pickable = changed && onPick;
-            const kind = line[0] === '+' ? 'added' : line[0] === '-' ? 'removed' : '';
-            return (
-              <span
-                key={index}
-                className={`${kind}${pickable ? ' pickable' : ''}${picked?.has(index) ? ' picked' : ''}` || undefined}
-                title={pickable ? 'Click to select only some lines of this hunk' : undefined}
-                onClick={pickable ? () => onPick(hunk, index) : undefined}
-              >
-                {line.replace(/\r$/, '')}
-                {'\n'}
-              </span>
-            );
-          })}
-        </pre>
-      </div>
-    );
-  });
-}
-
-interface GroupProps {
+interface GroupProps<T> {
   title: string;
-  files: FileChange[];
-  source: DiffSource;
+  items: T[];
+  /** Before the title, such as the box that ticks every file. */
+  lead?: ReactNode;
   headerActions?: FileAction[];
-  fileActions?(file: FileChange): FileAction[];
-  /** Present for lists whose files can be unfolded into hunks. */
-  hunks?: {
-    staged: boolean;
-    open: OpenHunks;
-    toggle(file: FileChange): void;
-    /** With `picked`, the action applies to those lines of the hunk only. */
-    actions(file: FileChange, hunks: FileHunks, hunk: Hunk, picked: ReadonlySet<number> | null): FileAction[];
-    picked: Picked | null;
-    onPick(file: FileChange, hunk: Hunk, index: number): void;
-  };
+  /** `depth` is how far in the row is, when the files are under their directories. */
+  row(item: T, depth?: number): ReactNode;
+  /** Set to show the files under their directories, which open and close. */
+  tree?: { path(item: T): string; folded: ReadonlySet<string>; onFold(path: string): void };
 }
 
-function Group({ title, files, source, headerActions, fileActions, hunks }: GroupProps): ReactNode {
-  const [listed, more] = useCapped(files, FILES_LIMIT, 'files');
-  if (!files.length) return null;
+function Group<T>({ title, items, lead, headerActions, row, tree }: GroupProps<T>): ReactNode {
+  const [listed, more] = useCapped(items, FILES_LIMIT, 'files');
+  const nodes = useMemo(() => (tree ? fileTree(listed, tree.path) : []), [listed, tree?.path]);
+  if (!items.length) return null;
   return (
-    <section className="group">
+    <section className="group" aria-label={title}>
       <header>
+        {lead}
         <span className="grow">{title}</span>
         <ActionButtons actions={headerActions} />
-        <span className="count">{files.length}</span>
+        <span className="count">{items.length}</span>
       </header>
-      {listed.map((file) => {
-        // An untracked file has no diff to cut into hunks.
-        const foldable = hunks && file.status !== '?';
-        const key = hunkKey(file.path, hunks?.staged ?? false);
-        const expanded = foldable && key in hunks.open;
-        return (
-          <div key={file.path}>
-            <FileRow
-              file={file}
-              actions={fileActions?.(file)}
-              onOpen={() => post({ type: 'openDiff', source, file })}
-              expanded={expanded}
-              onToggle={foldable ? () => hunks.toggle(file) : undefined}
-            />
-            {expanded && (
-              <HunkList
-                file={hunks.open[key]}
-                actions={(hunk, picked) => hunks.actions(file, hunks.open[key]!, hunk, picked)}
-                pickedIn={(hunk) => (hunks.picked?.key === key && hunks.picked.header === hunk.header ? hunks.picked.lines : null)}
-                // Only part of a hunk can be applied when both versions of the file exist.
-                onPick={file.status === 'M' ? (hunk, index) => hunks.onPick(file, hunk, index) : undefined}
-              />
-            )}
-          </div>
-        );
-      })}
+      {tree ? <FileTree nodes={nodes} folded={tree.folded} onFold={tree.onFold} row={row} /> : listed.map((item) => row(item))}
       {more}
     </section>
   );
@@ -208,40 +135,24 @@ export function ChangesApp() {
   const [state, setState] = useState<RepoState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [picked, setPicked] = useState<Picked | null>(null);
-  const [open, setOpen] = useState<OpenHunks>({});
-  const openRef = useRef(open);
-  openRef.current = open;
+  const [layout, setLayout] = useState(() => loadUiState({ changesFiles: 'list' as FilesLayout }).changesFiles);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     const stop = onMessage((incoming) => {
       if (incoming.type === 'state') {
         setState(incoming.state);
         setLoaded(true);
-        // Unfolded files may have changed: reload the ones still listed, fold the rest.
-        const working = incoming.state?.working;
-        const kept: OpenHunks = {};
-        for (const staged of [true, false]) {
-          for (const file of (staged ? working?.staged : working?.unstaged) ?? []) {
-            const key = hunkKey(file.path, staged);
-            if (!(key in openRef.current)) continue;
-            kept[key] = openRef.current[key];
-            post({ type: 'getHunks', path: file.path, staged });
-          }
-        }
-        setOpen(kept);
-        // The hunks are about to be read again, and line numbers chosen in the old ones would point elsewhere.
-        setPicked(null);
       } else if (incoming.type === 'busy') {
         setBusy(incoming.title !== null);
-      } else if (incoming.type === 'hunks') {
-        const key = hunkKey(incoming.path, incoming.staged);
-        setOpen((current) => (key in current ? { ...current, [key]: incoming.hunks } : current));
       }
     });
     post({ type: 'ready' });
     return stop;
   }, []);
+
+  const working = state?.working;
+  const changes = useMemo(() => (working ? workingChanges(working) : []), [working]);
 
   if (!loaded) return <div className="empty">Loading repository…</div>;
   if (!state) {
@@ -255,28 +166,28 @@ export function ChangesApp() {
     );
   }
 
-  const { staged, unstaged, conflicts } = state.working;
-
-  const toggle = (isStaged: boolean) => (file: FileChange) => {
-    const key = hunkKey(file.path, isStaged);
-    if (key in open) {
-      const { [key]: _closed, ...rest } = open;
-      setOpen(rest);
-    } else {
-      setOpen({ ...open, [key]: null });
-      post({ type: 'getHunks', path: file.path, staged: isStaged });
-    }
+  const { staged, conflicts } = state.working;
+  const switchLayout = () => {
+    const wanted = layout === 'tree' ? 'list' : 'tree';
+    setLayout(wanted);
+    saveUiState({ changesFiles: wanted });
   };
-
-  const pick = (isStaged: boolean) => (file: FileChange, hunk: Hunk, index: number) => {
-    const key = hunkKey(file.path, isStaged);
-    const lines = new Set(picked?.key === key && picked.header === hunk.header ? picked.lines : []);
-    if (!lines.delete(index)) lines.add(index);
-    setPicked(lines.size ? { key, header: hunk.header, lines } : null);
-  };
-  /** The patch for a whole hunk, or for the chosen lines of it. `reverse`: the patch will be applied backwards. */
-  const patchOf = (hunks: FileHunks, hunk: Hunk, lines: ReadonlySet<number> | null, reverse: boolean) =>
-    lines ? linesPatch(hunks, hunk, lines, reverse) : hunkPatch(hunks, hunk);
+  const allStaged = changes.every((change) => change.staged === 'all');
+  const noneStaged = changes.every((change) => change.staged === 'none');
+  // With files in conflict, `git add --all` would take them as resolved and `git reset` would forget their conflicts:
+  // the other files are named one by one instead.
+  const stageAll = () =>
+    act(
+      conflicts.length
+        ? { kind: 'stage', paths: changes.filter((change) => change.staged !== 'all').map((change) => change.file.path) }
+        : { kind: 'stageAll' },
+    );
+  const unstageAll = () =>
+    act(
+      conflicts.length
+        ? { kind: 'unstage', paths: changes.filter((change) => change.staged !== 'none').flatMap((change) => pathsOf(change.file)) }
+        : { kind: 'unstageAll' },
+    );
 
   return (
     <div className="changes">
@@ -289,88 +200,85 @@ export function ChangesApp() {
       <div className="groups">
         <Group
           title="Conflicts"
-          files={conflicts}
-          source={{ kind: 'conflict' }}
-          fileActions={(file) => {
+          items={conflicts}
+          row={(file) => {
             const [resolvable, marked] = resolvableConflicts(state, file.path);
             const some = resolvable === marked ? (marked === 1 ? 'its conflict' : `its ${marked} conflicts`) : `${resolvable} of its ${marked} conflicts`;
-            return [
-              ...(resolvable
-                ? [{ icon: 'wand', title: `Resolve ${some} automatically`, run: () => act({ kind: 'resolveConflicts', paths: [file.path] }) }]
-                : []),
-              { icon: 'arrow-left', title: 'Take the current side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'ours' }) },
-              { icon: 'arrow-right', title: 'Take the incoming side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'theirs' }) },
-              { icon: 'add', title: 'Mark as resolved', run: () => act({ kind: 'stage', paths: [file.path] }) },
-            ];
-          }}
-        />
-        <Group
-          title="Staged changes"
-          files={staged}
-          source={{ kind: 'staged' }}
-          headerActions={[
-            {
-              icon: 'diff-multiple',
-              title: 'Open all staged changes in one editor',
-              run: () => post({ type: 'openChanges', source: { kind: 'staged' }, files: staged, title: 'Staged changes' }),
-            },
-            { icon: 'git-stash', title: 'Stash only the staged changes…', run: () => act({ kind: 'stashPush', staged: true }) },
-            { icon: 'remove', title: 'Unstage all changes', run: () => act({ kind: 'unstageAll' }) },
-          ]}
-          fileActions={(file) => [{ icon: 'remove', title: 'Unstage', run: () => act({ kind: 'unstage', paths: pathsOf(file) }) }]}
-          hunks={{
-            staged: true,
-            open,
-            toggle: toggle(true),
-            picked,
-            onPick: pick(true),
-            actions: (file, hunks, hunk, lines) => [
-              {
-                icon: 'remove',
-                title: lines ? 'Unstage selected lines' : 'Unstage hunk',
-                run: () => act({ kind: 'unstageHunk', path: file.path, patch: patchOf(hunks, hunk, lines, true) }),
-              },
-            ],
+            return (
+              <FileRow
+                key={file.path}
+                file={file}
+                onOpen={() => post({ type: 'openDiff', source: { kind: 'conflict' }, file })}
+                actions={[
+                  ...(resolvable
+                    ? [{ icon: 'wand', title: `Resolve ${some} automatically`, run: () => act({ kind: 'resolveConflicts', paths: [file.path] }) }]
+                    : []),
+                  { icon: 'arrow-left', title: 'Take the current side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'ours' }) },
+                  { icon: 'arrow-right', title: 'Take the incoming side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'theirs' }) },
+                  { icon: 'add', title: 'Mark as resolved', run: () => act({ kind: 'stage', paths: [file.path] }) },
+                ]}
+              />
+            );
           }}
         />
         <Group
           title="Changes"
-          files={unstaged}
-          source={{ kind: 'unstaged' }}
+          items={changes}
+          lead={
+            <Check
+              checked={allStaged}
+              mixed={!allStaged && !noneStaged}
+              label={allStaged ? 'Unstage all changes' : 'Stage all changes'}
+              title={allStaged ? 'All staged: click to unstage all changes' : 'Click to stage all changes'}
+              onChange={(checked) => (checked ? stageAll() : unstageAll())}
+            />
+          }
+          tree={layout === 'tree' ? { path: changePath, folded, onFold: (path) => setFolded((current) => toggled(current, path)) } : undefined}
           headerActions={[
+            layout === 'tree'
+              ? { icon: 'list-flat', title: 'View as list', run: switchLayout }
+              : { icon: 'list-tree', title: 'View as tree', run: switchLayout },
             {
               icon: 'diff-multiple',
               title: 'Open all changes in one editor',
-              run: () => post({ type: 'openChanges', source: { kind: 'unstaged' }, files: unstaged, title: 'Changes' }),
+              run: () => post({ type: 'openChanges', source: SOURCE, files: changes.map((change) => change.file), title: 'Changes' }),
             },
+            ...(staged.length ? [{ icon: 'git-stash', title: 'Stash only the staged changes…', run: () => act({ kind: 'stashPush', staged: true }) }] : []),
             { icon: 'git-stash', title: 'Stash all changes…', run: () => act({ kind: 'stashPush' }) },
-            { icon: 'discard', title: 'Discard all changes', run: () => act({ kind: 'discardAll' }) },
-            { icon: 'add', title: 'Stage all changes', run: () => act({ kind: 'stageAll' }) },
+            {
+              icon: 'discard',
+              title: 'Discard all changes',
+              // What is staged goes back to HEAD too. With nothing staged the index is HEAD, and the files go back to it.
+              run: () =>
+                act(staged.length ? { kind: 'discardChanges', paths: changes.flatMap((change) => pathsOf(change.file)) } : { kind: 'discardAll' }),
+            },
           ]}
-          fileActions={(file) => [
-            { icon: 'git-stash', title: 'Stash this file…', run: () => act({ kind: 'stashPush', paths: pathsOf(file) }) },
-            { icon: 'discard', title: 'Discard changes', run: () => act({ kind: 'discard', paths: [file.path] }) },
-            { icon: 'add', title: 'Stage', run: () => act({ kind: 'stage', paths: [file.path] }) },
-          ]}
-          hunks={{
-            staged: false,
-            open,
-            toggle: toggle(false),
-            picked,
-            onPick: pick(false),
-            actions: (file, hunks, hunk, lines) => [
-              {
-                icon: 'discard',
-                title: lines ? 'Discard selected lines' : 'Discard hunk',
-                run: () => act({ kind: 'discardHunk', path: file.path, patch: patchOf(hunks, hunk, lines, true) }),
-              },
-              {
-                icon: 'add',
-                title: lines ? 'Stage selected lines' : 'Stage hunk',
-                run: () => act({ kind: 'stageHunk', path: file.path, patch: patchOf(hunks, hunk, lines, false) }),
-              },
-            ],
-          }}
+          row={({ file, staged: done }, depth) => (
+            <FileRow
+              key={file.path}
+              file={file}
+              depth={depth}
+              // The file, or its diff: as the settings say.
+              onOpen={() => post({ type: 'openChange', file })}
+              // A half ticked box is ticked by the click: all of the file is staged.
+              onPick={(checked) => act(checked ? { kind: 'stage', paths: [file.path] } : { kind: 'unstage', paths: pathsOf(file) })}
+              picked={done === 'all'}
+              mixed={done === 'some'}
+              pickVerb={done === 'all' ? 'Unstage' : 'Stage'}
+              pickTitle={PICK_TITLES[done]}
+              actions={[
+                ...(file.status === 'D' ? [] : [{ icon: 'go-to-file', title: 'Open File', run: () => post({ type: 'openFile', file }) }]),
+                { icon: 'git-compare', title: 'Open Changes', run: () => post({ type: 'openDiff', source: SOURCE, file }) },
+                { icon: 'git-stash', title: 'Stash this file…', run: () => act({ kind: 'stashPush', paths: pathsOf(file) }) },
+                {
+                  icon: 'discard',
+                  title: 'Discard changes',
+                  // With some of it staged, all of it goes back to HEAD.
+                  run: () => act(done === 'none' ? { kind: 'discard', paths: [file.path] } : { kind: 'discardChanges', paths: pathsOf(file) }),
+                },
+              ]}
+            />
+          )}
         />
         {state.changes === 0 && <p className="muted none">No changes</p>}
       </div>

@@ -225,6 +225,17 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await state()).working.staged).toEqual([]);
   });
 
+  it('discards a file taken out of the index and left on disk back to HEAD, rather than deleting it', async () => {
+    write('a.txt', 'one\n');
+    await commitAll('First commit');
+    await git(root, ['rm', '--cached', '--quiet', 'a.txt']);
+    write('a.txt', 'changed\n');
+
+    await run(discardChangesOp(['a.txt'], (await state()).working, true));
+    expect(fs.readFileSync(path.join(root, 'a.txt'), 'utf8')).toBe('one\n');
+    expect((await state()).changes).toBe(0);
+  });
+
   it('creates, renames, merges and deletes branches', async () => {
     write('a.txt', 'one\n');
     await commitAll('First commit');

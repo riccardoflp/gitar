@@ -60,6 +60,19 @@ try {
   const page = await window.ready();
 
   const subjects = (graph) => graph.evaluate(`[...document.querySelectorAll('.row .subject')].map((row) => row.textContent)`);
+  /** The box of a file in the changes view, or of the list (`null`): its middle in the view, and whether it is ticked, half ticked or not. */
+  const changeBox = (changes, name) =>
+    changes.evaluate(`(() => {
+      const box = ${name === null ? `document.querySelector('.group header .pick')` : `[...document.querySelectorAll('.group .file')].find((row) => row.textContent.includes(${JSON.stringify(name)}))?.querySelector('.pick')`};
+      if (!box) return null;
+      const rect = box.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, state: box.indeterminate ? 'mixed' : box.checked ? 'staged' : 'unstaged' };
+    })()`);
+  /** Ticks, or unticks, the box of a file in the changes view with the mouse. */
+  const tick = async (changes, name) => {
+    const box = await until(`the box of ${name}`, () => changeBox(changes, name));
+    await mouse(changes.frame.x + box.x, changes.frame.y + box.y);
+  };
   /** What the toolbar looks like: whether the name of the branch can be read, and whether everything fits. */
   const toolbar = (graph) =>
     graph.evaluate(`(() => {
@@ -204,20 +217,16 @@ try {
     await until('the two changed files again', () => changes.evaluate(`document.querySelectorAll('.group .file').length === 2`));
   });
 
-  await step('stages a file with a click and commits it with a typed message', async () => {
+  await step('stages a file by ticking its box, in the one list of changes, and commits it with a typed message', async () => {
     const changes = await webview('changes');
-    await changes.click('.group .file', 'b.txt');
-    await sleep(300);
-    // The row buttons only show under the pointer, which is now there.
-    const stage = await changes.evaluate(`(() => {
-      const row = [...document.querySelectorAll('.group .file')].find((file) => file.textContent.includes('b.txt'));
-      const rect = row.querySelector('button[title="Stage"]').getBoundingClientRect();
-      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-    })()`);
-    await mouse(changes.frame.x + stage.x, changes.frame.y + stage.y);
-    await until('the staged file', () =>
-      changes.evaluate(`[...document.querySelectorAll('.group header .grow')].map((header) => header.textContent).includes('Staged changes')`),
-    );
+    assert((await changeBox(changes, null)).state === 'unstaged', 'nothing is staged yet');
+    await tick(changes, 'b.txt');
+    await until('the staged file', async () => (await changeBox(changes, 'b.txt'))?.state === 'staged');
+    assert(git(app, 'status', '--porcelain', '--', 'b.txt').toString().startsWith('M '), 'git has it staged');
+    // It stays where it was, in the same list: the box of the list is half ticked, with one file staged of the two.
+    assert((await changes.evaluate(`document.querySelectorAll('.group').length`)) === 1, 'one list');
+    assert((await changeBox(changes, null)).state === 'mixed', 'the box of the list is half ticked');
+    await shot('changes-staged');
     await changes.click('.commit-box textarea');
     await type('Commit from the UI');
     await shot('before-commit');
@@ -274,10 +283,7 @@ try {
     await sleep(1500);
     const changes = await webview('changes');
     const stage = async () => {
-      await changes.click('.group .file', 'new.txt');
-      await sleep(200);
-      const rect = await changes.evaluate(`(() => { const rect = document.querySelector('.group .file button[title="Stage"]').getBoundingClientRect(); return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }; })()`);
-      await mouse(changes.frame.x + rect.x, changes.frame.y + rect.y);
+      await tick(changes, 'new.txt');
       return until('the confirmation', async () => ((await prompt())?.kind === 'dialog' ? prompt() : null));
     };
     let dialog = await stage();
@@ -287,14 +293,15 @@ try {
     await clickText('.monaco-dialog-box .monaco-button', 'Cancel');
     await sleep(800);
     assert(git(app, 'status', '--porcelain').toString().trim() === '?? new.txt', 'nothing was staged');
+    // The box says what git has: the click that was cancelled does not leave it ticked.
+    assert((await changeBox(changes, 'new.txt')).state === 'unstaged', 'the box is not ticked');
 
     dialog = await stage();
     await clickText('.monaco-dialog-box .monaco-button', 'Run');
     await until('the file to be staged', () => git(app, 'status', '--porcelain').toString().trim() === 'A  new.txt');
+    await until('its box ticked', async () => (await changeBox(changes, 'new.txt'))?.state === 'staged');
     setting('gitardo.commandPreview', 'off');
     await sleep(1000);
-    // Close the diff that selecting the file opened.
-    await command('View: Close All Editors');
   });
 
   await step('the line under the cursor is annotated with who changed it', async () => {
@@ -1606,7 +1613,16 @@ try {
     const diffEditor = () => page.evaluate(`!!document.querySelector('.editor-instance .monaco-diff-editor')`);
     try {
       const changes = await webview('changes');
+      // A click on the file opens it; the button of its row, which shows under the pointer, opens its diff.
       await changes.click('.group .file', 'sample.ts');
+      await until('the file in an editor', () => page.evaluate(`!!document.querySelector('.editor-instance .monaco-editor') && !document.querySelector('.editor-instance .monaco-diff-editor') && document.querySelector('.tab.active')?.textContent.includes('sample.ts')`));
+      await sleep(300);
+      const button = await changes.evaluate(`(() => {
+        const row = [...document.querySelectorAll('.group .file')].find((file) => file.textContent.includes('sample.ts'));
+        const rect = row.querySelector('button[title="Open Changes"]').getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`);
+      await mouse(changes.frame.x + button.x, changes.frame.y + button.y);
       await until('the diff editor', diffEditor);
       await shot('flow-diff-editor-button');
       const open = await titleButton('Open in Flow Diff');
@@ -1628,6 +1644,12 @@ try {
       // The diff is of the index against the file: a change staged is on both sides, and leaves it.
       await until('one change less', async () => (await bands()) === before - 1);
       await shot('flow-diff-staged');
+      // In the changes view the file is half staged, and its box stages the rest of it.
+      await until('the file half staged', async () => (await changeBox(changes, 'sample.ts'))?.state === 'mixed');
+      await shot('changes-mixed');
+      await tick(changes, 'sample.ts');
+      await until('all of it staged', () => git(app, 'status', '--porcelain', '--', 'sample.ts').toString().startsWith('M  '));
+      await until('its box ticked', async () => (await changeBox(changes, 'sample.ts'))?.state === 'staged');
 
       const back = await titleButton('Open in Diff Editor');
       await mouse(back.x, back.y);

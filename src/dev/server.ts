@@ -299,10 +299,6 @@ async function main() {
       case 'saveWorktreeSetup':
         setup[message.target] = message.patterns ? { link: cleanPatterns(message.patterns.link), copy: cleanPatterns(message.patterns.copy) } : {};
         return worktreeSetup();
-      case 'getHunks': {
-        const { path: file, staged } = message;
-        return [{ type: 'hunks', path: file, staged, hunks: (await repo?.hunks(file, staged)) ?? null }];
-      }
       default:
         console.log('not available in the preview:', JSON.stringify(message));
         return [];

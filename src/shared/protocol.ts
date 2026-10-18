@@ -404,6 +404,8 @@ export type DiffSource =
   | { kind: 'staged' }
   /** The index against the working tree. */
   | { kind: 'unstaged' }
+  /** A file of the Changes view, as VS Code's list of changes opens it: `unstaged` when it has unstaged changes, else `staged`. */
+  | { kind: 'change' }
   | { kind: 'conflict' };
 
 /** Something the user asked for in the UI. The extension asks for any missing input, then turns it into git commands. */
@@ -514,7 +516,6 @@ export type HostMessage =
   | { type: 'comparePatch'; since: string; to: string; patch: FilePatch[] | null }
   | { type: 'busy'; title: string | null }
   | { type: 'committed' }
-  | { type: 'hunks'; path: string; staged: boolean; hunks: FileHunks | null }
   /** Select a commit and scroll to it. */
   | { type: 'reveal'; hash: string }
   /**
@@ -579,8 +580,11 @@ export type WebviewMessage =
   /** Selects a commit in the views that list commits and are open, without opening one. */
   | { type: 'show'; hash: string }
   | { type: 'selectRepo'; root: string }
-  | { type: 'getHunks'; path: string; staged: boolean }
   | { type: 'openDiff'; source: DiffSource; file: FileChange }
+  /** Opens the file as it is in the working tree; one that is deleted opens its diff instead. */
+  | { type: 'openFile'; file: FileChange }
+  /** A click on a file of the Changes view: it opens the file or its diff against HEAD, as `gitardo.changes.openOnClick` says. */
+  | { type: 'openChange'; file: FileChange }
   /** Opens the diffs of all these files in one editor. */
   | { type: 'openChanges'; source: DiffSource; files: FileChange[]; title: string }
   | { type: 'sync'; action: SyncAction }

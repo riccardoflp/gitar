@@ -12,9 +12,6 @@ interface Props {
   file: FileChange;
   onOpen(): void;
   actions?: FileAction[];
-  /** Set when the row can be unfolded to show something below it; undefined hides the arrow. */
-  expanded?: boolean;
-  onToggle?(): void;
   /** Said after the name, before the buttons: such as how many lines changed. */
   extra?: ReactNode;
   /** How far in the row is, in a tree. There its directory is left out: the rows above say it. */
@@ -22,6 +19,12 @@ interface Props {
   /** Set when files can be picked to act on several at once: a box to tick before the name. */
   onPick?(picked: boolean): void;
   picked?: boolean;
+  /** The box is half ticked: ticking it picks all of the file. */
+  mixed?: boolean;
+  /** What ticking the box does to the file, said before its name to a screen reader: `Select` when not given. */
+  pickVerb?: string;
+  /** What the box does, under the pointer. */
+  pickTitle?: string;
 }
 
 const STATUS_TITLES: Record<string, string> = {
@@ -57,18 +60,42 @@ export function Status({ file }: { file: FileChange }) {
 
 export const fileTitle = (file: FileChange) => (file.oldPath ? `${file.oldPath} → ${file.path}` : file.path);
 
-export function FileRow({ file, onOpen, actions, expanded, onToggle, extra, depth, onPick, picked }: Props) {
+interface CheckProps {
+  checked: boolean;
+  /** Half ticked: neither all nor nothing. A click ticks it. */
+  mixed?: boolean;
+  label: string;
+  title?: string;
+  onChange(checked: boolean): void;
+}
+
+/** A box to tick, which can also be half ticked. */
+export function Check({ checked, mixed = false, label, title, onChange }: CheckProps) {
+  return (
+    <input
+      // Half ticked is not an attribute: it is set on the element, at every render so that it follows.
+      ref={(box) => {
+        if (box) box.indeterminate = mixed;
+      }}
+      type="checkbox"
+      className="pick"
+      checked={checked}
+      aria-label={label}
+      title={title}
+      onChange={(event) => {
+        onChange(event.target.checked);
+        // React puts back `checked` until the new state comes, but not the half tick that the click took away.
+        event.target.indeterminate = mixed;
+      }}
+    />
+  );
+}
+
+export function FileRow({ file, onOpen, actions, extra, depth, onPick, picked, mixed, pickVerb = 'Select', pickTitle }: Props) {
   const slash = file.path.lastIndexOf('/');
   return (
     <div className="file" style={depth === undefined ? undefined : { paddingLeft: 12 + depth * INDENT }}>
-      {onToggle && (
-        <button className="twist" onClick={onToggle} aria-expanded={!!expanded} aria-label={`${expanded ? 'Hide' : 'Show'} hunks of ${file.path}`}>
-          <Icon name={expanded ? 'chevron-down' : 'chevron-right'} />
-        </button>
-      )}
-      {onPick && (
-        <input type="checkbox" className="pick" checked={!!picked} aria-label={`Select ${file.path}`} onChange={(event) => onPick(event.target.checked)} />
-      )}
+      {onPick && <Check checked={!!picked} mixed={mixed} label={`${pickVerb} ${file.path}`} title={pickTitle} onChange={onPick} />}
       <button className="file-open" title={fileTitle(file)} onClick={onOpen}>
         <Status file={file} />
         <span className="name">{file.path.slice(slash + 1)}</span>

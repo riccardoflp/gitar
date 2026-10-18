@@ -412,13 +412,16 @@ Pull requests are read with the GitHub account you signed in to in VS Code. Gita
 
 The **Gitardo Changes** view, shown with **Gitardo: Show Changes**:
 
-- Stage, unstage and discard single files or everything at once.
-- Unfold a file to see its hunks, and stage, unstage or discard them one by one.
-- Click changed lines of a hunk to select them: the buttons of the hunk then act on those lines only. This works for modified files, not for added or deleted ones.
+- One list of the changed files, staged or not, each with a box: ticking it stages the file (`git add`), unticking it unstages it. A file with only some of its changes staged, from the diff editor (**Stage Selected Ranges**) or the [Flow Diff](#flow-diff), has its box half ticked, and ticking it stages the rest. The box on the header of the list stages or unstages everything at once, and is half ticked when some is staged.
+- A staged rename unstages with both of its names, and is then listed as git sees it: the old name deleted, the new one untracked. Ticking both stages it as a rename again.
+- Files in conflict are listed apart, above, with no box: **Mark as resolved** stages one. While some are there, the box of the list names the other files one by one, so that none of the conflicts is taken as resolved or forgotten.
+- Clicking a file opens it, or its diff when `gitardo.changes.openOnClick` is set to `diff`. The buttons on its row open either one: **Open File**, and **Open Changes**, its diff as the list of changes of VS Code opens it: the index against the file on disk while some of it is not staged, `HEAD` against the index once all of it is. A deleted file opens its diff. The setting only changes this view, not the list of changes of VS Code.
+- Those diffs are served by VS Code's Git extension when it has the repository open, so that its own commands work in them: **Stage Selected Ranges**, **Unstage Selected Ranges** and **Revert Selected Ranges** in the context menu, and the buttons on the changes in the gutter. Without it, Gitardo serves the same versions, and those commands do nothing there.
+- The button on the header of the list shows the files under their directories, which open and close, or one after the other. The view remembers the choice. The next button opens all the diffs in one editor.
+- **Discard changes** on a file takes it back to the last commit, staged changes included, and deletes it when it is untracked, after a warning. **Discard all changes** on the header does the same with all of them.
 - Commit, or amend the last commit. Committing with nothing staged offers to stage everything first.
 - The sparkle button drafts the commit message with a language model available in VS Code, such as GitHub Copilot. It sends the model the staged changes, or all changes when nothing is staged, cut to 20,000 characters, and the subjects of the last commits as an example of style. Nothing is sent until you press it, and the draft is yours to edit.
-- Selecting a file opens the matching diff: staged against `HEAD`, or the working tree against the index. The first button on the header of each list opens all of its diffs in one editor.
-- Stash all changes, untracked files included; a single file, with the stash button on its row; or only what is staged, with the one on the **Staged changes** header (`git stash push --staged`, Git 2.35 or later).
+- Stash all changes, untracked files included; a single file, with the stash button on its row; or only what is staged, with the button on the header shown while something is (`git stash push --staged`, Git 2.35 or later).
 - The list of changes of VS Code, in the Source Control view, gets the same three buttons: on each file, on **Staged Changes** and on **Changes**. They are in the context menus there too, where several selected files are stashed together, and they work in the repository of the file, which Gitardo then shows. The setting `gitardo.scm.stashButtons` takes them away.
 - Below the commit box is the name and email the commit will be made with. Click it to switch identity.
 - A list of more than 300 files shows the first 300 and a **Show all** link, here and in the details of a commit or of a comparison. The counts and the buttons on the header still speak for the whole list.
@@ -506,7 +509,7 @@ A few operations do more than run commands:
 
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
 
-- Staging a hunk, or some lines of it, runs `git apply --cached -` with a patch on standard input.
+- Staging or unstaging a change in the Flow Diff runs `git apply --cached` with a patch on standard input.
 - An interactive rebase runs `git rebase -i` with `sequence.editor` set to copy a prepared todo list from a temporary file. A reworded commit is a `pick` followed by `exec git commit --amend -F <file>`. A fixup uses the todo list git prepares itself, with `sequence.editor=true` to accept it unchanged.
 
 Gitardo needs Git 2.40 or later for the conflict previews; without it the previews are skipped and everything else works. Read-only queries (`git log`, `git status` and similar) never ask; they are logged at the debug level.
@@ -552,7 +555,7 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the button beside Pull lists the four ways to pull;
 - the views of Gitardo are in the Source Control side bar under those of VS Code, folded, with no icon of their own in the activity bar;
 - the Changes view of Gitardo is hidden until it is asked for, and lists what changed;
-- a file is staged with a click and committed with a typed message;
+- a file is staged by ticking its box, stays in the one list with the box of the list half ticked, and is committed with a typed message;
 - the context menu of a commit stays inside the view with every entry in sight, and creates a branch through the real prompts;
 - with the command preview on, the dialog shows the exact command, and Cancel runs nothing;
 - the line under the cursor is annotated with who changed it;
@@ -571,7 +574,8 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the details keep a message of many lines to five that scroll, list the files with their directories or as a tree that folds, and in a narrow panel are sized by dragging the line over them;
 - the references list the favorites and the branches checked out last first, only the branches the graph is narrowed to, and are put away and brought back by the button of the toolbar; the button of the status bar opens the graph in a tab;
 - a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost and their diffs numbered line by line; the button in the details opens another the same way, and **Show in the graph** leads back;
-- a merge that stops offers nothing more than usual while `gitardo.conflicts.autoResolve` is off, the Settings editor marks that setting as experimental, and once it is on the merge counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**.
+- a merge that stops offers nothing more than usual while `gitardo.conflicts.autoResolve` is off, the Settings editor marks that setting as experimental, and once it is on the merge counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**;
+- a click on a file of the Changes view opens the file and the button of its row its diff, which goes to the Flow Diff and back with the button of its title, a change staged there leaves it, the file's box in the Changes view is then half ticked, and ticking it stages the rest.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.
 

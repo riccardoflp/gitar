@@ -1098,6 +1098,7 @@ input:focus-visible,
 
 /* Ticks a file, or all of them above, to act on several at once. */
 .file .pick,
+.group header .pick,
 .detail h3 .pick {
   flex: none;
   margin: 0 6px 0 0;
@@ -1154,7 +1155,7 @@ input:focus-visible,
   color: var(--vscode-gitDecoration-untrackedResourceForeground);
 }
 
-/* Hunks */
+/* The arrow that folds what is under a row */
 
 .twist {
   flex: none;
@@ -1163,75 +1164,6 @@ input:focus-visible,
   height: 100%;
   margin-left: -10px;
   color: var(--vscode-descriptionForeground);
-}
-
-.hunk-note {
-  margin: 2px 12px 6px 30px;
-}
-
-.hunk {
-  margin: 2px 8px 8px 12px;
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.hunk header {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 22px;
-  padding: 0 4px 0 6px;
-  font-size: 0.9em;
-  font-weight: 400;
-  white-space: nowrap;
-  color: var(--vscode-descriptionForeground);
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-
-.hunk header .button.icon {
-  height: 20px;
-  padding: 0 3px;
-}
-
-.hunk pre {
-  margin: 0;
-  overflow-x: auto;
-  font-family: var(--vscode-editor-font-family);
-  font-size: 0.9em;
-  line-height: 1.45;
-  background: var(--vscode-editor-background);
-  user-select: text;
-}
-
-.hunk pre span {
-  display: block;
-  width: max-content;
-  min-width: 100%;
-  padding: 0 6px;
-  box-sizing: border-box;
-}
-
-.hunk .added {
-  background: var(--vscode-diffEditor-insertedLineBackground);
-}
-
-.hunk .removed {
-  background: var(--vscode-diffEditor-removedLineBackground);
-}
-
-.hunk .pickable {
-  cursor: pointer;
-}
-
-.hunk .pickable:hover {
-  box-shadow: inset 2px 0 var(--vscode-descriptionForeground);
-}
-
-.hunk .picked,
-.hunk .picked:hover {
-  font-weight: 600;
-  box-shadow: inset 3px 0 var(--vscode-focusBorder);
 }
 
 /* Drag and drop */

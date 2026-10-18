@@ -53,7 +53,7 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
-import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, recoverHeldWorktree, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
+import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHeldWorktree, refreshVSCodeGit, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
 import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
@@ -68,6 +68,8 @@ const REFRESH_DELAY = 400;
 const WORKTREE_REFRESH_DELAY = 1000;
 const LOST_COMMITS_SHOWN = 10;
 const REFLOG_ENTRIES = 200;
+/** The diffs VS Code's Git serves the sides of, once it has the repository. */
+const WORKING_SOURCES = new Set<DiffSource['kind']>(['staged', 'unstaged', 'change']);
 const REPO_KEY = 'gitardo.repository';
 /** The branches chosen for the graph of each repository, by its folder. */
 const SCOPE_KEY = 'gitardo.scope';
@@ -1716,12 +1718,14 @@ export class Controller implements vscode.Disposable {
       }
       case 'selectRepo':
         return this.selectRepo(message.root);
-      case 'getHunks': {
-        const hunks = (await this.repo?.hunks(message.path, message.staged).catch(() => null)) ?? null;
-        return this.post({ type: 'hunks', path: message.path, staged: message.staged, hunks }, webview);
-      }
       case 'openDiff':
         return this.openDiff(message.source, message.file, repo);
+      case 'openFile':
+        return this.openFile(message.file, repo);
+      case 'openChange':
+        return vscode.workspace.getConfiguration('gitardo').get('changes.openOnClick') === 'diff'
+          ? this.openDiff({ kind: 'change' }, message.file, repo)
+          : this.openFile(message.file, repo);
       case 'openChanges':
         return this.openChanges(message.title, message.source, message.files, repo);
       case 'sync':
@@ -1846,6 +1850,14 @@ export class Controller implements vscode.Disposable {
     const head = this.state?.head ?? '';
     const onDisk = vscode.Uri.file(path.join(repo.root, file.path));
     const at = (ref: string, filePath = file.path) => contentUri(repo.root, ref, filePath);
+    // The index and HEAD as VS Code's Git extension serves them, when it has the repository: its own commands, such as
+    // Stage Selected Ranges, then know the diff, as they only do for its URIs. Gitardo serves them otherwise.
+    const vscodeGit = (source.kind === 'staged' || source.kind === 'unstaged') && inVSCodeGit(repo.root);
+    const inGit = (ref: '~' | 'HEAD', filePath = file.path) => {
+      if (!vscodeGit) return at(ref === '~' ? INDEX : head, filePath);
+      const uri = vscode.Uri.file(path.join(repo.root, filePath));
+      return uri.with({ scheme: 'git', query: JSON.stringify({ path: uri.fsPath, ref }) });
+    };
 
     switch (source.kind) {
       case 'commit': {
@@ -1860,9 +1872,16 @@ export class Controller implements vscode.Disposable {
       case 'worktree':
         return { left: at(added ? '' : head, before), right: deleted ? at('') : onDisk, label: 'Working Tree' };
       case 'staged':
-        return { left: at(added ? '' : head, before), right: at(deleted ? '' : INDEX), label: 'Staged' };
+        return { left: added ? at('') : inGit('HEAD', before), right: deleted ? at('') : inGit('~'), label: 'Index' };
       case 'unstaged':
-        return { left: at(added ? '' : INDEX), right: deleted ? at('') : onDisk, label: 'Working Tree' };
+        return { left: added ? at('') : inGit('~'), right: deleted ? at('') : onDisk, label: 'Working Tree' };
+      case 'change': {
+        // The file as git lists it on that side: added to the index and changed since is `A` there, `M` here.
+        const working = repo === this.repo ? this.state?.working : undefined;
+        const unstaged = working?.unstaged.find((each) => each.path === file.path);
+        if (unstaged || !working) return this.sides(repo, { kind: 'unstaged' }, unstaged ?? file);
+        return this.sides(repo, { kind: 'staged' }, working.staged.find((each) => each.path === file.path) ?? file);
+      }
       case 'conflict':
         return null;
     }
@@ -1871,11 +1890,19 @@ export class Controller implements vscode.Disposable {
   /** Opens the diffs of several files in a single editor, one under the other. */
   private async openChanges(title: string, source: DiffSource, files: FileChange[], repo = this.repo): Promise<void> {
     if (!repo) return;
+    if (WORKING_SOURCES.has(source.kind)) await refreshVSCodeGit(repo.root);
     const resources = files.flatMap((file) => {
       const sides = this.sides(repo, source, file);
       return sides ? [[vscode.Uri.file(path.join(repo.root, file.path)), sides.left, sides.right]] : [];
     });
     if (resources.length) await vscode.commands.executeCommand('vscode.changes', title, resources);
+  }
+
+  /** A file of the working tree in its editor. A deleted one is not there to open: its diff shows what it was. */
+  private async openFile(file: FileChange, repo = this.repo): Promise<void> {
+    if (!repo) return;
+    if (file.status === 'D') return this.openDiff({ kind: 'change' }, file, repo);
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(path.join(repo.root, file.path)));
   }
 
   private async openDiff(source: DiffSource, file: FileChange, repo = this.repo): Promise<void> {
@@ -1887,7 +1914,9 @@ export class Controller implements vscode.Disposable {
       case 'commit':
       case 'worktree':
       case 'staged':
-      case 'unstaged': {
+      case 'unstaged':
+      case 'change': {
+        if (WORKING_SOURCES.has(source.kind)) await refreshVSCodeGit(repo.root);
         const sides = this.sides(repo, source, file);
         if (!sides) return;
         const title = `${path.posix.basename(file.path)} (${sides.label})`;

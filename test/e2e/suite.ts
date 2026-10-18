@@ -818,11 +818,60 @@ export async function run(): Promise<void> {
     await controller.action({ kind: 'stage', paths: ['a.txt'] });
     assert.equal(await at(INDEX), 'one\ntwo\nstaged\n');
 
-    await fromWebview({ type: 'openDiff', source: { kind: 'staged' }, file: { status: 'M', path: 'a.txt' } });
+    // The diffs of the changes view are VS Code's, served by its Git extension once it has the repository, so that its
+    // own commands know them. A file with all of it staged shows HEAD against the index.
+    const vscodeGit = vscode.extensions.getExtension<{ getAPI(version: 1): { repositories: { rootUri: vscode.Uri }[] } }>('vscode.git')!;
+    await until("the repository in VS Code's Git", () =>
+      vscodeGit.isActive && vscodeGit.exports.getAPI(1).repositories.some((repository) => samePath(repository.rootUri.fsPath, app)),
+    );
+    await fromWebview({ type: 'openDiff', source: { kind: 'change' }, file: { status: 'M', path: 'a.txt' } });
     const tab = await until('the diff editor', () => vscode.window.tabGroups.activeTabGroup.activeTab);
     assert.ok(tab.input instanceof vscode.TabInputTextDiff, 'a diff editor is open');
-    assert.equal(tab.input.original.scheme, 'gitardo');
-    assert.match(tab.label, /a\.txt/);
+    assert.deepEqual([tab.input.original.scheme, JSON.parse(tab.input.original.query).ref], ['git', 'HEAD']);
+    assert.deepEqual([tab.input.modified.scheme, JSON.parse(tab.input.modified.query).ref], ['git', '~']);
+    assert.match(tab.label, /a\.txt \(Index\)/);
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+    // With changes not staged, the index against the file: VS Code's Stage Selected Ranges stages the lines selected.
+    write('a.txt', 'one\ntwo\nstaged\nnot staged\n');
+    await until('the change read', () => state().working.unstaged.some((file) => file.path === 'a.txt'));
+    await fromWebview({ type: 'openDiff', source: { kind: 'change' }, file: { status: 'M', path: 'a.txt' } });
+    const unstaged = await until('the diff editor', () => vscode.window.tabGroups.activeTabGroup.activeTab);
+    assert.ok(unstaged.input instanceof vscode.TabInputTextDiff, 'a diff editor is open');
+    assert.deepEqual([unstaged.input.original.scheme, JSON.parse(unstaged.input.original.query).ref], ['git', '~']);
+    assert.equal((await vscode.workspace.openTextDocument(unstaged.input.original)).getText(), 'one\ntwo\nstaged\n');
+    assert.equal(unstaged.input.modified.scheme, 'file');
+    assert.match(unstaged.label, /a\.txt \(Working Tree\)/);
+    const index = async () => (await git(app, ['show', ':a.txt'])).stdout;
+    const editor = await until('the file in the diff editor', () =>
+      vscode.window.activeTextEditor?.document.uri.fsPath === path.join(app, 'a.txt') ? vscode.window.activeTextEditor : undefined,
+    );
+    editor.selection = new vscode.Selection(3, 0, 3, 0);
+    // The diff of the editor is worked out a moment after it opens: until then the command finds no change there.
+    for (let tries = 0; ; tries++) {
+      await vscode.commands.executeCommand('git.stageSelectedRanges');
+      if ((await index()) === 'one\ntwo\nstaged\nnot staged\n') break;
+      assert.ok(tries < 50, `the selected line staged: ${JSON.stringify(await index())}`);
+      await sleep(200);
+    }
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+    // A click in the changes view opens the file, or its diff when the settings say so; the button of the row, the file.
+    const active = () => until('an editor', () => vscode.window.tabGroups.activeTabGroup.activeTab);
+    await fromWebview({ type: 'openChange', file: { status: 'M', path: 'a.txt' } });
+    const opened = await active();
+    assert.ok(opened.input instanceof vscode.TabInputText && opened.input.uri.fsPath === path.join(app, 'a.txt'), 'the file is open');
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await vscode.workspace.getConfiguration('gitardo').update('changes.openOnClick', 'diff', vscode.ConfigurationTarget.Global);
+    try {
+      await fromWebview({ type: 'openChange', file: { status: 'M', path: 'a.txt' } });
+      assert.ok((await active()).input instanceof vscode.TabInputTextDiff, 'its diff is open');
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await fromWebview({ type: 'openFile', file: { status: 'M', path: 'a.txt' } });
+      assert.ok((await active()).input instanceof vscode.TabInputText, 'the button opens the file');
+    } finally {
+      await vscode.workspace.getConfiguration('gitardo').update('changes.openOnClick', undefined, vscode.ConfigurationTarget.Global);
+    }
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await controller.action({ kind: 'unstageAll' });
     answer = run;
@@ -884,7 +933,7 @@ export async function run(): Promise<void> {
     }
   });
 
-  await step('answers the webviews: commit details, hunks and comparisons', async () => {
+  await step('answers the webviews: commit details and comparisons', async () => {
     const [newest, older] = state().rows;
     posted.length = 0;
     await fromWebview({ type: 'getDetail', hash: newest.hash });

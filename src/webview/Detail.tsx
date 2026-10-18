@@ -3,7 +3,7 @@ import { said } from '../shared/message';
 import { WORKTREE, type CommitDetail, type DiffSource, type FileChange, type FilesLayout } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
-import { ActionButtons, FileRow, type FileAction } from './FileRow';
+import { ActionButtons, Check, FileRow, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
 import { act } from './menus';
@@ -27,24 +27,6 @@ const NONE: ReadonlySet<string> = new Set();
 
 /** A file renamed is passed with its old name, which git needs to put it back or set it aside. */
 const pathsOf = (file: FileChange) => (file.oldPath ? [file.path, file.oldPath] : [file.path]);
-
-/** Ticks every file, or none: half ticked when some are. */
-function PickAll({ picked, of, onPick }: { picked: number; of: number; onPick(all: boolean): void }) {
-  const box = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (box.current) box.current.indeterminate = picked > 0 && picked < of;
-  }, [picked, of]);
-  return (
-    <input
-      ref={box}
-      type="checkbox"
-      className="pick"
-      checked={picked === of}
-      aria-label="Select all files"
-      onChange={(event) => onPick(event.target.checked)}
-    />
-  );
-}
 
 /**
  * What a message says under its title. A long one shows its first lines, which leaves the files in sight, and
@@ -282,10 +264,11 @@ export function Detail({ hash, detail, changes, reword, editing, onEditing, onJu
           )}
           <h3>
             {worktree && detail.files.length > 0 && (
-              <PickAll
-                picked={chosen.length}
-                of={detail.files.length}
-                onPick={(all) => setPicked(all ? new Set(detail.files.map((file) => file.path)) : NONE)}
+              <Check
+                checked={chosen.length === detail.files.length}
+                mixed={chosen.length > 0 && chosen.length < detail.files.length}
+                label="Select all files"
+                onChange={(all) => setPicked(all ? new Set(detail.files.map((file) => file.path)) : NONE)}
               />
             )}
             <span className="grow">

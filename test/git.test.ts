@@ -67,6 +67,7 @@ import {
   parseStatus,
   parseWorktrees,
   recentBranches,
+  workingChanges,
 } from '../src/git/parse';
 import type { Branch, RepoState, Upstream, WorkingState, Worktree } from '../src/shared/protocol';
 import { canFastForward } from '../src/shared/refs';
@@ -148,6 +149,25 @@ describe('parsers', () => {
     });
     // A file changed in both the index and the working tree still counts once.
     expect(allChanges(working).map((file) => file.path)).toEqual(['clash.ts', 'twice.ts', 'new.ts', 'e.ts', 'both.ts', 'a.ts', 'c d.ts']);
+  });
+
+  it('lists staged and unstaged files together, each with how much of it is staged and what it is next to HEAD', () => {
+    const working = parseStatus(
+      [' M a.ts', 'R  new.ts', 'old.ts', '?? c d.ts', 'D  e.ts', 'MM both.ts', 'UU clash.ts', 'AM added.ts', 'MD gone.ts', 'D  kept.ts', '?? kept.ts', 'AD never.ts', ''].join('\0'),
+    );
+    expect(workingChanges(working)).toEqual([
+      { file: { status: 'M', path: 'a.ts' }, staged: 'none' },
+      { file: { status: 'A', path: 'added.ts' }, staged: 'some' },
+      { file: { status: 'M', path: 'both.ts' }, staged: 'some' },
+      { file: { status: '?', path: 'c d.ts' }, staged: 'none' },
+      { file: { status: 'D', path: 'e.ts' }, staged: 'all' },
+      // Deleted from disk after it was staged: HEAD has it, the working tree does not.
+      { file: { status: 'D', path: 'gone.ts' }, staged: 'some' },
+      // Taken out of the index and left on disk: both HEAD and the working tree have it.
+      { file: { status: 'M', path: 'kept.ts' }, staged: 'some' },
+      { file: { status: 'A', path: 'never.ts' }, staged: 'some' },
+      { file: { status: 'R', path: 'new.ts', oldPath: 'old.ts' }, staged: 'all' },
+    ]);
   });
 
   it('parses worktrees and marks the current one', () => {

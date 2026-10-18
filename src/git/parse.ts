@@ -430,6 +430,38 @@ export function allChanges(working: WorkingState): FileChange[] {
   return [...byPath.values()];
 }
 
+/** A changed file as the Changes view lists it: what it is next to HEAD, and how much of that is staged. */
+export interface WorkingChange {
+  file: FileChange;
+  staged: 'all' | 'some' | 'none';
+}
+
+/** A file with changes both in the index and in the working tree, as the working tree is next to HEAD. */
+function againstHead(staged: FileChange, unstaged: FileChange): FileChange {
+  // Taken out of the index, and still on disk: HEAD has it, and so does the working tree.
+  if (staged.status === 'D') return { status: 'M', path: staged.path };
+  // Deleted from disk since it was staged. A file added to the index only was never in HEAD: it stays an addition.
+  if (unstaged.status === 'D' && staged.status !== 'A') return { ...staged, status: 'D' };
+  return staged;
+}
+
+/** The staged and the unstaged files in one list, each once, in the order of their paths. Files in conflict are left out. */
+export function workingChanges(working: WorkingState): WorkingChange[] {
+  const unstaged = new Map(working.unstaged.map((file) => [file.path, file]));
+  const changes: WorkingChange[] = [];
+  for (const file of working.staged) {
+    const rest = unstaged.get(file.path);
+    if (!rest) {
+      changes.push({ file, staged: 'all' });
+      continue;
+    }
+    unstaged.delete(file.path);
+    changes.push({ file: againstHead(file, rest), staged: 'some' });
+  }
+  for (const file of unstaged.values()) changes.push({ file, staged: 'none' });
+  return changes.sort((one, other) => (one.file.path < other.file.path ? -1 : one.file.path > other.file.path ? 1 : 0));
+}
+
 /** A submodule as `.gitmodules` describes it. */
 export interface GitmodulesEntry {
   name: string;
