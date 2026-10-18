@@ -2,7 +2,7 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.4.0 - 2026-10-19
 
 ### Changed
 
@@ -10,12 +10,12 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - Clicking a file in the Changes view opens the file. The new setting `gitardo.changes.openOnClick` makes it open its diff instead, as the list of changes of VS Code opens it: the index against the file while some of it is not staged, `HEAD` against the index once all of it is. The buttons **Open File** and **Open Changes** on its row open either one. Files no longer unfold into their hunks there: changes are staged one by one in the diff editor or in the Flow Diff.
 - The Changes view shows its files under their directories, or one after the other, with the button on the header of the list.
 - **Discard changes** on a file of the Changes view, and **Discard all changes** on its header, take back what is staged too, as in the graph, after a warning.
+- On the page of what new worktrees get, **Link**, **Copy** and **Nothing** change only their own line, at once, without waiting for git to work out again what all the patterns take, which took seconds in a large checkout. Git is asked when the tab opens and with **Look again**; until then the tab says the patterns have changed.
 - The sections of the Branches view are all closed when VS Code starts. The ones opened or closed since are remembered until VS Code is closed, also when the view is hidden and shown again. The references beside the graph remember theirs as before.
 
 ### Fixed
 
 - **Stage Selected Ranges**, **Unstage Selected Ranges** and **Revert Selected Ranges** of VS Code did nothing in the diffs the Changes view opens: they only know the versions of a file that VS Code's Git extension serves. Those diffs now take them from it, when it has the repository open.
-
 - Discarding all the changes of a file taken out of the index with `git rm --cached` and left on disk deleted it, as if it were untracked. It now goes back to the version of the last commit.
 
 ## 0.3.0 - 2026-10-16
