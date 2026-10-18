@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choose, cleanPatterns, patternFor, sizeText, statusOf, suggest } from '../src/shared/worktreeSetup';
+import { choose, cleanPatterns, patternFor, sizeText, statusNow, statusOf, suggest } from '../src/shared/worktreeSetup';
 
 const folder = (path: string, bytes = 1000) => ({ path, folder: true, bytes });
 const file = (path: string, bytes = 100) => ({ path, folder: false, bytes });
@@ -40,6 +40,22 @@ describe('what new worktrees get of what git ignores', () => {
     expect(statusOf({ path: 'config/one.json' }, taken)).toEqual({ choice: 'copy', partly: false });
     expect(statusOf({ path: 'packages' }, taken)).toEqual({ choice: 'link', partly: true });
     expect(statusOf({ path: 'node_modules_old' }, taken)).toEqual({ choice: 'none', partly: false });
+  });
+
+  it('says what each one gets as chosen since git was last asked, by its own pattern, and otherwise as git said', () => {
+    const checked = { patterns: { link: ['node_modules/'], copy: ['*.local', '/.env'] }, preview: { link: ['node_modules'], copy: ['a.local', '.env'] } };
+    const now = { link: [], copy: ['*.local', '/.vscode/'] };
+    // Chosen since: its own pattern.
+    expect(statusNow(folder('.vscode'), now, checked)).toEqual({ choice: 'copy', partly: false });
+    // Its own pattern taken out since.
+    expect(statusNow(folder('node_modules'), now, checked)).toEqual({ choice: 'none', partly: false });
+    expect(statusNow(file('.env'), now, checked)).toEqual({ choice: 'none', partly: false });
+    // Taken by another pattern, as git said.
+    expect(statusNow(file('a.local'), now, checked)).toEqual({ choice: 'copy', partly: false });
+    expect(statusNow(file('debug.log'), now, checked)).toEqual({ choice: 'none', partly: false });
+    // Before git was asked, only what has its own pattern is known.
+    expect(statusNow(folder('.vscode'), now, null)).toEqual({ choice: 'copy', partly: false });
+    expect(statusNow(file('a.local'), now, null)).toBeNull();
   });
 
   it('chooses by the pattern of each one, leaving the others alone', () => {

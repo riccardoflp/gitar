@@ -154,6 +154,24 @@ export function statusOf(entry: Pick<IgnoredEntry, 'path'>, preview: SetupPatter
   return { choice: 'none', partly: false };
 }
 
+/**
+ * What `entry` gets under `patterns`, without asking git: by its own pattern where they have it, as chosen on the page;
+ * otherwise as git said when `checked` was looked at. Its own pattern taken out since leaves it nothing. Null when
+ * nothing was looked at yet.
+ */
+export function statusNow(
+  entry: Pick<IgnoredEntry, 'path' | 'folder'>,
+  patterns: SetupPatterns,
+  checked: { patterns: SetupPatterns; preview: SetupPatterns } | null,
+): { choice: SetupChoice; partly: boolean } | null {
+  const own = patternFor(entry);
+  if (patterns.link.includes(own)) return { choice: 'link', partly: false };
+  if (patterns.copy.includes(own)) return { choice: 'copy', partly: false };
+  if (!checked) return null;
+  if (checked.patterns.link.includes(own) || checked.patterns.copy.includes(own)) return { choice: 'none', partly: false };
+  return statusOf(entry, checked.preview);
+}
+
 /** The patterns with what `entry` gets set to `choice`, by its own pattern. Other patterns that take it are left. */
 export function choose(patterns: SetupPatterns, entry: Pick<IgnoredEntry, 'path' | 'folder'>, choice: SetupChoice): SetupPatterns {
   const pattern = patternFor(entry);

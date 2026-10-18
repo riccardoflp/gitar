@@ -2317,9 +2317,12 @@ input:focus-visible,
   border-collapse: collapse;
 }
 
-/* What is shown is of patterns since changed, until git says what the new ones take. */
-.setup-page .ignored.stale tbody {
-  opacity: 0.6;
+/* Said when the patterns changed since git was last asked what they take. */
+.setup-page .changed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
 }
 
 .setup-page .ignored th {

@@ -4,7 +4,7 @@ import {
   choose,
   cleanPatterns,
   sizeText,
-  statusOf,
+  statusNow,
   type IgnoredEntry,
   type SetupChoice,
   type SetupPatterns,
@@ -18,8 +18,6 @@ import { onMessage, post } from './vscode';
 
 /** How many of what git ignores are listed before asking for the rest. */
 const LISTED = 200;
-/** How long the patterns stay as they are before git is asked what they take. */
-const PREVIEW_DELAY = 250;
 
 const CHOICES: { choice: SetupChoice; label: string; icon: string; title: string }[] = [
   { choice: 'link', label: 'Link', icon: 'link', title: 'Linked from here: what changes in the worktree changes here too' },
@@ -44,9 +42,17 @@ function sourceText(source: SetupSource, kind: 'link' | 'copy', info: WorktreeSe
   return 'nothing set';
 }
 
+/** What git said the patterns take, when it was last asked: on opening, and at each look again. */
+interface Checked {
+  key: string;
+  patterns: SetupPatterns;
+  preview: SetupPreview;
+}
+
 /** What one thing git ignores gets, chosen with three buttons. */
-function EntryRow({ entry, preview, onChoose }: { entry: IgnoredEntry; preview: SetupPatterns | null; onChoose(choice: SetupChoice): void }) {
-  const status = preview ? statusOf(entry, preview) : null;
+function EntryRow(props: { entry: IgnoredEntry; patterns: SetupPatterns; checked: Checked | null; onChoose(choice: SetupChoice): void }) {
+  const { entry, patterns, checked, onChoose } = props;
+  const status = statusNow(entry, patterns, checked);
   const notes = [
     entry.link && 'A link already, in this checkout',
     status?.partly && `Only part of it is ${status.choice === 'link' ? 'linked' : 'copied'}, by a pattern below`,
@@ -174,10 +180,14 @@ export function WorktreeSetupApp() {
   const [draft, setDraft] = useState<SetupPatterns | null>(null);
   const [target, setTarget] = useState<SetupTarget>();
   const [alsoVSCode, setAlsoVSCode] = useState(false);
-  const [preview, setPreview] = useState<{ key: string; preview: SetupPreview | null; error?: string }>();
+  const [checked, setChecked] = useState<Checked | null>(null);
+  const [checkError, setCheckError] = useState<string>();
   const [scanning, setScanning] = useState(false);
   const [all, setAll] = useState(false);
+  // The patterns git was last asked about, whose answer is awaited.
   const wanted = useRef('');
+  // Git is asked what the patterns take once what it ignores is read: on opening, and when asked to look again.
+  const look = useRef(true);
   // Saved: the changes made here are dropped once the settings come back with them.
   const saving = useRef(false);
 
@@ -188,11 +198,13 @@ export function WorktreeSetupApp() {
         if (saving.current) setDraft(null);
         saving.current = false;
         setError(message.error);
-        setScanning(false);
+        if (!message.info) setScanning(false);
       } else if (message.type === 'worktreeSetupPreview') {
         const key = keyOf(message.patterns);
-        // Only what the patterns are now: an answer to patterns typed since is of no use.
-        if (key === wanted.current) setPreview({ key, preview: message.preview, error: message.error });
+        if (key !== wanted.current) return;
+        if (message.preview) setChecked({ key, patterns: message.patterns, preview: message.preview });
+        setCheckError(message.error);
+        setScanning(false);
       }
     });
     post({ type: 'getWorktreeSetup' });
@@ -203,13 +215,13 @@ export function WorktreeSetupApp() {
   const patterns = draft ?? effective;
   const key = keyOf(patterns);
 
-  // What the patterns take, asked again once they stay as they are for a moment.
+  // What the patterns take, asked once what git ignores is read. Choosing changes only what is chosen, without git.
   useEffect(() => {
-    if (!info) return;
+    if (!info || !look.current) return;
+    look.current = false;
     wanted.current = key;
-    const timer = setTimeout(() => post({ type: 'previewWorktreeSetup', patterns: JSON.parse(key) as SetupPatterns }), PREVIEW_DELAY);
-    return () => clearTimeout(timer);
-  }, [key, info]);
+    post({ type: 'previewWorktreeSetup', patterns: JSON.parse(key) as SetupPatterns });
+  }, [info, key]);
 
   if (info === undefined) return <div className="empty">Looking at what git ignores…</div>;
   if (info === null) return <div className="empty">Gitardo could not read this repository. {error}</div>;
@@ -221,8 +233,8 @@ export function WorktreeSetupApp() {
   const savedHere = !!layer && same(layer.link, patterns.link) && same(layer.copy, patterns.copy);
   const setHere = !!layer && (layer.link !== undefined || layer.copy !== undefined);
   const changed = draft !== null && keyOf(draft) !== keyOf(effective);
-  const current = preview?.key === key ? preview.preview : null;
-  const shown = current ?? preview?.preview ?? null;
+  const counts = (kind: 'link' | 'copy') =>
+    checked && Object.fromEntries(patterns[kind].filter((pattern) => pattern in checked.preview.counts[kind]).map((pattern) => [pattern, checked.preview.counts[kind][pattern]]));
   const listed = all ? info.entries : info.entries.slice(0, LISTED);
   const update = (next: SetupPatterns) => setDraft(keyOf(next) === keyOf(effective) ? null : next);
   const save = (saved: SetupPatterns | null) => {
@@ -271,8 +283,10 @@ export function WorktreeSetupApp() {
           <button
             className="button"
             disabled={scanning}
+            title="Reads again what git ignores, and asks git what the patterns take"
             onClick={() => {
               setScanning(true);
+              look.current = true;
               post({ type: 'getWorktreeSetup', rescan: true });
             }}
           >
@@ -280,10 +294,16 @@ export function WorktreeSetupApp() {
             {scanning ? 'Looking…' : 'Look again'}
           </button>
         </h2>
+        {checked && checked.key !== key && (
+          <p className="muted changed">
+            <Icon name="info" />
+            Changed since Gitardo last looked: each line shows what is chosen for it, and Look again checks what the patterns take as a whole.
+          </p>
+        )}
         {info.entries.length === 0 ? (
           <p className="muted">Git ignores nothing here, so new worktrees have all there is.</p>
         ) : (
-          <table className={`ignored${current ? '' : ' stale'}`}>
+          <table className="ignored">
             <thead>
               <tr>
                 <th>Path</th>
@@ -294,7 +314,7 @@ export function WorktreeSetupApp() {
             </thead>
             <tbody>
               {listed.map((entry) => (
-                <EntryRow key={entry.path} entry={entry} preview={shown} onChoose={(choice) => update(choose(patterns, entry, choice))} />
+                <EntryRow key={entry.path} entry={entry} patterns={patterns} checked={checked} onChoose={(choice) => update(choose(patterns, entry, choice))} />
               ))}
             </tbody>
           </table>
@@ -304,10 +324,10 @@ export function WorktreeSetupApp() {
             Show the other {info.entries.length - listed.length}
           </button>
         )}
-        {preview?.error && (
+        {checkError && (
           <p className="note">
             <Icon name="warning" />
-            Git could not say what the patterns take: {preview.error}
+            Git could not say what the patterns take: {checkError}
           </p>
         )}
       </section>
@@ -325,7 +345,7 @@ export function WorktreeSetupApp() {
             hint="gitardo.worktrees.linkFolders · On Windows, junctions."
             kind="link"
             patterns={patterns.link}
-            counts={current?.counts.link ?? null}
+            counts={counts('link')}
             placeholder="node_modules/"
             onChange={(link) => update({ ...patterns, link })}
           />
@@ -334,7 +354,7 @@ export function WorktreeSetupApp() {
             hint="gitardo.worktrees.copyFiles · Not what is inside a linked folder."
             kind="copy"
             patterns={patterns.copy}
-            counts={current?.counts.copy ?? null}
+            counts={counts('copy')}
             placeholder="/.env"
             onChange={(copy) => update({ ...patterns, copy })}
           />
