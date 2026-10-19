@@ -6,6 +6,8 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- The Flow Merge: a file in conflict in three columns, what the current side has, the result and what the incoming side has, with a band joining each change of a side to where it is in the result, in the color of what became of it: taken from one side, made the same way by both, or in conflict. The markers of git are marked in the result, and the parts of a conflict between them are joined to the side each comes from. The **Open in Flow Merge** button in the title of the merge editor opens it in its place, and its own button goes back; nothing opens in it otherwise. For now it shows the merge: conflicts are still resolved in the file or in the merge editor.
+
 - The graph shows that it is loading. While the commits of a filter or of the branches just chosen are read, a bar runs along the top of the list and the commits of before are dimmed. While the next commits are read, as the list is scrolled down, the bar runs too, and the row after the last commit says that more are loading. Switching to another repository shows the same bar while its commits are read.
 - The tab of a comparison runs the same bar along its top, and dims the commits and files it showed, while the two are compared again after a side, the way to compare or the path changed. **Load more commits…** in the Commits view says that they are loading until they come.
 - The file blame keeps saying whose the lines in sight are when the first line of their commit is scrolled out of sight: with `gitardo.fileBlame.groupLines` on, the first line in sight says it too.

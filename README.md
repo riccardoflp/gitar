@@ -439,6 +439,16 @@ Another way to look at the diff of a file, beside the diff editor of VS Code. Th
 - The file can be edited where it is shown: what is typed goes into the file, unsaved until `Ctrl`+`S`. `F4` opens the file at the line of the cursor.
 - The title has **Open File**, the previous and next change, and **Stage File**, **Unstage File** and **Discard Changes** where they apply.
 
+### Flow Merge
+
+The same way to look at a file in conflict, in three columns: what the current side has, the result, and what the incoming side has. The **Open in Flow Merge** button (⇄) in the title of the merge editor opens the file in its place, and the same button in the Flow Merge goes back to the merge editor. **Gitardo: Open in Flow Merge** opens the file of the editor in front. Nothing opens in it unless you ask: a click on a file in conflict still opens the merge editor.
+
+- Each side shows what it changed of the common ancestor, and a band in the gutter joins each of those changes to where it is in the result: green for the current side, blue for the incoming one, grey for a change both sides made the same way, red for a conflict. Within a changed line, the words that changed are marked.
+- The result is the file as git wrote it, with what is typed in its editor: the markers of git are marked, and the two parts of a conflict between them are joined to the side each comes from. A conflict resolved in the file is drawn faintly.
+- The three columns scroll together. `F7` and `Shift`+`F7`, or the arrows over the result, go from one change to the next; beside them is how many conflicts are left. `F4` opens the file at the line of the result the cursor stands for.
+- As it opens, the merge editor of VS Code writes its own start of the result in the file without saving it, where the conflicts show the base and the markers are gone. Going to the Flow Merge undoes that, so that the result is the file git wrote; if something was chosen or typed in the merge editor since, it asks first.
+- For now the Flow Merge shows the merge: the conflicts are resolved in the editor of the file, or in the merge editor.
+
 ### Identities
 
 **Gitardo: Switch Identity** sets the name and email used for commits in the current repository, with `git config user.name` and `git config user.email`. Choose among the profiles listed in the `gitardo.identities` setting, type a new one, or go back to your global identity:
@@ -577,7 +587,8 @@ What that suite cannot see is what only eyes and hands can: how the views look, 
 - the references list the favorites and the branches checked out last first, only the branches the graph is narrowed to, and are put away and brought back by the button of the toolbar; the button of the status bar opens the graph in a tab;
 - a double click on a commit opens it in an editor tab with its whole message, its files as a tree that folds or as a list, the lines each gained and lost, and, once asked for, their diffs numbered line by line; a click on a file opens its diff in the diff editor; the button in the details opens another the same way, and **Show in the graph** leads back;
 - a merge that stops offers nothing more than usual while `gitardo.conflicts.autoResolve` is off, the Settings editor marks that setting as experimental, and once it is on the merge counts in its banner the conflicts that need no choice, asks in a real dialog before resolving them, shows the files beside what they would become, writes them and stages the one left without conflicts, and marks them all again from **Undo**;
-- a click on a file of the Changes view opens the file and the button of its row its diff, which goes to the Flow Diff and back with the button of its title, a change staged there leaves it, the file's box in the Changes view is then half ticked, and ticking it stages the rest.
+- a click on a file of the Changes view opens the file and the button of its row its diff, which goes to the Flow Diff and back with the button of its title, a change staged there leaves it, the file's box in the Changes view is then half ticked, and ticking it stages the rest;
+- a file in conflict opens in the merge editor, goes to the Flow Merge with the button of its title, which shows the three columns with their bands, the markers of git and the conflicts left, goes from change to change, and back to the merge editor.
 
 A screenshot of each step is saved to `dist/ui`, or to the folder given with `--out=<folder>`: looking at them is half the point. Errors thrown or logged inside the webviews are printed at the end. The window is sized through the protocol, so the screenshots do not depend on the screen.
 

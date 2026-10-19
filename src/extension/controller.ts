@@ -6,7 +6,6 @@ import { discoverRepos, repoName } from '../git/discover';
 import { GitError, formatCommand, git, writeFiles } from '../git/exec';
 import { compareRangeUrl, compareUrl, parseGitHubRemote, type GitHubRepo } from '../git/github';
 import {
-  CONFLICT_SIDES,
   cleanupBranchesOp,
   clearIdentityOp,
   fetchRemoteOp,
@@ -55,9 +54,10 @@ import type {
   ViewKind,
   WebviewMessage,
 } from '../shared/protocol';
+import { openMergeEditor } from '../flow/merge';
 import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHeldWorktree, refreshVSCodeGit, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
-import { CONFLICT, INDEX, contentUri, proposalUri } from './content';
+import { INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
 import { editSetupJson, saveSetup, worktreeSetupInfo } from './worktreeSettings';
 
@@ -1952,7 +1952,6 @@ export class Controller implements vscode.Disposable {
   private async openDiff(source: DiffSource, file: FileChange, repo = this.repo): Promise<void> {
     if (!repo) return;
     const onDisk = vscode.Uri.file(path.join(repo.root, file.path));
-    const at = (ref: string) => contentUri(repo.root, ref, file.path);
 
     switch (source.kind) {
       case 'commit':
@@ -1971,15 +1970,9 @@ export class Controller implements vscode.Disposable {
         // The merge editor needs all three sides: a file added or deleted on one of them has fewer, and opens as it is.
         const stages = await repo.conflictStages(file.path);
         if ([1, 2, 3].every((stage) => stages.includes(stage))) {
-          const [current, incoming] = CONFLICT_SIDES[this.state?.operation ?? 'none'];
           try {
-            // The command the built-in Git extension uses. It is not part of the documented API, hence the fallback.
-            await vscode.commands.executeCommand('_open.mergeEditor', {
-              base: at(CONFLICT.base),
-              input1: { uri: at(CONFLICT.ours), title: 'Current', description: current },
-              input2: { uri: at(CONFLICT.theirs), title: 'Incoming', description: incoming },
-              output: onDisk,
-            });
+            // Not part of the documented API, hence the fallback.
+            await openMergeEditor(repo.root, file.path, this.state?.operation ?? null);
             return;
           } catch (error) {
             this.log.warn(`Could not open the merge editor: ${errorText(error)}`);

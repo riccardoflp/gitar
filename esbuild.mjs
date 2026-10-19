@@ -27,10 +27,11 @@ const builds = [
     assetNames: '[name]',
     define: { 'process.env.NODE_ENV': production ? '"production"' : '"development"' },
   },
-  // The Flow Diff: an ES module split in chunks, for the grammars and themes of shiki to load only when a file needs them.
+  // The Flow Diff and the Flow Merge: ES modules split in chunks, for the grammars and themes of shiki to load only when a
+  // file needs them, and for what the two pages share to be loaded once.
   {
     ...common,
-    entryPoints: { main: 'src/flow/webview/main.ts' },
+    entryPoints: { main: 'src/flow/webview/main.ts', merge: 'src/flow/webview/merge.ts' },
     outdir: 'dist/flow',
     platform: 'browser',
     format: 'esm',

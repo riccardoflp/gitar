@@ -1,5 +1,8 @@
 import { Worker } from 'node:worker_threads';
-import { type DiffJob, type DiffJobResult, runDiffJob } from './diff/diffJob';
+import { type DiffJob, type DiffJobResult, type MergeJobResult, runDiffJob, runMergeJob } from './diff/diffJob';
+import type { MergeInput } from './diff/merge3';
+
+type Result = DiffJobResult | MergeJobResult;
 
 /**
  * Runs diff jobs on a lazily started worker thread (falls back to inline if
@@ -9,21 +12,30 @@ import { type DiffJob, type DiffJobResult, runDiffJob } from './diff/diffJob';
 export class DiffEngine {
   private worker: Worker | undefined;
   private nextId = 0;
-  private readonly pending = new Map<number, (result: DiffJobResult) => void>();
+  private readonly pending = new Map<number, (result: Result) => void>();
 
   /** `script` is the bundled `worker.ts`. */
   constructor(private readonly script: string) {}
 
   run(job: DiffJob): Promise<DiffJobResult> {
+    return this.post({ job }, () => runDiffJob(job)) as Promise<DiffJobResult>;
+  }
+
+  /** The three-way model of a file in conflict, for the Flow Merge. */
+  runMerge(merge: MergeInput): Promise<MergeJobResult> {
+    return this.post({ merge }, () => runMergeJob(merge)) as Promise<MergeJobResult>;
+  }
+
+  private post(message: { job: DiffJob } | { merge: MergeInput }, inline: () => Result): Promise<Result> {
     const worker = this.ensureWorker();
     if (!worker) {
-      return Promise.resolve(runDiffJob(job));
+      return Promise.resolve(inline());
     }
     return new Promise((resolve) => {
       const id = this.nextId++;
       this.pending.set(id, resolve);
       worker.ref(); // keep the thread alive while a job is in flight
-      worker.postMessage({ id, job });
+      worker.postMessage({ id, ...message });
     });
   }
 
@@ -33,7 +45,7 @@ export class DiffEngine {
     }
     try {
       const worker = new Worker(this.script);
-      worker.on('message', ({ id, result }: { id: number; result: DiffJobResult }) => {
+      worker.on('message', ({ id, result }: { id: number; result: Result }) => {
         this.pending.get(id)?.(result);
         this.pending.delete(id);
         if (this.pending.size === 0) {

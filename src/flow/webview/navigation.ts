@@ -24,7 +24,7 @@ export class Navigation {
 
   constructor(private readonly hooks: NavigationHooks) {}
 
-  setModel(model: AlignedDiffModel): void {
+  setModel(model: Pick<AlignedDiffModel, 'chunks'>): void {
     this.total = model.chunks.length;
     if (this.total === 0) {
       this.current = -1;

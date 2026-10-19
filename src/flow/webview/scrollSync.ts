@@ -33,7 +33,7 @@ export function sideExtent(editor: Editor, start: number, count: number): [numbe
 export class ScrollSync {
   private left: Editor | undefined;
   private right: Editor | undefined;
-  private model: AlignedDiffModel | undefined;
+  private model: Pick<AlignedDiffModel, 'chunks'> | undefined;
   private anchors: ScrollAnchors = buildAnchors([]);
   /** Suppresses feedback loops: scroll positions we set programmatically. */
   private readonly expected = new Map<Editor, number>();
@@ -41,7 +41,7 @@ export class ScrollSync {
 
   constructor(private readonly onAnyScroll: () => void) {}
 
-  attach(left: Editor, right: Editor, model: AlignedDiffModel): void {
+  attach(left: Editor, right: Editor, model: Pick<AlignedDiffModel, 'chunks'>): void {
     this.listeners.forEach((d) => d.dispose());
     this.left = left;
     this.right = right;

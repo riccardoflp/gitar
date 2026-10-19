@@ -1739,6 +1739,94 @@ try {
     }
   });
 
+  await step('a file in conflict opens in the Flow Merge from the button of the merge editor, joins each side to the result, and goes back', async () => {
+    await command('View: Close All Editors');
+    const lines = (...each) => `${each.join('\n')}\n`;
+    const file = path.join(app, 'shapes.ts');
+    const base = [
+      'export function area(width: number, height: number): number {',
+      '  return width * height;',
+      '}',
+      '',
+      'export function label(name: string): string {',
+      "  return 'Shape: ' + name;",
+      '}',
+      '',
+      'export const sides = 4;',
+    ];
+    fs.writeFileSync(file, lines(...base));
+    git(app, 'add', 'shapes.ts');
+    git(app, 'commit', '-m', 'Add shapes');
+    git(app, 'checkout', '-b', 'shapes-theirs');
+    // Theirs changes the label one way, the number of sides, and adds a function at the end.
+    fs.writeFileSync(file, lines(...base.slice(0, 5), '  return `Shape: ${name}`;', '}', '', 'export const sides = 5;', '', 'export function double(n: number): number {', '  return n * 2;', '}'));
+    git(app, 'commit', '-am', 'Shapes, theirs');
+    git(app, 'checkout', 'main');
+    // Ours adds a comment at the top and changes the label another way.
+    fs.writeFileSync(file, lines('// Shapes and their sizes.', ...base.slice(0, 5), "  return 'Shape ' + name.toUpperCase();", ...base.slice(6)));
+    git(app, 'commit', '-am', 'Shapes, ours');
+    try {
+      git(app, 'merge', 'shapes-theirs');
+    } catch {
+      // stops on the label, which is the point
+    }
+    assert(/^UU shapes\.ts$/m.test(git(app, 'status', '--porcelain').toString()), 'the merge stopped on shapes.ts');
+    const titleButton = (label) =>
+      until(`the "${label}" button`, () =>
+        page.evaluate(`(() => {
+          const button = [...document.querySelectorAll('.editor-actions .action-label')].find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(label)});
+          const rect = button?.getBoundingClientRect();
+          return rect && rect.width ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : null;
+        })()`),
+      );
+    const mergeEditor = () => page.evaluate(`!!document.querySelector('.tab.active')?.textContent.includes('Merging: shapes.ts')`);
+    try {
+      const changes = await webview('changes');
+      await until('the file in conflict', () => changes.evaluate(`[...document.querySelectorAll('.group .file')].some((file) => file.textContent.includes('shapes.ts'))`));
+      // A click on a file in conflict opens it in the merge editor.
+      await changes.click('.group .file', 'shapes.ts');
+      await until('the merge editor', mergeEditor);
+      await sleep(1000);
+      await shot('flow-merge-editor-button');
+      const open = await titleButton('Open in Flow Merge');
+      await mouse(open.x, open.y);
+
+      const flow = await webview('flowMerge');
+      await until('three editors and the bands between them', () =>
+        flow.evaluate(`document.querySelectorAll('.monaco-editor').length === 3 && document.querySelectorAll('path.connector').length >= 3`),
+      );
+      assert(!(await mergeEditor()), 'the Flow Merge takes the place of the merge editor');
+      await until('the code in colors', () => flow.evaluate(`document.querySelectorAll('.monaco-editor .view-line span[class*="mtk"]:not(.mtk1)').length > 0`));
+      const look = await flow.evaluate(`({
+        labels: [...document.querySelectorAll('.pane-label')].map((label) => label.textContent),
+        bands: [...document.querySelectorAll('path.connector')].map((band) => [...band.classList].filter((name) => name.startsWith('fm-')).join(' ')),
+        conflicts: document.querySelector('.fm-conflicts')?.textContent,
+        markers: document.querySelectorAll('.fm-marker').length,
+      })`);
+      assert(look.conflicts === '1 conflict left', `conflicts: ${look.conflicts}`);
+      assert(look.labels[0].startsWith('Current') && look.labels[1].startsWith('shapes.ts') && look.labels[2].startsWith('Incoming'), `labels: ${look.labels}`);
+      // Ours: the comment and the conflict; theirs: the conflict and its change after it, the number and the new function.
+      assert(look.bands.filter((band) => band.includes('fm-conflict')).length === 2, `bands: ${look.bands}`);
+      assert(look.bands.some((band) => band.includes('fm-ours')) && look.bands.some((band) => band.includes('fm-theirs')), `bands: ${look.bands}`);
+      assert(look.markers >= 3, `markers: ${look.markers}`);
+      await shot('flow-merge');
+
+      // F7 goes from region to region.
+      await flow.click('.toolbar button[title^="Next Change"]');
+      await flow.click('.toolbar button[title^="Next Change"]');
+      await until('the second region', () => flow.evaluate(`document.querySelector('.toolbar .counter')?.textContent.startsWith('2 /')`));
+      await shot('flow-merge-next');
+
+      const back = await titleButton('Open in Merge Editor');
+      await mouse(back.x, back.y);
+      await until('the merge editor again', mergeEditor);
+      await shot('flow-merge-back');
+    } finally {
+      await command('View: Revert and Close Editor').catch(() => {});
+      git(app, 'merge', '--abort');
+    }
+  });
+
   await step('a submodule is added from the real prompts, says where it stands against the recorded commit, and is removed', async () => {
     // A step before stops a merge on purpose: if it failed half way, the merge is still there.
     if (fs.existsSync(path.join(app, '.git', 'MERGE_HEAD'))) git(app, 'merge', '--abort');

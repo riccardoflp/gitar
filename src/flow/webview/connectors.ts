@@ -3,6 +3,9 @@ import type { AlignedDiffModel, DiffChunk } from '../diff/model';
 import { sideExtent } from './scrollSync';
 import './connectors.css';
 
+/** What the bands are drawn from: the chunks of a diff, or of one gutter of a merge. */
+type Chunks = Pick<AlignedDiffModel, 'chunks'>;
+
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -30,7 +33,8 @@ export const ACTION_GLYPHS: Record<ChunkActionKind, { glyph: string; title: stri
  * Per-chunk action buttons (revert/stage/unstage) float over the band.
  */
 export class Connectors {
-  private model: AlignedDiffModel | undefined;
+  private model: Chunks | undefined;
+  private classes: ((chunk: DiffChunk) => string[]) | undefined;
   private gutter: HTMLElement | undefined;
   private left: Editor | undefined;
   private right: Editor | undefined;
@@ -45,14 +49,17 @@ export class Connectors {
     gutter: HTMLElement,
     left: Editor,
     right: Editor,
-    model: AlignedDiffModel,
-    actions: ChunkActionsConfig | undefined
+    model: Chunks,
+    actions: ChunkActionsConfig | undefined,
+    /** The classes of the band of a chunk, in place of its kind. */
+    classes?: (chunk: DiffChunk) => string[]
   ): void {
     this.gutter = gutter;
     this.left = left;
     this.right = right;
     this.model = model;
     this.actions = actions;
+    this.classes = classes;
 
     this.svg = document.createElementNS(SVG_NS, 'svg');
     this.svg.classList.add('connector-layer');
@@ -119,7 +126,7 @@ export class Connectors {
       }
       const path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('d', geniePath(lt, lb, rt, rb));
-      path.classList.add('connector', chunk.kind);
+      path.classList.add('connector', ...(this.classes?.(chunk) ?? [chunk.kind]));
       if (chunk.staged) {
         path.classList.add('staged');
         const tooltip = document.createElementNS(SVG_NS, 'title');

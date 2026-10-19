@@ -204,7 +204,8 @@ async function locate(uri: vscode.Uri): Promise<Located | undefined> {
   return undefined;
 }
 
-async function inRepository(file: string): Promise<{ root: string; path: string } | undefined> {
+/** The repository a file is in, and its path there with forward slashes. */
+export async function inRepository(file: string): Promise<{ root: string; path: string } | undefined> {
   // The folder of the file can be gone with it: the repository is looked for higher up.
   let dir = path.dirname(file);
   for (;;) {

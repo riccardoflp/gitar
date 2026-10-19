@@ -2127,6 +2127,96 @@ export async function run(): Promise<void> {
     assert.equal(state().changes, 0);
   });
 
+  await step('switches a file in conflict between the merge editor and the Flow Merge, which joins each side to the result as git wrote it', async () => {
+    interface Panel {
+      initSent: boolean;
+      currentModel: { result: string; regions: { kind: string; unresolved: boolean; resultOurs: { start: number; count: number }; resultTheirs: { start: number; count: number } }[] } | undefined;
+    }
+    const file = path.join(app, 'b.txt');
+    const marked = 'bee\n<<<<<<< HEAD\nmain\n=======\nfeature\n>>>>>>> feature\n';
+    const document = () => vscode.workspace.textDocuments.find((each) => samePath(each.uri.fsPath, file));
+    const mergeTabs = () => vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => /^Merging: b\.txt/.test(tab.label));
+    const panels = () => flowDiff.merge.all() as unknown as Panel[];
+    const openMergeEditor = async () => {
+      await fromWebview({ type: 'openDiff', source: { kind: 'conflict' }, file: state().working.conflicts[0] });
+      await until('the merge editor', () => mergeTabs().length === 1);
+      // As it opens, the merge editor writes its own start of the result in the file, without saving it.
+      await until('the merge editor to start the result', () => document()?.isDirty && document()?.getText() === 'bee\n');
+    };
+    answer = run;
+    await controller.action({ kind: 'merge', ref: 'feature' });
+    assert.equal(fs.readFileSync(file, 'utf8'), marked);
+    try {
+      await openMergeEditor();
+      // Nothing chosen in it yet: it closes without a question, and its start of the result is undone.
+      asked.length = 0;
+      await vscode.commands.executeCommand('gitardo.openInFlowMerge');
+      const [panel] = await until('the Flow Merge', () => (panels().length ? panels() : undefined));
+      assert.equal(mergeTabs().length, 0, 'the Flow Merge takes the place of the merge editor');
+      assert.equal(asked.length, 0);
+      assert.equal(document()?.isDirty ?? false, false);
+      assert.equal(fs.readFileSync(file, 'utf8'), marked);
+      // The page says it is ready once its module ran: the Monaco bundle loads under the content security policy.
+      await until('the Flow Merge page to load', () => panel.initSent);
+      const model = panel.currentModel;
+      assert.equal(model?.result, marked);
+      assert.deepEqual(
+        model?.regions.map((region) => [region.kind, region.unresolved, region.resultOurs, region.resultTheirs]),
+        [['conflict', true, { start: 3, count: 1 }, { start: 5, count: 1 }]],
+      );
+
+      // What becomes of the file shows in the result.
+      fs.writeFileSync(file, 'bee\nmain and feature\n');
+      await until('the result to follow the file', () => panel.currentModel?.result === 'bee\nmain and feature\n');
+      assert.deepEqual(
+        panel.currentModel?.regions.map((region) => [region.kind, region.unresolved]),
+        [['conflict', false]],
+      );
+      fs.writeFileSync(file, marked);
+      await until('the conflict to show again', () => panel.currentModel?.regions[0]?.unresolved === true);
+
+      // And back: the merge editor again, in place of the Flow Merge.
+      await vscode.commands.executeCommand('gitardo.flowMerge.openInMergeEditor');
+      await until('the merge editor again', () => mergeTabs().length === 1);
+      assert.equal(panels().length, 0);
+      await until('the merge editor to start the result', () => document()?.isDirty && document()?.getText() === 'bee\n');
+      await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+      await until('the file as it is saved', () => !document()?.isDirty);
+      assert.equal(fs.readFileSync(file, 'utf8'), marked);
+
+      // What was typed in the merge editor is not lost without asking.
+      await openMergeEditor();
+      // Typed in an editor beside it: a workspace edit of a file open in no text editor would be saved at once.
+      const beside = await vscode.window.showTextDocument(vscode.Uri.file(file), { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, preview: false });
+      await beside.edit((builder) => builder.insert(new vscode.Position(1, 0), 'chosen\n'));
+      assert.equal(document()?.getText(), 'bee\nchosen\n');
+      asked.length = 0;
+      answer = () => undefined;
+      await vscode.commands.executeCommand('gitardo.openInFlowMerge', vscode.Uri.file(file));
+      assert.match(asked[0]?.message ?? '', /The merge editor has changes to b\.txt that are not saved/);
+      assert.equal(mergeTabs().length, 1, 'the merge editor stays when the question is not answered');
+      assert.equal(panels().length, 0);
+      answer = (_message, _detail, items) => (items.includes('Discard and Open') ? 'Discard and Open' : undefined);
+      await vscode.commands.executeCommand('gitardo.openInFlowMerge', vscode.Uri.file(file));
+      await until('the Flow Merge', () => panels().length === 1);
+      assert.equal(mergeTabs().length, 0);
+      assert.equal(document()?.isDirty ?? false, false);
+      assert.equal(fs.readFileSync(file, 'utf8'), marked);
+
+      // The command works on a file in conflict open in a text editor too, and reveals the panel it has already.
+      await vscode.window.showTextDocument(vscode.Uri.file(file));
+      await vscode.commands.executeCommand('gitardo.openInFlowMerge');
+      assert.equal(panels().length, 1);
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      answer = run;
+      await controller.action({ kind: 'abort' });
+    }
+    assert.equal(state().operation, null);
+    assert.equal(state().changes, 0);
+    assert.equal(panels().length, 0);
+  });
+
   await step('offers nothing about resolving conflicts until its setting is on, then resolves the ones that need no choice after showing what it would write, leaves the others, and takes it back', async () => {
     const lines = (changes: Record<number, string> = {}) => Array.from({ length: 12 }, (_, index) => `${changes[index] ?? `line ${index}`}\n`).join('');
     const read = (file: string) => fs.readFileSync(path.join(app, file), 'utf8');

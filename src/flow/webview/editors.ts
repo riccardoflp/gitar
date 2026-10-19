@@ -70,6 +70,18 @@ export function createEditors(
   rightHost: HTMLElement,
   user: UserEditorOptions
 ): DiffEditors {
+  return { left: createPane(leftHost, user, 'reference'), right: createPane(rightHost, user, 'main') };
+}
+
+/**
+ * One Monaco pane: a read-only 'reference' with minimal chrome, or the 'main'
+ * one, which has the only visible scrollbar.
+ */
+export function createPane(
+  host: HTMLElement,
+  user: UserEditorOptions,
+  role: 'reference' | 'main'
+): monaco.editor.IStandaloneCodeEditor {
   const style = getComputedStyle(document.body);
   const fontFamily = style.getPropertyValue('--vscode-editor-font-family').trim() || 'monospace';
   const fontSize = parseInt(style.getPropertyValue('--vscode-editor-font-size'), 10) || 13;
@@ -82,13 +94,21 @@ export function createEditors(
     automaticLayout: true,
     fixedOverflowWidgets: true,
   };
+  return monaco.editor.create(host, { ...common, ...paneOverrides(user, role) });
+}
 
-  const left = monaco.editor.create(leftHost, { ...common, ...leftOverrides(user) });
-  const right = monaco.editor.create(rightHost, {
-    ...common,
-    scrollbar: scrollbarOptions(user),
-  });
-  return { left, right };
+function paneOverrides(user: UserEditorOptions, role: 'reference' | 'main'): monaco.editor.IStandaloneEditorConstructionOptions {
+  return role === 'reference' ? leftOverrides(user) : { scrollbar: scrollbarOptions(user) };
+}
+
+/** Re-applies user settings to one live pane after a configuration change. */
+export function applyPaneOptions(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  user: UserEditorOptions,
+  role: 'reference' | 'main',
+  readOnly: boolean
+): void {
+  editor.updateOptions({ ...sanitizedUserOptions(user), ...paneOverrides(user, role), readOnly });
 }
 
 /** Re-applies user settings to live editors after a configuration change. */

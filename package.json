@@ -434,6 +434,36 @@
         "title": "Discard Changes",
         "category": "Gitardo",
         "icon": "$(discard)"
+      },
+      {
+        "command": "gitardo.openInFlowMerge",
+        "title": "Open in Flow Merge",
+        "category": "Gitardo",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "gitardo.flowMerge.openInMergeEditor",
+        "title": "Open in Merge Editor",
+        "category": "Gitardo",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "gitardo.flowMerge.openFile",
+        "title": "Open File",
+        "category": "Gitardo",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gitardo.flowMerge.previousChange",
+        "title": "Previous Change",
+        "category": "Gitardo",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "gitardo.flowMerge.nextChange",
+        "title": "Next Change",
+        "category": "Gitardo",
+        "icon": "$(arrow-down)"
       }
     ],
     "menus": {
@@ -513,6 +543,26 @@
         {
           "command": "gitardo.flowDiff.discardFile",
           "when": "activeWebviewPanelId == gitardo.flowDiff"
+        },
+        {
+          "command": "gitardo.openInFlowMerge",
+          "when": "isMergeEditor || resourceScheme == file && gitardo.hasRepository"
+        },
+        {
+          "command": "gitardo.flowMerge.openInMergeEditor",
+          "when": "activeWebviewPanelId == gitardo.flowMerge"
+        },
+        {
+          "command": "gitardo.flowMerge.openFile",
+          "when": "activeWebviewPanelId == gitardo.flowMerge"
+        },
+        {
+          "command": "gitardo.flowMerge.previousChange",
+          "when": "activeWebviewPanelId == gitardo.flowMerge"
+        },
+        {
+          "command": "gitardo.flowMerge.nextChange",
+          "when": "activeWebviewPanelId == gitardo.flowMerge"
         }
       ],
       "explorer/context": [
@@ -758,6 +808,31 @@
           "command": "gitardo.flowDiff.unstageFile",
           "when": "activeWebviewPanelId == gitardo.flowDiff && gitardo.flowDiffSide == index",
           "group": "navigation@4"
+        },
+        {
+          "command": "gitardo.openInFlowMerge",
+          "when": "isMergeEditor",
+          "group": "navigation@80"
+        },
+        {
+          "command": "gitardo.flowMerge.openInMergeEditor",
+          "when": "activeWebviewPanelId == gitardo.flowMerge",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gitardo.flowMerge.openFile",
+          "when": "activeWebviewPanelId == gitardo.flowMerge",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitardo.flowMerge.previousChange",
+          "when": "activeWebviewPanelId == gitardo.flowMerge",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitardo.flowMerge.nextChange",
+          "when": "activeWebviewPanelId == gitardo.flowMerge",
+          "group": "navigation@3"
         }
       ],
       "scm/resourceGroup/context": [
@@ -823,6 +898,16 @@
         "command": "gitardo.flowDiff.previousChange",
         "key": "shift+f7",
         "when": "activeWebviewPanelId == gitardo.flowDiff"
+      },
+      {
+        "command": "gitardo.flowMerge.nextChange",
+        "key": "f7",
+        "when": "activeWebviewPanelId == gitardo.flowMerge"
+      },
+      {
+        "command": "gitardo.flowMerge.previousChange",
+        "key": "shift+f7",
+        "when": "activeWebviewPanelId == gitardo.flowMerge"
       }
     ],
     "configuration": {

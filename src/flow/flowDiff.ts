@@ -5,6 +5,7 @@ import { Repo } from '../git/repo';
 import { buildModel, refreshPanel } from './build';
 import { ChunkActions, type RunOp } from './chunks';
 import { DiffEngine } from './engine';
+import { FlowMerge } from './merge';
 import { type DiffHost, type DiffPanel, PanelRegistry } from './panel';
 import { Refresher } from './refresher';
 import { type DiffDescriptor, changedFiles, describeDiff, fileUri, openInDiffEditor } from './sides';
@@ -19,6 +20,8 @@ export class FlowDiff implements vscode.Disposable {
   private readonly engine: DiffEngine;
   private readonly registry: PanelRegistry;
   private readonly refresher: Refresher;
+  /** The three columns of a file in conflict, which share the worker and the themes. */
+  readonly merge: FlowMerge;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -35,10 +38,12 @@ export class FlowDiff implements vscode.Disposable {
       navigateFile: (panel, direction) => void this.openAdjacentFile(panel, direction),
     });
     this.refresher = new Refresher(this.registry, refresh);
+    this.merge = new FlowMerge(extensionUri, this.engine, themes);
 
     const command = (id: string, handler: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(id, handler);
     this.disposables.push(
       this.registry,
+      this.merge,
       this.refresher,
       this.engine,
       vscode.window.onDidChangeActiveColorTheme(() => {
@@ -62,6 +67,7 @@ export class FlowDiff implements vscode.Disposable {
   /** Gitardo has read a repository again: what it shows may have moved. */
   repositoryChanged(root: string): void {
     this.refresher.repositoryChanged(root);
+    this.merge.repositoryChanged(root);
   }
 
   /** The panels open, for the tests. */
