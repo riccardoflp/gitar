@@ -96,6 +96,15 @@ interface Shown {
   auto: boolean;
 }
 
+interface Drawn {
+  lines: (BlameLine | undefined)[];
+  labels: string[];
+  /** What the first line in sight is given, when it is not the first of its commit. */
+  pin(line: BlameLine, label: string): vscode.DecorationOptions['renderOptions'];
+  /** The line that was given it, -1 for none, -2 until it is told. */
+  at: number;
+}
+
 /**
  * Shows beside every line of a file when it was last changed and by whom. It is switched on and off file by file,
  * and a file keeps it until it is closed; or it is switched on for every file, and off for the ones it is not wanted in.
@@ -108,6 +117,13 @@ export class FileBlame implements vscode.Disposable {
       fontWeight: 'normal',
       textDecoration: STYLE,
     },
+  });
+  /**
+   * What the first line of a commit says, over the first line in sight when the editor is scrolled past the first
+   * one: what is beside the lines that follow it would otherwise say nothing of them.
+   */
+  private readonly pinned = vscode.window.createTextEditorDecorationType({
+    before: { color: new vscode.ThemeColor('editorCodeLens.foreground'), fontStyle: 'normal', fontWeight: 'normal' },
   });
   /** Where the other lines of the commit of the line under the cursor are, in the scroll bar of a file longer than its editor. */
   private readonly marks = vscode.window.createTextEditorDecorationType({
@@ -133,6 +149,8 @@ export class FileBlame implements vscode.Disposable {
   private readonly loading = new Set<string>();
   /** The commit each editor has highlighted the lines of: the one of the line its cursor is on. */
   private readonly highlighted = new WeakMap<vscode.TextEditor, string | undefined>();
+  /** What was drawn beside the lines of each editor, for the first line in sight to be given what its commit says. */
+  private readonly drawn = new WeakMap<vscode.TextEditor, Drawn>();
 
   constructor(
     private readonly source: BlameSource,
@@ -140,6 +158,7 @@ export class FileBlame implements vscode.Disposable {
   ) {
     this.subscriptions = [
       this.decoration,
+      this.pinned,
       this.marks,
       this.roomChanged,
       vscode.languages.registerInlayHintsProvider([{ scheme: 'file' }, { scheme: SCHEME }], {
@@ -151,6 +170,7 @@ export class FileBlame implements vscode.Disposable {
         this.follow();
       }),
       vscode.window.onDidChangeTextEditorSelection((event) => this.moved(event.textEditor)),
+      vscode.window.onDidChangeTextEditorVisibleRanges((event) => this.pin(event.textEditor)),
       vscode.window.onDidChangeActiveTextEditor(() => this.tell()),
       vscode.workspace.onDidChangeTextDocument((event) => this.edited(event)),
       vscode.workspace.onDidSaveTextDocument((document) => this.schedule(document)),
@@ -402,7 +422,9 @@ export class FileBlame implements vscode.Disposable {
       this.highlighted.set(editor, commit);
       if (!shown) {
         this.makeRoom(editor.document.uri, 0);
+        this.drawn.delete(editor);
         editor.setDecorations(this.decoration, []);
+        editor.setDecorations(this.pinned, []);
         editor.setDecorations(this.marks, []);
         continue;
       }
@@ -420,17 +442,22 @@ export class FileBlame implements vscode.Disposable {
       /**
        * How what is beside a line is drawn: over the room kept for it, on the background of the editor that hides the
        * one of the hint, or before the line when there is no room; with the color of the age of the line at its left,
-       * where a line git said nothing of has the room of it.
+       * where a line git said nothing of has the room of it. What a line is given for its commit to be named on it
+       * is drawn over what it has beside it, always on the background of the editor.
        */
-      const style = (line: BlameLine | undefined, stands: boolean) => {
-        const key = `${line?.hash ?? ''} ${stands}`;
+      const style = (line: BlameLine | undefined, stands: boolean, pinned = false) => {
+        const key = `${line?.hash ?? ''} ${stands} ${pinned}`;
         let text = styles.get(key);
         if (text) return text;
         const parts = [STYLE];
         if (room) {
           const lit = stands ? `linear-gradient(to right, ${LIT} calc(100% - ${GAP}), transparent 0), ` : '';
           parts.push(`position: absolute; left: 0; box-sizing: border-box; background: ${lit}var(--vscode-editor-background)`);
+        } else if (pinned) {
+          const lit = stands ? `linear-gradient(${LIT}, ${LIT}), ` : '';
+          parts.push(`position: absolute; left: 0; background: ${lit}var(--vscode-editor-background)`);
         } else parts.push(`margin-right: ${GAP}`);
+        if (pinned) parts.push('z-index: 1');
         // A line that is in no commit was changed now.
         if (age) parts.push(`border-left: ${BAR} solid ${line ? ageColor(line.committed ? line.date : now, now, age) : 'transparent'}`);
         styles.set(key, (text = parts.join('; ')));
@@ -463,7 +490,39 @@ export class FileBlame implements vscode.Disposable {
       }
       editor.setDecorations(this.decoration, options);
       editor.setDecorations(this.marks, marks);
+      this.drawn.set(editor, {
+        lines: shown.lines,
+        labels,
+        pin: (line, label) => {
+          const stands = line.hash === commit;
+          return { before: { contentText: label.replace(/ /g, SPACE), width, textDecoration: style(line, stands, true), ...(stands ? lit : {}) } };
+        },
+        // Drawn again, whatever line had it.
+        at: -2,
+      });
+      this.pin(editor);
     }
+  }
+
+  /**
+   * What the first line of a commit says is on the first line in sight when the ones above it are scrolled out of
+   * sight, for the lines that follow to be said whose they are.
+   */
+  private pin(editor: vscode.TextEditor): void {
+    const drawn = this.drawn.get(editor);
+    if (!drawn) return;
+    const top = editor.visibleRanges[0]?.start.line ?? 0;
+    const line = drawn.lines[top];
+    let first = top;
+    // Only the first line of the lines of a commit that follow each other says anything.
+    if (line && !drawn.labels[top]) while (first > 0 && drawn.lines[first - 1]?.hash === line.hash) first--;
+    const at = line && first < top && drawn.labels[first] ? top : -1;
+    if (at === drawn.at) return;
+    drawn.at = at;
+    editor.setDecorations(
+      this.pinned,
+      line && at >= 0 ? [{ range: new vscode.Range(at, 0, at, 0), renderOptions: drawn.pin(line, drawn.labels[first]) }] : [],
+    );
   }
 
   /**

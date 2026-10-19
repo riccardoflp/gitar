@@ -890,7 +890,7 @@
         "gitardo.fileBlame.groupLines": {
           "type": "boolean",
           "default": true,
-          "description": "In the blame of a file, say the commit beside the first of the lines it changed that follow each other, and leave the others with nothing but its colors. Turn it off to have it said beside every line."
+          "description": "In the blame of a file, say the commit beside the first of the lines it changed that follow each other, and leave the others with nothing but its colors; when that line is scrolled out of sight, the first line in sight says it. Turn it off to have it said beside every line."
         },
         "gitardo.fileBlame.age.enabled": {
           "type": "boolean",

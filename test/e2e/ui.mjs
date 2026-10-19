@@ -470,6 +470,59 @@ try {
     }
   });
 
+  await step('the first line in sight says whose it is when the first line of its commit is scrolled out of sight', async () => {
+    const file = path.join(app, 'a.txt');
+    const original = fs.readFileSync(file, 'utf8');
+    /** The lines in sight, from the top, with what is beside each: every label drawn over it, the last on top. */
+    const sight = () =>
+      page.evaluate(`(() => {
+        const editor = document.querySelector('.editor-instance .editor-scrollable').getBoundingClientRect();
+        return [...document.querySelectorAll('.editor-instance .view-line')]
+          .filter((line) => line.getBoundingClientRect().top >= editor.top - 1 && line.getBoundingClientRect().bottom <= editor.bottom + 1)
+          .sort((one, other) => one.getBoundingClientRect().top - other.getBoundingClientRect().top)
+          .map((line) => ({
+            // The editor writes the spaces of the text as ones that do not break.
+            text: line.textContent.replace(/\\s+/g, ' ').trim(),
+            labels: [...line.querySelectorAll('span span')]
+              .map((span) => getComputedStyle(span, '::before').content)
+              .filter((content) => content !== 'none')
+              .map((content) => content.replace(/^"|"$/g, '').replace(/\\u00a0/g, ' ').trim()),
+          }));
+      })()`);
+    try {
+      fs.writeFileSync(file, `${original}${Array.from({ length: 120 }, (_, index) => `written ${index}`).join('\n')}\n`);
+      await until('the lines written', async () => (await sight()).some((line) => line.text === 'written 10'));
+      await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Show File Blame"]').click()`);
+      // Said once, beside the first of the lines that are in no commit.
+      await until('the blame of the lines written', async () => {
+        const lines = await sight();
+        return lines.find((line) => line.text === 'written 0')?.labels.join() === 'Not committed yet' && lines.find((line) => line.text === 'written 1')?.labels.join() === '';
+      });
+      // Six lines down, a line at a time, which leaves the first of them out of sight.
+      await clickText('.editor-instance .view-line', 'two');
+      for (let times = 0; times < 6; times++) await key('ArrowDown', CTRL);
+      const scrolled = await until('the first line in sight saying it', async () => {
+        const lines = await sight();
+        return lines[0]?.text === 'written 4' && lines[0].labels.at(-1) === 'Not committed yet' ? lines : null;
+      });
+      await shot('file-blame-scrolled');
+      // Only the first line in sight is given it.
+      assert(scrolled.slice(1).every((line) => line.labels.every((label) => label === '')), `in sight: ${JSON.stringify(scrolled.slice(0, 4))}`);
+      // Back at the top it is said beside the first of them alone, as before.
+      for (let times = 0; times < 6; times++) await key('ArrowUp', CTRL);
+      await until('the first line of the file in sight', async () => (await sight())[0]?.text === 'one');
+      const top = await until('the blame as it was', async () => {
+        const lines = await sight();
+        return lines.filter((line) => line.labels.some((label) => label === 'Not committed yet')).length === 1 ? lines : null;
+      });
+      assert(top.find((line) => line.text === 'written 0').labels.join() === 'Not committed yet', `at the top: ${JSON.stringify(top.slice(0, 6))}`);
+      await page.evaluate(`document.querySelector('.editor-actions .action-label[aria-label^="Hide File Blame"]').click()`);
+      await until('the lines alone', async () => (await sight()).every((line) => !line.labels.length));
+    } finally {
+      fs.writeFileSync(file, original);
+    }
+  });
+
   await step('the search counts what it finds and steps through it, in the loaded commits and in the whole history', async () => {
     const graph = await webview('graph');
     /** What the search box says, which commit is selected, and how the commits are shown. */
