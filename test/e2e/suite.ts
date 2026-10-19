@@ -2175,6 +2175,22 @@ export async function run(): Promise<void> {
       fs.writeFileSync(file, marked);
       await until('the conflict to show again', () => panel.currentModel?.regions[0]?.unresolved === true);
 
+      // A side chosen in the page, as its band button sends it: in the file, not saved until Ctrl+S.
+      const send = (message: { type: 'edit'; text: string } | { type: 'saveFile' }) => (panel as unknown as { onMessage(message: unknown): void }).onMessage(message);
+      send({ type: 'edit', text: 'bee\nmain\n' });
+      await until('the choice in the file', () => document()?.isDirty && document()?.getText() === 'bee\nmain\n');
+      assert.equal(fs.readFileSync(file, 'utf8'), marked, 'a choice is not saved');
+      await until('the model of the choice', () => panel.currentModel?.result === 'bee\nmain\n');
+      assert.deepEqual(
+        panel.currentModel?.regions.map((region) => [region.kind, region.unresolved, (region as { state?: string }).state]),
+        [['conflict', false, 'ours']],
+      );
+      send({ type: 'saveFile' });
+      await until('the file saved', () => !document()?.isDirty);
+      assert.equal(fs.readFileSync(file, 'utf8'), 'bee\nmain\n');
+      fs.writeFileSync(file, marked);
+      await until('the conflict to show again', () => panel.currentModel?.regions[0]?.unresolved === true);
+
       // And back: the merge editor again, in place of the Flow Merge.
       await vscode.commands.executeCommand('gitardo.flowMerge.openInMergeEditor');
       await until('the merge editor again', () => mergeTabs().length === 1);
@@ -2207,6 +2223,19 @@ export async function run(): Promise<void> {
       await vscode.window.showTextDocument(vscode.Uri.file(file));
       await vscode.commands.executeCommand('gitardo.openInFlowMerge');
       assert.equal(panels().length, 1);
+
+      // Closed with a choice not saved: the file shows in an editor, for the change not to be forgotten.
+      const [last] = panels();
+      await until('the Flow Merge page to load', () => last.initSent);
+      await vscode.commands.executeCommand('workbench.action.closeOtherEditors');
+      (last as unknown as { onMessage(message: unknown): void }).onMessage({ type: 'edit', text: 'bee\nfeature\n' });
+      await until('the choice in the file', () => document()?.isDirty && document()?.getText() === 'bee\nfeature\n');
+      (last as unknown as { panel: vscode.WebviewPanel }).panel.dispose();
+      const shown = await until('the file in an editor', () => vscode.window.visibleTextEditors.find((editor) => samePath(editor.document.uri.fsPath, file)));
+      assert.ok(shown.document.isDirty);
+      await vscode.window.showTextDocument(shown.document);
+      await vscode.commands.executeCommand('workbench.action.files.revert');
+      assert.equal(fs.readFileSync(file, 'utf8'), marked);
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       answer = run;

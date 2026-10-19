@@ -1,10 +1,22 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import 'monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css';
 import type { DiffChunk } from '../diff/model';
-import { type LineHighlight, type LineSpan, type MergeModel, type MergeRegion, paneChunks, resultLine } from '../diff/mergeModel';
+import {
+  applyChoice,
+  type Choice,
+  choiceLines,
+  type LineHighlight,
+  type LineSpan,
+  type MergeModel,
+  type MergeRegion,
+  paneChunks,
+  resultLine,
+  resultLines,
+} from '../diff/mergeModel';
 import type { MergeHostMessage, MergeSettings, MergeWebviewMessage } from '../diff/mergeProtocol';
 import type { SyntaxTheme } from '../diff/protocol';
-import { Connectors } from './connectors';
+import { minimalReplace, offsetToPosition } from '../diff/textEdit';
+import { type ChunkActionsConfig, Connectors } from './connectors';
 import { applyPaneOptions, createPane, setupMonacoEnvironment } from './editors';
 import { initHighlighting } from './highlight';
 import { Navigation } from './navigation';
@@ -39,8 +51,31 @@ let editors: Record<Pane, Editor> | undefined;
 const decorations = new Map<Pane, monaco.editor.IEditorDecorationsCollection>();
 const active = new Map<Pane, monaco.editor.IEditorDecorationsCollection>();
 
-const left = new Connectors();
-const right = new Connectors();
+// The result is the file: what is typed in it goes to the host a moment later, which puts it in the file and sends
+// the model again. Text set from the host is not sent back, and keystrokes still on their way are not overwritten.
+let applyingRemote = false;
+let localDirty = false;
+let editTimer: number | undefined;
+/** A choice clicked while what was typed was on its way: made once the model of that text is back. */
+let pending: { regionId: number; choice: Choice } | undefined;
+
+/** The buttons of the bands: each puts one side, or both, in place of the region in the result. */
+type MergeAction = 'acceptOurs' | 'acceptTheirs' | 'acceptOursThenTheirs' | 'acceptTheirsThenOurs';
+const CHOICES: Record<MergeAction, Choice> = {
+  acceptOurs: 'ours',
+  acceptTheirs: 'theirs',
+  acceptOursThenTheirs: 'oursThenTheirs',
+  acceptTheirsThenOurs: 'theirsThenOurs',
+};
+const GLYPHS: Record<MergeAction, { glyph: string; title: string }> = {
+  acceptOurs: { glyph: '→', title: 'Accept Current' },
+  acceptTheirs: { glyph: '←', title: 'Accept Incoming' },
+  acceptOursThenTheirs: { glyph: '+', title: 'Accept Both, Current First' },
+  acceptTheirsThenOurs: { glyph: '+', title: 'Accept Both, Incoming First' },
+};
+
+const left = new Connectors<MergeAction>();
+const right = new Connectors<MergeAction>();
 const redraw = () => {
   left.schedule();
   right.schedule();
@@ -73,7 +108,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'editorConfig':
       if (editors) {
         applyPaneOptions(editors.ours, message.options, 'reference', true);
-        applyPaneOptions(editors.result, message.options, 'main', true);
+        applyPaneOptions(editors.result, message.options, 'main', false);
         applyPaneOptions(editors.theirs, message.options, 'reference', true);
         redraw();
       }
@@ -89,20 +124,105 @@ async function onInit(m: MergeModel, settings: MergeSettings, theme: SyntaxTheme
     result: createPane(layout.hosts.result, user, 'main'),
     theirs: createPane(layout.hosts.theirs, user, 'reference'),
   };
-  // Phase one shows the merge: the result is edited in the editor of the file.
-  editors.result.updateOptions({ readOnly: true });
   const { monacoLanguage } = await initHighlighting(monaco, theme, m.languageId);
-  for (const pane of PANES) editors[pane].setModel(monaco.editor.createModel(m[pane], monacoLanguage));
-  wireKeys(editors);
+  const eds = editors;
+  remote(() => {
+    for (const pane of PANES) eds[pane].setModel(monaco.editor.createModel(m[pane], monacoLanguage));
+  });
+  wireEditing(eds.result);
+  wireKeys(eds);
   refreshAll(m);
 }
 
 function onUpdate(m: MergeModel): void {
   if (!editors) return;
-  for (const pane of PANES) {
-    if (editors[pane].getValue() !== m[pane]) editors[pane].setValue(m[pane]);
-  }
+  const eds = editors;
+  remote(() => {
+    for (const pane of ['ours', 'theirs'] as const) if (eds[pane].getValue() !== m[pane]) eds[pane].setValue(m[pane]);
+    const typed = eds.result.getValue();
+    // The same text: the file has what was typed. Another, with nothing typed on its way: the file changed elsewhere.
+    if (typed === m.result) localDirty = false;
+    else if (!localDirty && editTimer === undefined) eds.result.setValue(m.result);
+  });
+  // The model of a text older than the one in the pane would put its bands in the wrong places: the next one is coming.
+  if (eds.result.getValue() !== m.result) return;
   refreshAll(m);
+  if (pending) {
+    const { regionId, choice } = pending;
+    pending = undefined;
+    choose(regionId, choice);
+  }
+}
+
+function remote(run: () => void): void {
+  applyingRemote = true;
+  try {
+    run();
+  } finally {
+    applyingRemote = false;
+  }
+}
+
+function wireEditing(result: Editor): void {
+  result.onDidChangeModelContent(() => {
+    if (applyingRemote) return;
+    localDirty = true;
+    if (editTimer !== undefined) clearTimeout(editTimer);
+    editTimer = window.setTimeout(postEdit, 200);
+  });
+}
+
+function postEdit(): void {
+  if (editTimer !== undefined) clearTimeout(editTimer);
+  editTimer = undefined;
+  if (!editors) return;
+  const text = editors.result.getValue();
+  // Typed and taken back: the file has it already, and no model will come back to say so.
+  if (text === model?.result) localDirty = false;
+  else post({ type: 'edit', text });
+}
+
+/**
+ * Puts a choice in place of a region of the result, as an edit of the pane that Ctrl+Z takes back. The model is
+ * moved along at once, and the text goes to the host without waiting.
+ */
+function choose(regionId: number, choice: Choice): void {
+  if (!editors || !model) return;
+  const editor = editors.result;
+  const before = editor.getValue();
+  if (before !== model.result) {
+    // Typed and not yet back as a model: the regions are not where they were. Wait for the model of this text.
+    pending = { regionId, choice };
+    postEdit();
+    return;
+  }
+  const next = applyChoice(model, regionId, choice);
+  const change = minimalReplace(before, next.result);
+  if (!change) return;
+  const [start, end] = [offsetToPosition(before, change.start), offsetToPosition(before, change.end)];
+  editor.pushUndoStop();
+  editor.executeEdits('flowMerge', [{ range: new monaco.Range(start.line + 1, start.character + 1, end.line + 1, end.character + 1), text: change.text }]);
+  editor.pushUndoStop();
+  postEdit();
+  refreshAll(next);
+}
+
+/** The buttons of the bands of a side: its choices that would change what the result has in the region. */
+function bandActions(side: 'ours' | 'theirs'): ChunkActionsConfig<MergeAction> {
+  const offered: MergeAction[] = side === 'ours' ? ['acceptOurs', 'acceptOursThenTheirs'] : ['acceptTheirs', 'acceptTheirsThenOurs'];
+  return {
+    glyphs: GLYPHS,
+    kindsFor: (chunk) => {
+      const m = model;
+      const region = m?.regions[chunk.id];
+      if (!m || !region) return [];
+      const now = resultLines(m, region);
+      const same = (other: string[]) => other.length === now.length && other.every((line, index) => line === now[index]);
+      // Both sides together only where they differ: elsewhere it would be the same lines twice.
+      return offered.filter((action) => (region.kind === 'conflict' || CHOICES[action] === side) && !same(choiceLines(m, region, CHOICES[action])));
+    },
+    onAction: (action, regionId) => choose(regionId, CHOICES[action]),
+  };
 }
 
 const PANES: Pane[] = ['ours', 'result', 'theirs'];
@@ -121,8 +241,8 @@ function refreshAll(m: MergeModel): void {
   leftSync.attach(editors.ours, editors.result, { chunks: paneChunks(m.regions, 'ours', 'result') });
   rightSync.attach(editors.result, editors.theirs, { chunks: paneChunks(m.regions, 'result', 'theirs') });
   const band = (chunk: DiffChunk) => bandClasses(m.regions[chunk.id]);
-  left.attach(layout.gutters.left, editors.ours, editors.result, { chunks: paneChunks(m.regions, 'ours', 'result', (region) => region.kind !== 'theirs') }, undefined, band);
-  right.attach(layout.gutters.right, editors.result, editors.theirs, { chunks: paneChunks(m.regions, 'result', 'theirs', (region) => region.kind !== 'ours') }, undefined, band);
+  left.attach(layout.gutters.left, editors.ours, editors.result, { chunks: paneChunks(m.regions, 'ours', 'result', (region) => region.kind !== 'theirs') }, bandActions('ours'), band);
+  right.attach(layout.gutters.right, editors.result, editors.theirs, { chunks: paneChunks(m.regions, 'result', 'theirs', (region) => region.kind !== 'ours') }, bandActions('theirs'), band);
   navigation.setModel({ chunks: paneChunks(m.regions, 'ours', 'result') });
 
   const open = m.regions.filter((region) => region.unresolved).length;
@@ -245,6 +365,11 @@ function scrollToRegion(eds: Record<Pane, Editor>, region: MergeRegion): void {
 }
 
 function wireKeys(eds: Record<Pane, Editor>): void {
+  // Ctrl+S in the result: what was typed goes to the file first, then the file is saved.
+  eds.result.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    if (editTimer !== undefined) postEdit();
+    post({ type: 'saveFile' });
+  });
   for (const pane of PANES) {
     const editor = eds[pane];
     editor.addCommand(monaco.KeyCode.F7, () => navigation.next());

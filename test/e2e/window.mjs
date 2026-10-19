@@ -14,6 +14,7 @@ const KEYS = {
   P: { key: 'p', code: 'KeyP', windowsVirtualKeyCode: 80 },
   F: { key: 'f', code: 'KeyF', windowsVirtualKeyCode: 70 },
   W: { key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87 },
+  Z: { key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90 },
   F1: { key: 'F1', code: 'F1', windowsVirtualKeyCode: 112 },
   F3: { key: 'F3', code: 'F3', windowsVirtualKeyCode: 114 },
   Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },

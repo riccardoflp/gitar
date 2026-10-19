@@ -10,6 +10,7 @@ import { normalizeEol } from './diff/hunks';
 import { mergeEditorStart } from './diff/merge3';
 import type { MergeModel } from './diff/mergeModel';
 import type { MergeHostMessage, MergeWebviewMessage } from './diff/mergeProtocol';
+import { minimalReplace, offsetToPosition } from './diff/textEdit';
 import type { DiffEngine } from './engine';
 import { inRepository } from './sides';
 import type { ThemeService } from './theme';
@@ -198,6 +199,8 @@ export class FlowMerge implements vscode.Disposable {
     const { repoRoot, path: file } = panel.descriptor;
     const repo = new Repo(repoRoot);
     const stages = await repo.conflictStages(file).catch(() => [] as number[]);
+    // What was chosen here and not saved is not lost: the merge editor saves the file as it opens it. Where markers of
+    // git are left in it, it then starts its own result again from the base, without saving that.
     try {
       // The merge editor needs all three sides: a file both sides added has no base, and opens as it is.
       if ([1, 2, 3].every((stage) => stages.includes(stage))) await openMergeEditor(repoRoot, file, await repo.operation().catch(() => null));
@@ -239,6 +242,7 @@ export class MergePanel {
   private model: MergeModel | undefined;
   private modelInputKey: string | undefined;
   private webviewReady = false;
+  private closing = false;
   /** Whether the page has its first model; public for the tests. */
   initSent = false;
 
@@ -260,6 +264,8 @@ export class MergePanel {
       () => {
         this.disposables.forEach((d) => d.dispose());
         onDispose();
+        // Closed with what was chosen or typed in it not saved: the file shows in an editor, not to be forgotten.
+        if (!this.closing) void this.showIfUnsaved(viewColumn);
       },
       undefined,
       this.disposables,
@@ -282,8 +288,15 @@ export class MergePanel {
     this.panel.reveal();
   }
 
+  /** Closes the page, as a command does: the file is not shown in its place. */
   close(): void {
+    this.closing = true;
     this.panel.dispose();
+  }
+
+  private async showIfUnsaved(viewColumn: vscode.ViewColumn | undefined): Promise<void> {
+    const document = vscode.workspace.textDocuments.find((each) => samePath(each.uri.fsPath, fileUri(this.descriptor).fsPath));
+    if (document?.isDirty) await vscode.window.showTextDocument(document, { viewColumn, preview: false });
   }
 
   navigate(direction: 'next' | 'prev'): void {
@@ -330,7 +343,31 @@ export class MergePanel {
         void vscode.window.showTextDocument(fileUri(this.descriptor), { selection: new vscode.Range(line, 0, line, 0), preview: false });
         break;
       }
+      case 'edit':
+        void this.applyWebviewEdit(message.text);
+        break;
+      case 'saveFile':
+        void vscode.workspace.openTextDocument(fileUri(this.descriptor)).then((document) => document.save());
+        break;
     }
+  }
+
+  /**
+   * What was typed or chosen in the result, put in the file and left unsaved, as the Flow Diff does: only the stretch
+   * that changed is replaced, so the undo history and the cursors of the editors of the file stay as they are.
+   */
+  private async applyWebviewEdit(text: string): Promise<void> {
+    const uri = fileUri(this.descriptor);
+    const document = await vscode.workspace.openTextDocument(uri);
+    // The page works in LF: lines and columns are the same whatever the line endings of the file.
+    const current = normalizeEol(document.getText());
+    const change = minimalReplace(current, text);
+    if (!change) return;
+    const [start, end] = [offsetToPosition(current, change.start), offsetToPosition(current, change.end)];
+    const replacement = document.eol === vscode.EndOfLine.CRLF ? change.text.replace(/\n/g, '\r\n') : change.text;
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(uri, new vscode.Range(start.line, start.character, end.line, end.character), replacement);
+    await vscode.workspace.applyEdit(edit);
   }
 
   private post(message: MergeHostMessage): void {

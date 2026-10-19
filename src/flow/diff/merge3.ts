@@ -4,7 +4,7 @@
  */
 import { computeDiff } from './computeDiff';
 import { normalizeEol } from './hunks';
-import { type LineHighlight, type MergeModel, type MergeRegion, type RegionKind, span } from './mergeModel';
+import { type LineHighlight, type MergeModel, type MergeRegion, type RegionKind, type RegionState, lines, span } from './mergeModel';
 import type { DiffChunk } from './model';
 
 export interface MergeInput {
@@ -33,7 +33,7 @@ const MARKER = 7;
 
 export function computeMerge(input: MergeInput): MergeModel {
   const [base, ours, theirs, result] = [input.base, input.ours, input.theirs, input.result].map(normalizeEol);
-  const [oursLines, theirsLines, resultLines] = [ours, theirs, result].map(lines);
+  const [baseLines, oursLines, theirsLines, resultLines] = [base, ours, theirs, result].map(lines);
   const diff = differ(input.timeoutMs);
   const { groups, oursDiff, theirsDiff } = regionsOf(base, ours, theirs, diff);
 
@@ -65,6 +65,8 @@ export function computeMerge(input: MergeInput): MergeModel {
     // Where git marked a conflict, it is one, even where the two diffs found the sides to agree.
     const kind: RegionKind = block ? 'conflict' : region.kind;
     const whole = block ? ([Math.min(at[0], block.from), Math.max(at[1], block.to)] as [number, number]) : at;
+    const found = groups[region.id];
+    const sides = { base: baseLines.slice(...found.base), ours: oursLines.slice(...found.ours), theirs: theirsLines.slice(...found.theirs) };
     return {
       ...region,
       kind,
@@ -72,6 +74,7 @@ export function computeMerge(input: MergeInput): MergeModel {
       resultOurs: span(block ? block.ours : whole),
       resultTheirs: span(block ? block.theirs : whole),
       unresolved: block !== undefined,
+      state: block ? 'unresolved' : stateOf(resultLines.slice(...whole), sides),
     };
   });
 
@@ -79,6 +82,7 @@ export function computeMerge(input: MergeInput): MergeModel {
     ours,
     result,
     theirs,
+    base,
     regions,
     oursHighlights: highlights(oursDiff.rows),
     theirsHighlights: highlights(theirsDiff.rows),
@@ -248,10 +252,20 @@ function highlights(rows: ReturnType<typeof computeDiff>['rows']): LineHighlight
   );
 }
 
-/** The lines of a text without what ends them; the end of the last line does not make one more. */
-function lines(value: string): string[] {
-  if (!value) return [];
-  return (value.endsWith('\n') ? value.slice(0, -1) : value).split('\n');
+/**
+ * Which choice the lines of the result in a region are, if any. The base comes first: for a change of one side,
+ * the other side is the base, and taking it back is what was done.
+ */
+function stateOf(there: string[], sides: { base: string[]; ours: string[]; theirs: string[] }): RegionState {
+  const same = (one: string[], other: string[]) => one.length === other.length && one.every((line, index) => line === other[index]);
+  const choices: [RegionState, string[]][] = [
+    ['base', sides.base],
+    ['ours', sides.ours],
+    ['theirs', sides.theirs],
+    ['oursThenTheirs', [...sides.ours, ...sides.theirs]],
+    ['theirsThenOurs', [...sides.theirs, ...sides.ours]],
+  ];
+  return choices.find(([, candidate]) => same(there, candidate))?.[0] ?? 'edited';
 }
 
 function text(list: string[]): string {

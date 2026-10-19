@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'vitest';
 import { computeMerge, mergeEditorStart } from '../../src/flow/diff/merge3';
-import { type MergeModel, paneChunks, resultLine } from '../../src/flow/diff/mergeModel';
+import { applyChoice, choiceLines, type MergeModel, paneChunks, replaceLines, resultLine } from '../../src/flow/diff/mergeModel';
 
 const labels = { languageId: 'plaintext', filePath: 'sample.txt', oursLabel: 'Current', theirsLabel: 'Incoming', resultLabel: 'Result' };
 const merge = (base: string, ours: string, theirs: string, result: string) => computeMerge({ base, ours, theirs, result, ...labels });
@@ -173,4 +173,54 @@ test('the merge editor starts from the base with the changes that do not conflic
   assert.equal(mergeEditorStart('bee\n', 'bee\nmain\n', 'bee\nfeature\n'), 'bee\n');
   const base = text('a', 'b', 'c', 'd', 'e');
   assert.equal(mergeEditorStart(base, text('A', 'b', 'c', 'X', 'e'), text('a', 'b', 'C', 'Y', 'e')), text('A', 'b', 'c', 'd', 'e'));
+});
+
+test('each region tells what the result has there: the markers, one of the choices, or something typed', () => {
+  const base = text('one', 'two', 'three');
+  const [ours, theirs] = [text('one', 'mine', 'three'), text('one', 'yours', 'three')];
+  const state = (result: string) => merge(base, ours, theirs, result).regions.map((region) => region.state);
+  assert.deepEqual(state(text('one', '<<<<<<< HEAD', 'mine', '=======', 'yours', '>>>>>>> other', 'three')), ['unresolved']);
+  assert.deepEqual(state(text('one', 'mine', 'three')), ['ours']);
+  assert.deepEqual(state(text('one', 'yours', 'three')), ['theirs']);
+  assert.deepEqual(state(text('one', 'mine', 'yours', 'three')), ['oursThenTheirs']);
+  assert.deepEqual(state(text('one', 'yours', 'mine', 'three')), ['theirsThenOurs']);
+  assert.deepEqual(state(text('one', 'two', 'three')), ['base']);
+  assert.deepEqual(state(text('one', 'something else', 'three')), ['edited']);
+});
+
+test('a choice puts the lines of the sides in place of the region, and nothing else of the result moves', () => {
+  const base = text('one', 'two', 'three');
+  const result = text('one', '<<<<<<< HEAD', 'mine', '=======', 'yours', 'more', '>>>>>>> other', 'three');
+  const model = merge(base, text('one', 'mine', 'three'), text('one', 'yours', 'more', 'three'), result);
+  const [conflict] = model.regions;
+  assert.deepEqual(choiceLines(model, conflict, 'ours'), ['mine']);
+  assert.deepEqual(choiceLines(model, conflict, 'theirsThenOurs'), ['yours', 'more', 'mine']);
+  assert.deepEqual(choiceLines(model, conflict, 'base'), ['two']);
+  const chosen = replaceLines(model.result, conflict.result, choiceLines(model, conflict, 'oursThenTheirs'));
+  assert.equal(chosen, text('one', 'mine', 'yours', 'more', 'three'));
+  assert.deepEqual(
+    merge(base, model.ours, model.theirs, chosen).regions.map((region) => region.state),
+    ['oursThenTheirs'],
+  );
+});
+
+test('lines are replaced keeping how the text ends, and an empty span adds them after its line', () => {
+  assert.equal(replaceLines('a\nb\nc', { start: 2, count: 1 }, ['B', 'B']), 'a\nB\nB\nc');
+  assert.equal(replaceLines('a\nb\n', { start: 1, count: 0 }, ['x']), 'a\nx\nb\n');
+  assert.equal(replaceLines('a\nb\n', { start: 1, count: 2 }, []), '');
+  assert.equal(replaceLines('', { start: 0, count: 0 }, ['x']), 'x\n');
+});
+
+test('a choice made in the page moves the regions after it, as the model of the new result has them', () => {
+  const base = text('a', 'b', 'c', 'd', 'e', 'f', 'g');
+  const ours = text('a', 'B1', 'c', 'd', 'e', 'F', 'g');
+  const theirs = text('a', 'B2', 'B3', 'c', 'd', 'e', 'F', 'g');
+  const result = text('a', '<<<<<<< HEAD', 'B1', '=======', 'B2', 'B3', '>>>>>>> other', 'c', 'd', 'e', 'F', 'g');
+  const model = merge(base, ours, theirs, result);
+  for (const choice of ['ours', 'theirs', 'oursThenTheirs', 'base'] as const) {
+    const chosen = applyChoice(model, 0, choice);
+    const computed = merge(base, ours, theirs, chosen.result);
+    assert.deepEqual(chosen.regions, computed.regions, choice);
+    assert.deepEqual(chosen.markerLines, computed.markerLines, choice);
+  }
 });

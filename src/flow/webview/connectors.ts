@@ -13,10 +13,12 @@ export const GUTTER_WIDTH = 28;
 
 export type ChunkActionKind = 'revertChunk' | 'stageChunk' | 'unstageChunk';
 
-export interface ChunkActionsConfig {
+export interface ChunkActionsConfig<K extends string = ChunkActionKind> {
   /** Per chunk so staged chunks can offer unstage instead of stage. */
-  kindsFor: (chunk: DiffChunk) => ChunkActionKind[];
-  onAction: (kind: ChunkActionKind, chunkId: number) => void;
+  kindsFor: (chunk: DiffChunk) => K[];
+  onAction: (kind: K, chunkId: number) => void;
+  /** The glyph and the tooltip of each kind, for kinds other than the Flow Diff's own. */
+  glyphs?: Record<K, { glyph: string; title: string }>;
 }
 
 export const ACTION_GLYPHS: Record<ChunkActionKind, { glyph: string; title: string }> = {
@@ -32,7 +34,7 @@ export const ACTION_GLYPHS: Record<ChunkActionKind, { glyph: string; title: stri
  * right, and vice versa). Redrawn on scroll/resize in viewport coordinates.
  * Per-chunk action buttons (revert/stage/unstage) float over the band.
  */
-export class Connectors {
+export class Connectors<K extends string = ChunkActionKind> {
   private model: Chunks | undefined;
   private classes: ((chunk: DiffChunk) => string[]) | undefined;
   private gutter: HTMLElement | undefined;
@@ -40,7 +42,7 @@ export class Connectors {
   private right: Editor | undefined;
   private svg: SVGSVGElement | undefined;
   private actionsLayer: HTMLElement | undefined;
-  private actions: ChunkActionsConfig | undefined;
+  private actions: ChunkActionsConfig<K> | undefined;
   private activeChunk = -1;
   private rafPending = false;
   private readonly observer = new ResizeObserver(() => this.schedule());
@@ -50,7 +52,7 @@ export class Connectors {
     left: Editor,
     right: Editor,
     model: Chunks,
-    actions: ChunkActionsConfig | undefined,
+    actions: ChunkActionsConfig<K> | undefined,
     /** The classes of the band of a chunk, in place of its kind. */
     classes?: (chunk: DiffChunk) => string[]
   ): void {
@@ -156,7 +158,7 @@ export class Connectors {
     group.className = 'chunk-actions';
     group.style.top = `${Math.round(midY - 8)}px`;
     for (const kind of kinds) {
-      const { glyph, title } = ACTION_GLYPHS[kind];
+      const { glyph, title } = this.actions.glyphs?.[kind] ?? ACTION_GLYPHS[kind as unknown as ChunkActionKind];
       const button = document.createElement('button');
       button.className = `chunk-btn ${kind}`;
       button.textContent = glyph;

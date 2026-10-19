@@ -12,11 +12,14 @@ type Editor = monaco.editor.IStandaloneCodeEditor;
  * (`start` follows the hunk-header convention: line before the insertion).
  */
 export function sideExtent(editor: Editor, start: number, count: number): [number, number] {
+  // Chunks of a text before an edit can point past the end of the one after it, until they are computed again.
+  const last = Math.max(1, editor.getModel()?.getLineCount() ?? 1);
+  const line = (number: number) => Math.min(Math.max(1, number), last);
   if (count === 0) {
-    const y = start === 0 ? 0 : editor.getBottomForLineNumber(start);
+    const y = start === 0 ? 0 : editor.getBottomForLineNumber(line(start));
     return [y, y];
   }
-  return [editor.getTopForLineNumber(start), editor.getBottomForLineNumber(start + count - 1)];
+  return [editor.getTopForLineNumber(line(start)), editor.getBottomForLineNumber(line(start + count - 1))];
 }
 
 /**

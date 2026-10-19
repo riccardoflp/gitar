@@ -22,4 +22,8 @@ export type MergeHostMessage =
 export type MergeWebviewMessage =
   | { type: 'ready' }
   /** Jump to Source: open the file at this line of the result. */
-  | { type: 'openAt'; line: number };
+  | { type: 'openAt'; line: number }
+  /** The whole text of the result, as typed or chosen in it: the host puts it in the file, unsaved. */
+  | { type: 'edit'; text: string }
+  /** Ctrl+S in the page: save the file. */
+  | { type: 'saveFile' };

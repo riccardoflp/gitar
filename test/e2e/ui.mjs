@@ -1817,6 +1817,35 @@ try {
       await until('the second region', () => flow.evaluate(`document.querySelector('.toolbar .counter')?.textContent.startsWith('2 /')`));
       await shot('flow-merge-next');
 
+      // A side is chosen from its band: the result has it in place of the markers, and Ctrl+Z in the result takes it back.
+      // Monaco reuses the elements of its lines: their order on screen is that of their top, not that of the page.
+      const result = async () =>
+        (
+          await flow.evaluate(`[...document.querySelectorAll('.diff-body > .editor-host:nth-child(3) .view-line')]
+            .sort((one, two) => parseFloat(one.style.top) - parseFloat(two.style.top))
+            .map((line) => line.textContent)
+            .join('\\n')`)
+        ).replace(/[^\S\n]/g, ' ');
+      const offered = await flow.evaluate(`[...document.querySelectorAll('.chunk-actions:has(.acceptTheirsThenOurs) .chunk-btn')].map((button) => button.title)`);
+      assert(offered.join() === 'Accept Incoming,Accept Both, Incoming First', `buttons of the conflict on the incoming side: ${offered}`);
+      await flow.click('.chunk-actions:has(.acceptTheirsThenOurs) .chunk-btn.acceptTheirs');
+      await until('the conflict resolved', () => flow.evaluate(`document.querySelector('.fm-conflicts')?.textContent === 'No conflicts left'`));
+      const chosen = await until('the incoming side in the result', async () => {
+        const now = await result();
+        return now.includes('return `Shape: ${name}`;') && !now.includes('<<<<<<<') && !now.includes('toUpperCase') ? now : null;
+      });
+      assert(chosen.split('\n')[6] === '  return `Shape: ${name}`;', `result: ${chosen}`);
+      assert(await flow.evaluate(`document.querySelectorAll('.fm-marker').length === 0`), 'no markers left');
+      // Not saved: the file still has the markers.
+      await sleep(600);
+      assert(fs.readFileSync(file, 'utf8').includes('<<<<<<<'), 'a choice is not saved');
+      await shot('flow-merge-accepted');
+      await flow.click('.diff-body > .editor-host:nth-child(3) .view-line');
+      await sleep(300);
+      await key('Z', CTRL);
+      await until('the conflict back', () => flow.evaluate(`document.querySelector('.fm-conflicts')?.textContent === '1 conflict left'`));
+      await until('the markers back', async () => (await result()).includes('<<<<<<<'));
+
       const back = await titleButton('Open in Merge Editor');
       await mouse(back.x, back.y);
       await until('the merge editor again', mergeEditor);
