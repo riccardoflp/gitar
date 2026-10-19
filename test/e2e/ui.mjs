@@ -1257,6 +1257,10 @@ try {
 
     const commit = await webview('commit');
     await until('the commit', () => commit.evaluate(`document.querySelector('.commit-head h1')?.textContent === 'Add parts'`));
+    await until('its files', () => commit.evaluate(`document.querySelectorAll('.commit-files .file').length > 0`));
+    // Its changes are in the page only once asked for.
+    assert(!(await commit.evaluate(`document.querySelectorAll('.file-diff').length`)), 'changes shown before they were asked for');
+    await commit.click('.commit-diffs h2 .button', 'Show the changes');
     await until('its changes', () => commit.evaluate(`document.querySelectorAll('.file-diff .diff-lines').length === 3`));
     await shot('commit-tab');
     const files = () => commit.evaluate(`[...document.querySelectorAll('.commit-files .file')].map((file) => file.textContent)`);
@@ -1308,6 +1312,15 @@ try {
     await until('the search box of the tab', () => page.evaluate(`!!document.querySelector('.simple-find-part.visible')`));
     await shot('commit-tab-find');
     await key('Escape');
+
+    // A file listed opens in the diff editor.
+    await commit.evaluate(`document.querySelector('.commit-files').scrollIntoView({ block: 'center' })`);
+    await commit.click('.commit-files .file-open', 'notes.txt');
+    await until('the diff of the file', () =>
+      page.evaluate(`[...document.querySelectorAll('.tabs-container .tab.active')].some((tab) => tab.textContent.startsWith('notes.txt ('))`),
+    );
+    await shot('commit-tab-diff');
+    await command('View: Close Editor');
 
     // The first tab is closed before: a tab that is behind another keeps its page, and would be taken for the new one.
     await command('View: Close Editor');
