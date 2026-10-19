@@ -166,10 +166,18 @@ export function CommitsApp() {
           </section>
         );
       })}
-      {log.hasMore && (
-        <button className="file more" onClick={() => setLimit(limit + PAGE)}>
-          Load more commits…
+      {/* Fewer than were asked for, and more to come: they are on their way. */}
+      {log.hasMore && log.commits.length < limit ? (
+        <button className="file more" disabled>
+          <Icon name="loading" spin />
+          Loading more commits…
         </button>
+      ) : (
+        log.hasMore && (
+          <button className="file more" onClick={() => setLimit(limit + PAGE)}>
+            Load more commits…
+          </button>
+        )
       )}
     </div>
   );

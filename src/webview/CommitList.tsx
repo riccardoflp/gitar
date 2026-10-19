@@ -13,6 +13,7 @@ import {
 import { fitGraph, laneCount } from '../shared/graph';
 import { WORKTREE, type GraphRow, type Loading, type Row } from '../shared/protocol';
 import { Icon } from './Icon';
+import { Progress } from './Progress';
 import { Sash } from './Sash';
 import { endDrag, startDrag, type DragSource } from './drag';
 import { fullDate, laneColor, relativeTime, shortHash } from './util';
@@ -214,11 +215,7 @@ export function CommitList(props: Props) {
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       onKeyDown={onKeyDown}
     >
-      {loading && (
-        <div className="progress" role="progressbar" aria-label={loading === 'more' ? 'Loading more commits' : 'Loading commits'}>
-          <div className="bit" />
-        </div>
-      )}
+      {loading && <Progress label={loading === 'more' ? 'Loading more commits' : 'Loading commits'} />}
       {!rows.length && <div className="empty">{loading === 'filter' ? 'Loading commits…' : empty}</div>}
       {/* It stays where it is while the commits scroll under it. */}
       {rows.length > 0 && (

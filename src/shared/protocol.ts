@@ -132,7 +132,7 @@ export type Filter =
  */
 export type Scope = { kind: 'current' } | { kind: 'local' } | { kind: 'refs'; refs: string[] };
 
-/** What the graph waits for: the commits of another filter or scope, or the ones after the last that is loaded. */
+/** What the graph waits for: the commits of another filter, scope or repository, or the ones after the last that is loaded. */
 export type Loading = 'filter' | 'more';
 
 /** A search that git runs, in the whole history rather than in the commits that are loaded. */
@@ -519,8 +519,8 @@ export type HostMessage =
   | { type: 'comparePatch'; since: string; to: string; patch: FilePatch[] | null }
   | { type: 'busy'; title: string | null }
   /**
-   * The graph is being read again: for a filter or a scope just chosen (`filter`), or for the commits after the last
-   * (`more`). Null once the state it was read for has been sent.
+   * The graph is being read again: for a filter, a scope or a repository just chosen (`filter`), or for the commits
+   * after the last (`more`). Null once the state it was read for has been sent.
    */
   | { type: 'loading'; what: Loading | null }
   | { type: 'committed' }

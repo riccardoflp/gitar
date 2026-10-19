@@ -1065,7 +1065,15 @@ export async function run(): Promise<void> {
     await internals.onMessage(tab.panel.webview, { type: 'swapCompare' });
     assert.deepEqual([told(tab)?.view?.from.name, told(tab)?.view?.to.name, told(tab)?.view?.since], ['main', 'feature', head]);
     assert.equal(tab.panel.title, 'main ↔ feature');
+    // While the two are compared again the tab is told to wait, and that the wait is over before the answer.
+    forget();
     await internals.onMessage(tab.panel.webview, { type: 'swapCompare' });
+    const waited = posted.flatMap((outgoing, at) => {
+      if (addressed[at] !== tab.panel.webview) return [];
+      if (outgoing.type === 'loading') return [`loading ${outgoing.what}`];
+      return outgoing.type === 'compareView' ? ['compareView'] : [];
+    });
+    assert.deepEqual(waited, ['loading filter', 'loading null', 'compareView']);
 
     // Asked for again, from the button of a comparison in a view, the two have their tab: that one is shown.
     await internals.onMessage(view('branches'), { type: 'openCompare', from: { name: 'feature', hash: hashOf('feature') }, to: { name: 'main', hash: head } });
@@ -2454,6 +2462,16 @@ export async function run(): Promise<void> {
     assert.deepEqual(await sequence({ type: 'setFilter', filter: null }), ['loading filter', 'state none', 'loading null']);
     assert.deepEqual(await sequence({ type: 'setScope', scope: { kind: 'local' } }), ['loading filter', 'state none', 'loading null']);
     await controller.setScope(null);
+
+    // Another repository: the views wait for its commits as for those of a filter.
+    const home = state().root;
+    const other = state().repos.find((repo) => repo.root !== home);
+    assert.ok(other, 'the workspace has another repository');
+    const switched = await sequence({ type: 'selectRepo', root: other.root });
+    assert.deepEqual(switched.filter((line) => line.startsWith('loading')), ['loading filter', 'loading null']);
+    assert.ok(switched.indexOf('state none') < switched.indexOf('loading null'), switched.join(', '));
+    assert.ok(switched.includes('state none'), switched.join(', '));
+    await controller.selectRepo(home);
 
     // Reads that overlap are one wait, over when the last one is.
     const from = posted.length;

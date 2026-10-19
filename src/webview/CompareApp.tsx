@@ -3,6 +3,7 @@ import { WORKTREE, type CompareMode, type CompareSide, type CompareView, type Di
 import { CompareCommits } from './CompareCommits';
 import { FileChanges } from './FileChanges';
 import { Icon } from './Icon';
+import { Progress } from './Progress';
 import { shortHash } from './util';
 import { onMessage, post } from './vscode';
 
@@ -216,6 +217,8 @@ export function CompareApp({ root, layout: remembered }: Props) {
   const [patch, setPatch] = useState<{ since: string; to: string; patch: FilePatch[] | null }>();
   const [state, setState] = useState<RepoState | null>(null);
   const [layout, setLayout] = useState(remembered);
+  // The sides, the way or the path just changed, while git compares them again.
+  const [comparing, setComparing] = useState(false);
   const shown = useRef<CompareView | null | undefined>(undefined);
 
   useEffect(() => {
@@ -230,13 +233,22 @@ export function CompareApp({ root, layout: remembered }: Props) {
         setView(message.view);
         setError(message.error);
       } else if (message.type === 'comparePatch') setPatch(message);
+      else if (message.type === 'loading') setComparing(message.what !== null);
     });
     post({ type: 'ready' });
     return stop;
   }, [root]);
 
+  const progress = comparing && <Progress page label="Comparing" />;
   if (view === undefined) return <div className="empty">Comparing…</div>;
-  if (!view) return <div className="empty">The two could not be compared. {error}</div>;
+  if (!view) {
+    return (
+      <>
+        {progress}
+        <div className="empty">The two could not be compared. {error}</div>
+      </>
+    );
+  }
 
   const { from, to, mode, base, since, files, path } = view;
   const worktree = from.hash === WORKTREE || to.hash === WORKTREE;
@@ -252,94 +264,97 @@ export function CompareApp({ root, layout: remembered }: Props) {
   };
 
   return (
-    <main className="commit-page compare-page">
-      <header className="commit-head">
-        <h1>Comparison</h1>
-        <div className="compare-sides">
-          <Side label="From" side={from} state={state} which="from" />
-          <button className="button icon" title="Compare in the other direction" aria-label="Swap the two sides" onClick={() => post({ type: 'swapCompare' })}>
-            <Icon name="arrow-swap" />
-          </button>
-          <Side label="To" side={to} state={state} which="to" />
-        </div>
-        <Summary view={view} />
-        <MergePreview view={view} />
-        <PathFilter path={path} />
-        <div className="commit-actions">
-          <div className="segmented" role="group" aria-label="What to compare">
-            <button
-              className={`button${diverged ? ' on' : ''}`}
-              aria-pressed={diverged}
-              disabled={!base}
-              title={
-                base
-                  ? `What ${to.name} changed since it left ${from.name}, as a pull request shows it: git diff ${from.name}...${to.name}`
-                  : 'Their histories never meet'
-              }
-              onClick={() => setMode('diverged')}
-            >
-              <Icon name="git-merge" />
-              Since they diverged
+    <>
+      {progress}
+      <main className={comparing ? 'commit-page compare-page stale' : 'commit-page compare-page'}>
+        <header className="commit-head">
+          <h1>Comparison</h1>
+          <div className="compare-sides">
+            <Side label="From" side={from} state={state} which="from" />
+            <button className="button icon" title="Compare in the other direction" aria-label="Swap the two sides" onClick={() => post({ type: 'swapCompare' })}>
+              <Icon name="arrow-swap" />
             </button>
-            <button
-              className={`button${diverged ? '' : ' on'}`}
-              aria-pressed={!diverged}
-              title={`Everything that differs between the two: git diff ${from.name} ${to.name}`}
-              onClick={() => setMode('direct')}
-            >
-              <Icon name="git-compare" />
-              Everything that differs
-            </button>
+            <Side label="To" side={to} state={state} which="to" />
           </div>
-          {files.length > 0 && (
-            <button className="button" onClick={() => post({ type: 'openChanges', source, files, title })}>
-              <Icon name="diff-multiple" />
-              Open in the diff editor
-            </button>
+          <Summary view={view} />
+          <MergePreview view={view} />
+          <PathFilter path={path} />
+          <div className="commit-actions">
+            <div className="segmented" role="group" aria-label="What to compare">
+              <button
+                className={`button${diverged ? ' on' : ''}`}
+                aria-pressed={diverged}
+                disabled={!base}
+                title={
+                  base
+                    ? `What ${to.name} changed since it left ${from.name}, as a pull request shows it: git diff ${from.name}...${to.name}`
+                    : 'Their histories never meet'
+                }
+                onClick={() => setMode('diverged')}
+              >
+                <Icon name="git-merge" />
+                Since they diverged
+              </button>
+              <button
+                className={`button${diverged ? '' : ' on'}`}
+                aria-pressed={!diverged}
+                title={`Everything that differs between the two: git diff ${from.name} ${to.name}`}
+                onClick={() => setMode('direct')}
+              >
+                <Icon name="git-compare" />
+                Everything that differs
+              </button>
+            </div>
+            {files.length > 0 && (
+              <button className="button" onClick={() => post({ type: 'openChanges', source, files, title })}>
+                <Icon name="diff-multiple" />
+                Open in the diff editor
+              </button>
+            )}
+            {files.length > 0 && (
+              <button className="button" title="Copy the changes as a patch that git apply takes" onClick={() => post({ type: 'copyComparePatch' })}>
+                <Icon name="copy" />
+                Copy as patch
+              </button>
+            )}
+            {state?.github && !worktree && from.hash !== to.hash && (
+              <button className="button" title="Compare the two on GitHub, once they are pushed" onClick={() => post({ type: 'openCompareOnGitHub' })}>
+                <Icon name="github" />
+                Open on GitHub
+              </button>
+            )}
+          </div>
+        </header>
+  
+        <CompareCommits key={`${from.hash} ${to.hash}`} view={view} />
+  
+        {/* Other sides are another list: what was folded or unfolded in it does not carry over. */}
+        <FileChanges
+          key={`${since} ${to.hash} ${path}`}
+          files={files}
+          patch={lines}
+          source={source}
+          title={title}
+          layout={layout}
+          onLayout={choose}
+          note={
+            <>
+              {path && <span className="muted"> in {path}</span>}
+              {diverged && files.length > 0 && base !== from.hash && <span className="muted"> since they diverged</span>}
+            </>
+          }
+          fileActions={to.hash === WORKTREE ? undefined : (file) => [takeAction(file, to)]}
+        >
+          {!files.length && diverged && from.hash !== to.hash && (
+            <p className="muted">
+              {to.name} has changed nothing since it left {from.name}.{' '}
+              <button className="link" onClick={() => setMode('direct')}>
+                Show everything that differs
+              </button>
+            </p>
           )}
-          {files.length > 0 && (
-            <button className="button" title="Copy the changes as a patch that git apply takes" onClick={() => post({ type: 'copyComparePatch' })}>
-              <Icon name="copy" />
-              Copy as patch
-            </button>
-          )}
-          {state?.github && !worktree && from.hash !== to.hash && (
-            <button className="button" title="Compare the two on GitHub, once they are pushed" onClick={() => post({ type: 'openCompareOnGitHub' })}>
-              <Icon name="github" />
-              Open on GitHub
-            </button>
-          )}
-        </div>
-      </header>
-
-      <CompareCommits key={`${from.hash} ${to.hash}`} view={view} />
-
-      {/* Other sides are another list: what was folded or unfolded in it does not carry over. */}
-      <FileChanges
-        key={`${since} ${to.hash} ${path}`}
-        files={files}
-        patch={lines}
-        source={source}
-        title={title}
-        layout={layout}
-        onLayout={choose}
-        note={
-          <>
-            {path && <span className="muted"> in {path}</span>}
-            {diverged && files.length > 0 && base !== from.hash && <span className="muted"> since they diverged</span>}
-          </>
-        }
-        fileActions={to.hash === WORKTREE ? undefined : (file) => [takeAction(file, to)]}
-      >
-        {!files.length && diverged && from.hash !== to.hash && (
-          <p className="muted">
-            {to.name} has changed nothing since it left {from.name}.{' '}
-            <button className="link" onClick={() => setMode('direct')}>
-              Show everything that differs
-            </button>
-          </p>
-        )}
-      </FileChanges>
-    </main>
+        </FileChanges>
+      </main>
+    </>
   );
 }

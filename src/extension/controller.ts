@@ -358,17 +358,17 @@ export class Controller implements vscode.Disposable {
   }
 
   /**
-   * Reads the graph again, telling the views what for while they wait. Reads that overlap are one wait: the views are
-   * told it is over when the last of them is, and what for by the first.
+   * Reads the graph again, or does what ends with that, telling the views what for while they wait. Reads that overlap
+   * are one wait: the views are told it is over when the last of them is, and what for by the first.
    */
-  private async reload(what: Loading): Promise<void> {
+  private async reload(what: Loading, work = () => this.refresh()): Promise<void> {
     if (this.waiting) this.waiting.count++;
     else {
       this.waiting = { what, count: 1 };
       this.post({ type: 'loading', what });
     }
     try {
-      await this.refresh();
+      await work();
     } finally {
       if (!--this.waiting!.count) {
         this.waiting = null;
@@ -797,9 +797,12 @@ export class Controller implements vscode.Disposable {
       if (!open() || (!again && !changing && tab.shown === key)) return;
       tab.shown = key;
       panel.title = compareTitle(from, to, path);
+      // What the user changed shows a wait until it is compared; the working tree compared again as it changes does not.
+      if (again) this.post({ type: 'loading', what: 'filter' }, webview);
       const found = await repo.compareSides(from.hash, to.hash, mode, path);
-      // The sides changed again meanwhile: the answer for them is the one to send.
+      // The sides changed again meanwhile: the answer for them is the one to send, and the end of any wait.
       if (tab.shown !== key || !open()) return;
+      this.post({ type: 'loading', what: null }, webview);
       if (!found) return this.post({ type: 'compareView', view: null, error: 'These are not commits of this repository.' }, webview);
       tab.since = found.since;
       this.post({ type: 'compareView', view: { from: { ...from }, to: { ...to }, mode, ...found } }, webview);
@@ -809,6 +812,7 @@ export class Controller implements vscode.Disposable {
       tab.shown = undefined;
       if (!open()) return;
       this.log.error(errorText(error));
+      this.post({ type: 'loading', what: null }, webview);
       this.post({ type: 'compareView', view: null, error: errorText(error) }, webview);
     }
   }
@@ -1364,11 +1368,14 @@ export class Controller implements vscode.Disposable {
     this.undoable = undefined;
     if (!root) return this.setState(null);
     this.scope = this.memento.get<Record<string, Scope>>(SCOPE_KEY, {})[root] ?? null;
-    this.repo = new Repo(root, (command) => this.log.debug(command));
-    this.watch(root, await this.repo.commonDir());
-
-    await this.detectGitHub(this.repo);
-    await this.refresh();
+    const repo = new Repo(root, (command) => this.log.debug(command));
+    this.repo = repo;
+    // The commits of the repository before stay in the views until those of this one come.
+    await this.reload('filter', async () => {
+      this.watch(root, await repo.commonDir());
+      await this.detectGitHub(repo);
+      await this.refresh();
+    });
   }
 
   /** Works out whether the main remote is a repository on GitHub. */
