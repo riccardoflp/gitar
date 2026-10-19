@@ -113,13 +113,12 @@ interface DiffProps {
   onToggle(): void;
   onOpen(): void;
   actions?: FileAction[];
-  /** Its code is colored as the editor colors it. */
-  colored: boolean;
 }
 
-function FileDiff({ entry, open, onToggle, onOpen, actions, colored }: DiffProps) {
+function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
   const { file, patch } = entry;
-  const colors = useColors(file.path, patch?.hunks, colored && open);
+  // Its code in the colors the editor gives it, once it is unfolded.
+  const colors = useColors(file.path, patch?.hunks, open);
   const inEditor = (
     <button className="link" onClick={onOpen}>
       Open it in the diff editor
@@ -175,15 +174,13 @@ interface Props {
    */
   diffs?: boolean;
   onDiffs?(shown: boolean): void;
-  /** The code of the changes is colored as the editor colors it. */
-  colored?: boolean;
 }
 
 /**
  * The files that changed, as a tree or as a list, and under them what changed in each, file after file: the page of
  * a commit, or of a comparison.
  */
-export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, diffs, onDiffs, colored = false }: Props) {
+export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, diffs, onDiffs }: Props) {
   const onDemand = !!onDiffs;
   const shown = !onDemand || !!diffs;
   const [folded, setFolded] = useState(NONE);
@@ -303,7 +300,6 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
                 onToggle={() => setChosen((current) => new Map(current).set(entry.id, !isOpen(entry)))}
                 onOpen={() => openDiff(entry)}
                 actions={fileActions?.(entry.file)}
-                colored={colored}
               />
             ))}
         </section>

@@ -39,7 +39,7 @@ const builds = [
     target: 'es2022',
     loader: { '.ttf': 'file' },
   },
-  // The colors of the code in the changes of a comparison: the page imports it only once it shows them, and the grammars
+  // The colors of the code in the changes of a commit or a comparison: the page imports it only once it shows them, and the grammars
   // of shiki come in chunks of their own as a file needs them.
   {
     ...common,
