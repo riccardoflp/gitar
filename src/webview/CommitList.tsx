@@ -11,7 +11,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { fitGraph, laneCount } from '../shared/graph';
-import { WORKTREE, type GraphRow, type Row } from '../shared/protocol';
+import { WORKTREE, type GraphRow, type Loading, type Row } from '../shared/protocol';
 import { Icon } from './Icon';
 import { Sash } from './Sash';
 import { endDrag, startDrag, type DragSource } from './drag';
@@ -35,6 +35,8 @@ interface Props {
   /** What to say in their place when there are none. */
   empty: string;
   hasMore: boolean;
+  /** What the extension is reading the commits for, while it does. */
+  loading: Loading | null;
   labels: Map<string, Label[]>;
   /** Hashes matching the search, or null when there is no search. */
   matches: string[] | null;
@@ -119,7 +121,7 @@ const Graph = memo(function Graph({ graph, width, height, lane, hollow }: GraphP
 });
 
 export function CommitList(props: Props) {
-  const { rows, empty, hasMore, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
+  const { rows, empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
   const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall } = props;
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -196,9 +198,14 @@ export function CommitList(props: Props) {
     scrollTo(next, false);
   };
 
+  const listClasses = ['commits'];
+  if (fit.cut) listClasses.push('cut');
+  // The commits of the filter before stay until those of the new one come, but they are no longer what is asked for.
+  if (loading === 'filter') listClasses.push('stale');
+
   return (
     <div
-      className={fit.cut ? 'commits cut' : 'commits'}
+      className={listClasses.join(' ')}
       ref={scroller}
       tabIndex={0}
       role="listbox"
@@ -207,7 +214,12 @@ export function CommitList(props: Props) {
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       onKeyDown={onKeyDown}
     >
-      {!rows.length && <div className="empty">{empty}</div>}
+      {loading && (
+        <div className="progress" role="progressbar" aria-label={loading === 'more' ? 'Loading more commits' : 'Loading commits'}>
+          <div className="bit" />
+        </div>
+      )}
+      {!rows.length && <div className="empty">{loading === 'filter' ? 'Loading commits…' : empty}</div>}
       {/* It stays where it is while the commits scroll under it. */}
       {rows.length > 0 && (
         <div className="graph-edge" style={{ '--graph': `${fit.width}px`, '--list-height': `${height}px` } as CSSProperties}>
@@ -220,7 +232,8 @@ export function CommitList(props: Props) {
           />
         </div>
       )}
-      <div className="spacer" style={{ height: rows.length * rowHeight }}>
+      {/* With more to load, one more row says so at the end, where scrolling gets before they come. */}
+      <div className="spacer" style={{ height: (rows.length + (hasMore ? 1 : 0)) * rowHeight }}>
         {rows.slice(start, end).map((row, offset) => {
           const index = start + offset;
           const worktree = row.hash === WORKTREE;
@@ -322,6 +335,12 @@ export function CommitList(props: Props) {
             </div>
           );
         })}
+        {hasMore && rows.length > 0 && (
+          <div className="row more" style={{ top: rows.length * rowHeight, height: rowHeight }} aria-hidden="true">
+            <Icon name="loading" spin />
+            Loading more commits…
+          </div>
+        )}
       </div>
     </div>
   );

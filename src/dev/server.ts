@@ -72,6 +72,7 @@ function page(theme: keyof typeof THEMES, data: Record<string, string>): string 
   --vscode-descriptionForeground: ${t.description};
   --vscode-panel-border: ${t.border};
   --vscode-focusBorder: #0078d4;
+  --vscode-progressBar-background: #0078d4;
   --vscode-list-hoverBackground: ${t.hover};
   --vscode-list-activeSelectionBackground: ${t.selection};
   --vscode-list-activeSelectionForeground: ${dark ? '#ffffff' : '#000000'};
@@ -231,7 +232,7 @@ async function main() {
       }
       case 'loadMore':
         limit += PAGE_SIZE;
-      // falls through
+        return state();
       case 'focus':
         return [];
       case 'ready':

@@ -42,6 +42,7 @@ import type {
   FilesLayout,
   Filter,
   HostMessage,
+  Loading,
   PullAction,
   PullRequest,
   RepoInfo,
@@ -170,6 +171,8 @@ export class Controller implements vscode.Disposable {
   private limit = PAGE_SIZE;
   /** The read of the repository under way, if any. */
   private loading?: Promise<void>;
+  /** What the views were told the graph is read for, and how many of those reads are not done yet. */
+  private waiting: { what: Loading; count: number } | null = null;
   /** How many operations were started, to tell a state that was read across one. */
   private operations = 0;
   /** Something changed since that read started. */
@@ -351,7 +354,27 @@ export class Controller implements vscode.Disposable {
     // As it is given: reading the repository leaves out what is not a branch of it.
     this.scope = scope && typeof scope === 'object' ? scope : null;
     this.limit = PAGE_SIZE;
-    await this.refresh();
+    await this.reload('filter');
+  }
+
+  /**
+   * Reads the graph again, telling the views what for while they wait. Reads that overlap are one wait: the views are
+   * told it is over when the last of them is, and what for by the first.
+   */
+  private async reload(what: Loading): Promise<void> {
+    if (this.waiting) this.waiting.count++;
+    else {
+      this.waiting = { what, count: 1 };
+      this.post({ type: 'loading', what });
+    }
+    try {
+      await this.refresh();
+    } finally {
+      if (!--this.waiting!.count) {
+        this.waiting = null;
+        this.post({ type: 'loading', what: null });
+      }
+    }
   }
 
   /** The scope as git took it, without the branches deleted since they were chosen, is the one in use and the one remembered. */
@@ -390,7 +413,7 @@ export class Controller implements vscode.Disposable {
     const slow = filter?.kind === 'pickaxe' || filter?.kind === 'regex';
     if (slow) this.post({ type: 'busy', title: 'Searching' });
     try {
-      await this.refresh();
+      await this.reload('filter');
     } finally {
       if (slow) this.post({ type: 'busy', title: null });
     }
@@ -479,7 +502,7 @@ export class Controller implements vscode.Disposable {
     const pages = Math.floor(index / PAGE_SIZE) + 1;
     const same = this.filter === shown && this.scope === scope;
     this.limit = Math.max(same ? this.limit : PAGE_SIZE, pages * PAGE_SIZE);
-    await this.refresh();
+    await this.reload(same ? 'more' : 'filter');
   }
 
   /** Selects, in the view that asked, the commit that a hash or anything else git understands stands for. */
@@ -1614,6 +1637,7 @@ export class Controller implements vscode.Disposable {
         // A view that has just loaded has nothing yet.
         this.sentRows.delete(webview);
         if (this.located && !this.loading) this.post({ type: 'state', state: this.state }, webview);
+        if (this.waiting) this.post({ type: 'loading', what: this.waiting.what }, webview);
         await this.refresh();
         return this.flushPending();
       case 'setFilter':
@@ -1661,7 +1685,7 @@ export class Controller implements vscode.Disposable {
         return this.refresh();
       case 'loadMore':
         this.limit += PAGE_SIZE;
-        return this.refresh();
+        return this.reload('more');
       case 'getLog': {
         const limit = Math.min(Math.max(Math.trunc(Number(message.limit)) || 1, 1), LOG_LIMIT);
         const log = await this.repo?.branchLog(limit).catch(() => null);

@@ -798,6 +798,77 @@ input:focus-visible,
   color: var(--vscode-descriptionForeground);
 }
 
+/* The row after the last commit while there are more to load. */
+.row.more {
+  gap: 6px;
+  padding-left: 10px;
+  cursor: default;
+  color: var(--vscode-descriptionForeground);
+}
+
+.row.more:hover {
+  background: none;
+}
+
+/* The commits of the filter before, while those of the new one are read. */
+.commits.stale .spacer {
+  opacity: 0.5;
+  transition: opacity 0.2s 0.15s;
+}
+
+/* The bar of VS Code's own views while they load, along the top of the commits however far they are scrolled. */
+.commits .progress {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 2px;
+  margin-bottom: -2px;
+  overflow: hidden;
+  pointer-events: none;
+  /* Not for a read too short to wait for. */
+  opacity: 0;
+  animation: appear 0s 0.15s forwards;
+}
+
+@keyframes appear {
+  to {
+    opacity: 1;
+  }
+}
+
+.commits .progress .bit {
+  width: 2%;
+  height: 100%;
+  background: var(--vscode-progressBar-background);
+  animation: progress 4s linear infinite;
+}
+
+@keyframes progress {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(4900%);
+  }
+}
+
+/* Without things moving across the view: the whole bar fades in and out instead. */
+@media (prefers-reduced-motion: reduce) {
+  .commits .progress .bit {
+    width: 100%;
+    animation: pulse 2s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes pulse {
+  from {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .graph {
   flex: none;
 }

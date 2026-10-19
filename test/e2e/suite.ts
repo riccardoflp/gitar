@@ -2435,6 +2435,33 @@ export async function run(): Promise<void> {
     }
   });
 
+  await step('tells the views the graph is loading while a filter, a scope or the next page is read', async () => {
+    const graph = view('graph');
+    /** What the views were told from then on: the loading, and which filter each state was for. */
+    const told = (from: number) =>
+      posted.slice(from).flatMap((message) => {
+        if (message.type === 'loading') return [`loading ${message.what}`];
+        if (message.type === 'state') return [`state ${message.state?.filter?.kind ?? 'none'}`];
+        return [];
+      });
+    const sequence = async (message: WebviewMessage) => {
+      const from = posted.length;
+      await internals.onMessage(graph, message);
+      return told(from);
+    };
+    assert.deepEqual(await sequence({ type: 'setFilter', filter: { kind: 'path', path: 'b.txt' } }), ['loading filter', 'state path', 'loading null']);
+    assert.deepEqual(await sequence({ type: 'loadMore' }), ['loading more', 'state path', 'loading null']);
+    assert.deepEqual(await sequence({ type: 'setFilter', filter: null }), ['loading filter', 'state none', 'loading null']);
+    assert.deepEqual(await sequence({ type: 'setScope', scope: { kind: 'local' } }), ['loading filter', 'state none', 'loading null']);
+    await controller.setScope(null);
+
+    // Reads that overlap are one wait, over when the last one is.
+    const from = posted.length;
+    await Promise.all([internals.onMessage(graph, { type: 'loadMore' }), internals.onMessage(graph, { type: 'loadMore' })]);
+    const loading = told(from).filter((line) => line.startsWith('loading'));
+    assert.deepEqual(loading, ['loading more', 'loading null']);
+  });
+
   await step('updates the submodules after a checkout, cloning from a folder on disk once allowed, unless the settings say not to', async () => {
     const home = state().branch!;
     const config = vscode.workspace.getConfiguration('gitardo');

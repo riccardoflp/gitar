@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
-import { WORKTREE, type CommitDetail, type Comparison, type RepoState, type Row, type Search } from '../shared/protocol';
+import { WORKTREE, type CommitDetail, type Comparison, type Loading, type RepoState, type Row, type Search } from '../shared/protocol';
 import { worktreeOf } from '../shared/refs';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, type Label, type SelectMode } from './CommitList';
@@ -95,6 +95,7 @@ export function App({ compact = false }: { compact?: boolean }) {
   const [marked, setMarked] = useState<ReadonlySet<string>>(NONE);
   const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState<Loading | null>(null);
   const [query, setQuery] = useState('');
   const [find, setFind] = useState<Find | null>(null);
   const [reveal, setReveal] = useState<{ hash: string } | null>(null);
@@ -165,6 +166,8 @@ export function App({ compact = false }: { compact?: boolean }) {
         if (message.hash === selectedRef.current) setDetail(message.detail);
       } else if (message.type === 'busy') {
         setBusy(message.title);
+      } else if (message.type === 'loading') {
+        setLoading(message.what);
       } else if (message.type === 'comparison') {
         const { from, to } = message.comparison;
         if (from === comparingRef.current?.from && to === comparingRef.current.to) setComparison(message.comparison);
@@ -401,6 +404,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           rows={state.rows}
           empty={state.filter ? 'No commits found' : state.head ? 'No commits to show' : 'No commits yet'}
           hasMore={state.hasMore}
+          loading={loading}
           labels={labels}
           matches={matches}
           graphWidth={graphWidth}

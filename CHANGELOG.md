@@ -2,6 +2,12 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- The graph shows that it is loading. While the commits of a filter or of the branches just chosen are read, a bar runs along the top of the list and the commits of before are dimmed. While the next commits are read, as the list is scrolled down, the bar runs too, and the row after the last commit says that more are loading.
+
 ## 0.4.0 - 2026-10-19
 
 ### Changed
