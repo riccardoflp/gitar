@@ -10,4 +10,6 @@
 !dist/codicon.ttf
 !dist/flow/**
 dist/flow/**/*.map
+!dist/highlight/**
+dist/highlight/**/*.map
 !dist/flowWorker.js

@@ -118,7 +118,7 @@ body { background: ${t.background}; }
 </style>
 <link href="/webview.css" rel="stylesheet">
 </head>
-<body ${attributes}>
+<body class="vscode-${theme}" ${attributes}>
 <div id="root"></div>
 <script>
 window.acquireVsCodeApi = () => ({
@@ -297,6 +297,9 @@ async function main() {
         const patterns = { link: cleanPatterns(message.patterns.link), copy: cleanPatterns(message.patterns.copy) };
         return [{ type: 'worktreeSetupPreview', patterns: message.patterns, preview: await previewSetup(repo.root, patterns) }];
       }
+      // No theme of VS Code here: the page takes the colors of Dark+ or Light+.
+      case 'syntaxTheme':
+        return [{ type: 'syntaxTheme', theme: null }];
       case 'saveWorktreeSetup':
         setup[message.target] = message.patterns ? { link: cleanPatterns(message.patterns.link), copy: cleanPatterns(message.patterns.copy) } : {};
         return worktreeSetup();
@@ -331,7 +334,8 @@ async function main() {
             response.end(page(theme, { view, root: repo.root, files }));
           } else response.end(page(theme, commit && repo ? { view, commit, root: repo.root, files } : { view }));
         } else {
-          const file = path.join(assets, path.basename(url.pathname));
+          // In folders too, such as the script that colors code and its chunks: never out of the build.
+          const file = path.join(assets, ...url.pathname.split('/').filter((part) => part && part !== '..'));
           response.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream');
           response.end(fs.readFileSync(file));
         }

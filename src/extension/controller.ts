@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { ThemeService } from '../flow/theme';
 import { discoverRepos, repoName } from '../git/discover';
 import { GitError, formatCommand, git, writeFiles } from '../git/exec';
 import { compareRangeUrl, compareUrl, parseGitHubRemote, type GitHubRepo } from '../git/github';
@@ -208,6 +209,9 @@ export class Controller implements vscode.Disposable {
   /** The tabs of the comparisons, by their webview. */
   private readonly compareTabs = new Map<vscode.Webview, CompareTab>();
   private readonly pinned = new Map<vscode.Webview, Repo>();
+  /** The pages that color code, which are sent the colors of the theme again when it changes. */
+  private readonly colored = new Set<vscode.Webview>();
+  private readonly themes = new ThemeService();
   /** The tab where what new worktrees get is chosen, the repository it is of and what git ignores there, once looked at. */
   /** `saving` while the tab writes the settings one after the other, which it shows once they are all written. */
   private setupTab?: { panel: vscode.WebviewPanel; repo: Repo; entries: IgnoredEntry[] | null; saving: boolean };
@@ -243,6 +247,11 @@ export class Controller implements vscode.Disposable {
       this.onDidChangeState(() => {
         for (const tab of this.compareTabs.values()) void this.sendCompare(tab);
       }),
+      vscode.window.onDidChangeActiveColorTheme(async () => {
+        if (!this.colored.size) return;
+        const theme = (await this.themes.resolveActive()) ?? null;
+        for (const webview of this.colored) this.post({ type: 'syntaxTheme', theme }, webview);
+      }),
     ];
   }
 
@@ -263,6 +272,7 @@ export class Controller implements vscode.Disposable {
     return new vscode.Disposable(() => {
       listener.dispose();
       this.views.delete(webview);
+      this.colored.delete(webview);
       this.setFocused(webview, false);
     });
   }
@@ -1661,6 +1671,9 @@ export class Controller implements vscode.Disposable {
         return this.command(message.command);
       case 'pullRequest':
         return this.openPullRequest(message.branch);
+      case 'syntaxTheme':
+        this.colored.add(webview);
+        return this.post({ type: 'syntaxTheme', theme: (await this.themes.resolveActive()) ?? null }, webview);
       case 'getWorktreeSetup':
         return this.sendSetup(webview, message.rescan === true);
       case 'previewWorktreeSetup': {
@@ -1985,7 +1998,8 @@ export class Controller implements vscode.Disposable {
     const nonce = Array.from({ length: 32 }, () => Math.floor(Math.random() * 36).toString(36)).join('');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.js'));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.css'));
-    const csp = `default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';`;
+    // The scripts of the extension itself, besides the page's own: those that color code are imported once it shows some.
+    const csp = `default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};`;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

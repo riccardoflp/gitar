@@ -350,6 +350,7 @@ export function CompareApp({ root, layout: remembered }: Props) {
           fileActions={to.hash === WORKTREE ? undefined : (file) => [takeAction(file, to)]}
           diffs={diffs}
           onDiffs={setDiffs}
+          colored
         >
           {!files.length && diverged && from.hash !== to.hash && (
             <p className="muted">

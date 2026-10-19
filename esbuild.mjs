@@ -39,6 +39,18 @@ const builds = [
     target: 'es2022',
     loader: { '.ttf': 'file' },
   },
+  // The colors of the code in the changes of a comparison: the page imports it only once it shows them, and the grammars
+  // of shiki come in chunks of their own as a file needs them.
+  {
+    ...common,
+    entryPoints: { index: 'src/webview/highlight/index.ts' },
+    outdir: 'dist/highlight',
+    platform: 'browser',
+    format: 'esm',
+    splitting: true,
+    chunkNames: 'chunks/[name]-[hash]',
+    target: 'es2022',
+  },
   // Monaco's own worker: a webview cannot start one from its files, so the page loads it from a blob.
   {
     ...common,
@@ -60,7 +72,7 @@ const builds = [
 ];
 
 // The chunks are named by their hash: those of an earlier build would stay, and be packaged.
-fs.rmSync('dist/flow', { recursive: true, force: true });
+for (const folder of ['dist/flow', 'dist/highlight']) fs.rmSync(folder, { recursive: true, force: true });
 
 if (watch) {
   for (const options of builds) await (await esbuild.context(options)).watch();

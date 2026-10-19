@@ -1,3 +1,4 @@
+import type { SyntaxTheme } from '../flow/diff/protocol';
 import type { SetupPatterns, SetupPreview, SetupTarget, WorktreeSetupInfo } from './worktreeSetup';
 
 /** Pseudo-hash of the row that stands for uncommitted changes. */
@@ -517,6 +518,11 @@ export type HostMessage =
    * list of files disagree.
    */
   | { type: 'comparePatch'; since: string; to: string; patch: FilePatch[] | null }
+  /**
+   * The colors the theme of VS Code gives the code, once the page asked for them, and again whenever the theme changes.
+   * Null when the theme cannot be read: the page then takes those of Dark+ or Light+.
+   */
+  | { type: 'syntaxTheme'; theme: SyntaxTheme | null }
   | { type: 'busy'; title: string | null }
   /**
    * The graph is being read again: for a filter, a scope or a repository just chosen (`filter`), or for the commits
@@ -554,6 +560,8 @@ export type UiCommand =
 
 export type WebviewMessage =
   | { type: 'ready' }
+  /** The page colors code: it is sent the colors of the theme, now and whenever they change. */
+  | { type: 'syntaxTheme' }
   /** A view with a search box has the keyboard, or no longer: while it does, the key that searches is its own. */
   | { type: 'focus'; focused: boolean }
   | { type: 'refresh' }

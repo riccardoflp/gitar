@@ -1103,6 +1103,11 @@ try {
       const now = await inTab();
       return now.diffs ? now : null;
     });
+    // The script that colors their code is imported only now, past the policy of the page. The files here are text,
+    // which it has no colors for.
+    await until('the script that colors code', () =>
+      tab.evaluate(`performance.getEntriesByType('resource').some((entry) => entry.name.endsWith('/highlight/index.js'))`),
+    );
     await shot('compare-tab-direct');
     // Narrowed to one of the files, typed in the box of the page, and to all of them again.
     const all = seen.paths;

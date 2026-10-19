@@ -5,6 +5,7 @@ import { FILES_LIMIT, useCapped } from './Capped';
 import { ActionButtons, FileRow, Status, fileTitle, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
+import { useColors, type Colors, type Token } from './syntax';
 import { post } from './vscode';
 
 /** The diff of a file longer than this is left folded until it is asked for, as are the ones after this many lines are shown. */
@@ -34,8 +35,27 @@ function Stat({ patch }: { patch?: FilePatch }) {
   );
 }
 
-/** The lines of a diff, with the number each has in the file before and after. */
-const Lines = memo(function Lines({ hunks }: { hunks: Hunk[] }) {
+/** A piece of code in the color the theme gives it. */
+function Piece({ token }: { token: Token }) {
+  const style = token.style ?? 0;
+  if (!token.color && !style) return token.text;
+  const decoration = [style & 4 && 'underline', style & 8 && 'line-through'].filter(Boolean).join(' ');
+  return (
+    <span
+      style={{
+        color: token.color,
+        fontStyle: style & 1 ? 'italic' : undefined,
+        fontWeight: style & 2 ? 'bold' : undefined,
+        textDecoration: decoration || undefined,
+      }}
+    >
+      {token.text}
+    </span>
+  );
+}
+
+/** The lines of a diff, with the number each has in the file before and after, and their code in color once it is known. */
+const Lines = memo(function Lines({ hunks, colors }: { hunks: Hunk[]; colors?: Colors }) {
   let last = 0;
   const rows = hunks.map((hunk, at) => {
     const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(hunk.header);
@@ -55,13 +75,14 @@ const Lines = memo(function Lines({ hunks }: { hunks: Hunk[] }) {
       }
       const old = sign === '+' ? '' : before++;
       const now = sign === '-' ? '' : after++;
+      const pieces = colors?.[at]?.[index];
       return (
         <div key={index} className={sign === '+' ? 'line added' : sign === '-' ? 'line removed' : 'line'}>
           <span className="number">{old}</span>
           <span className="number">{now}</span>
           <span className="code">
             {sign}
-            {line.slice(1).replace(/\r$/, '')}
+            {pieces ? pieces.map((token, piece) => <Piece key={piece} token={token} />) : line.slice(1).replace(/\r$/, '')}
           </span>
         </div>
       );
@@ -92,10 +113,13 @@ interface DiffProps {
   onToggle(): void;
   onOpen(): void;
   actions?: FileAction[];
+  /** Its code is colored as the editor colors it. */
+  colored: boolean;
 }
 
-function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
+function FileDiff({ entry, open, onToggle, onOpen, actions, colored }: DiffProps) {
   const { file, patch } = entry;
+  const colors = useColors(file.path, patch?.hunks, colored && open);
   const inEditor = (
     <button className="link" onClick={onOpen}>
       Open it in the diff editor
@@ -106,7 +130,7 @@ function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
     if (patch.binary) body = <p className="muted diff-note">Binary file. {inEditor}</p>;
     else if (!patch.hunks) body = <p className="muted diff-note">Too long to show with the others. {inEditor}</p>;
     else if (!patch.hunks.length) body = <p className="muted diff-note">{file.status === 'R' ? 'Renamed, with no change to its text.' : 'No change to its text.'}</p>;
-    else body = <Lines hunks={patch.hunks} />;
+    else body = <Lines hunks={patch.hunks} colors={colors} />;
   }
   return (
     <section className="file-diff" id={entry.id} aria-label={file.path}>
@@ -151,13 +175,15 @@ interface Props {
    */
   diffs?: boolean;
   onDiffs?(shown: boolean): void;
+  /** The code of the changes is colored as the editor colors it. */
+  colored?: boolean;
 }
 
 /**
  * The files that changed, as a tree or as a list, and under them what changed in each, file after file: the page of
  * a commit, or of a comparison.
  */
-export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, diffs, onDiffs }: Props) {
+export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, diffs, onDiffs, colored = false }: Props) {
   const onDemand = !!onDiffs;
   const shown = !onDemand || !!diffs;
   const [folded, setFolded] = useState(NONE);
@@ -277,6 +303,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
                 onToggle={() => setChosen((current) => new Map(current).set(entry.id, !isOpen(entry)))}
                 onOpen={() => openDiff(entry)}
                 actions={fileActions?.(entry.file)}
+                colored={colored}
               />
             ))}
         </section>
