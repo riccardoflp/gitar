@@ -1094,7 +1094,14 @@ try {
     await tab.click('.segmented .button', 'Everything that differs');
     seen = await until('everything that differs', async () => {
       const now = await inTab();
-      return now.modes[1].endsWith('(on)') && now.files.length && now.diffs ? now : null;
+      return now.modes[1].endsWith('(on)') && now.files.length ? now : null;
+    });
+    // The changes of the files are in the page only once asked for.
+    assert(!seen.paths.length, `changes shown before they were asked for: ${seen.paths}`);
+    await tab.click('.commit-diffs h2 .button', 'Show the changes');
+    seen = await until('the changes in the page', async () => {
+      const now = await inTab();
+      return now.diffs ? now : null;
     });
     await shot('compare-tab-direct');
     // Narrowed to one of the files, typed in the box of the page, and to all of them again.

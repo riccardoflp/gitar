@@ -145,13 +145,21 @@ interface Props {
   children?: ReactNode;
   /** What else can be done with a file, besides opening it in the diff editor. */
   fileActions?(file: FileChange): FileAction[];
+  /**
+   * Given when the changes are shown only once asked for, with a button: whether they are now. A file listed then
+   * opens in the diff editor, rather than at its changes in the page.
+   */
+  diffs?: boolean;
+  onDiffs?(shown: boolean): void;
 }
 
 /**
  * The files that changed, as a tree or as a list, and under them what changed in each, file after file: the page of
  * a commit, or of a comparison.
  */
-export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions }: Props) {
+export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, diffs, onDiffs }: Props) {
+  const onDemand = !!onDiffs;
+  const shown = !onDemand || !!diffs;
   const [folded, setFolded] = useState(NONE);
   // The diffs unfolded or folded by hand: the others are as their length says.
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -180,6 +188,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
 
   const openDiff = (entry: Entry) => post({ type: 'openDiff', source, file: entry.file });
   const show = (entry: Entry) => {
+    onDiffs?.(true);
     setChosen((current) => new Map(current).set(entry.id, true));
     // Once it is unfolded: the page is as long as its diffs.
     requestAnimationFrame(() => document.getElementById(entry.id)?.scrollIntoView({ block: 'start' }));
@@ -189,9 +198,14 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
       key={entry.file.path}
       file={entry.file}
       depth={depth}
-      onOpen={() => show(entry)}
+      onOpen={() => (onDemand ? openDiff(entry) : show(entry))}
       extra={<Stat patch={entry.patch} />}
-      actions={[...(fileActions?.(entry.file) ?? []), { icon: 'diff', title: 'Open in the diff editor', run: () => openDiff(entry) }]}
+      actions={[
+        ...(fileActions?.(entry.file) ?? []),
+        onDemand
+          ? { icon: 'eye', title: 'Show its changes in this page', run: () => show(entry) }
+          : { icon: 'diff', title: 'Open in the diff editor', run: () => openDiff(entry) },
+      ]}
     />
   );
 
@@ -231,15 +245,21 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
         <section className="commit-diffs" aria-label="Changes">
           <h2>
             <span className="grow">Changes</span>
-            {patch && (
+            {shown && patch && (
               <button className="button" onClick={() => setChosen(new Map(listed.map((entry) => [entry.id, !allOpen])))}>
                 <Icon name={allOpen ? 'fold' : 'unfold'} />
                 {allOpen ? 'Fold all' : 'Unfold all'}
               </button>
             )}
+            {onDemand && (
+              <button className="button show-diffs" aria-pressed={shown} title={shown ? 'Take the changes of the files off the page' : 'Show the changes of every file in this page'} onClick={() => onDiffs(!shown)}>
+                <Icon name={shown ? 'eye-closed' : 'eye'} />
+                {shown ? 'Hide the changes' : 'Show the changes'}
+              </button>
+            )}
           </h2>
-          {patch === undefined && <p className="muted">Loading the changes…</p>}
-          {patch === null && (
+          {shown && patch === undefined && <p className="muted">Loading the changes…</p>}
+          {shown && patch === null && (
             <p className="muted">
               Git lists these changes in a way that cannot be shown here.{' '}
               <button className="link" onClick={() => post({ type: 'openChanges', source, files, title })}>
@@ -247,7 +267,8 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
               </button>
             </p>
           )}
-          {patch &&
+          {shown &&
+            patch &&
             listed.map((entry) => (
               <FileDiff
                 key={entry.id}

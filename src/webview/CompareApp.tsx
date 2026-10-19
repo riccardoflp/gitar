@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { WORKTREE, type CompareMode, type CompareSide, type CompareView, type DiffSource, type FileChange, type FilePatch, type FilesLayout, type RepoState } from '../shared/protocol';
+import { BackToTop } from './BackToTop';
 import { CompareCommits } from './CompareCommits';
 import { FileChanges } from './FileChanges';
 import { Icon } from './Icon';
@@ -219,7 +220,10 @@ export function CompareApp({ root, layout: remembered }: Props) {
   const [layout, setLayout] = useState(remembered);
   // The sides, the way or the path just changed, while git compares them again.
   const [comparing, setComparing] = useState(false);
+  // The changes of the files are in the page only once asked for, and stay as the sides change.
+  const [diffs, setDiffs] = useState(false);
   const shown = useRef<CompareView | null | undefined>(undefined);
+  const page = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const stop = onMessage((message) => {
@@ -266,7 +270,7 @@ export function CompareApp({ root, layout: remembered }: Props) {
   return (
     <>
       {progress}
-      <main className={comparing ? 'commit-page compare-page stale' : 'commit-page compare-page'}>
+      <main ref={page} className={comparing ? 'commit-page compare-page stale' : 'commit-page compare-page'}>
         <header className="commit-head">
           <h1>Comparison</h1>
           <div className="compare-sides">
@@ -344,6 +348,8 @@ export function CompareApp({ root, layout: remembered }: Props) {
             </>
           }
           fileActions={to.hash === WORKTREE ? undefined : (file) => [takeAction(file, to)]}
+          diffs={diffs}
+          onDiffs={setDiffs}
         >
           {!files.length && diverged && from.hash !== to.hash && (
             <p className="muted">
@@ -355,6 +361,7 @@ export function CompareApp({ root, layout: remembered }: Props) {
           )}
         </FileChanges>
       </main>
+      <BackToTop page={page} />
     </>
   );
 }
