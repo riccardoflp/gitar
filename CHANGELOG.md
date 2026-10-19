@@ -9,6 +9,13 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - The graph shows that it is loading. While the commits of a filter or of the branches just chosen are read, a bar runs along the top of the list and the commits of before are dimmed. While the next commits are read, as the list is scrolled down, the bar runs too, and the row after the last commit says that more are loading. Switching to another repository shows the same bar while its commits are read.
 - The tab of a comparison runs the same bar along its top, and dims the commits and files it showed, while the two are compared again after a side, the way to compare or the path changed. **Load more commits…** in the Commits view says that they are loading until they come.
 - The file blame keeps saying whose the lines in sight are when the first line of their commit is scrolled out of sight: with `gitardo.fileBlame.groupLines` on, the first line in sight says it too.
+- The code in the diffs of the tab of a commit and of a comparison is in the colors your theme gives it in the editor, or those of Dark+ and Light+ when the theme cannot be read. What colors it is loaded only once diffs are shown.
+- Once the tab of a commit or of a comparison is scrolled down, a round button in its corner takes it back to the top.
+
+### Changed
+
+- In the tab of a commit and of a comparison, a click on a file opens it in the diff editor, as it does everywhere else, rather than going to its changes in the page.
+- The diffs of the files are in those tabs only once **Show the changes** is pressed, and **Hide the changes** takes them away. The eye on the row of a file shows them and goes to that file.
 
 ## 0.4.0 - 2026-10-19
 
