@@ -2524,3 +2524,20 @@ input:focus-visible,
   margin: 0;
   accent-color: var(--vscode-button-background);
 }
+
+/* The icon the file icon theme of VS Code gives a file or a folder: a picture, or a character of a font of the theme. */
+.file-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 22px;
+  line-height: 1;
+  background: no-repeat center / 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.file-icon::before {
+  content: attr(data-character);
+}

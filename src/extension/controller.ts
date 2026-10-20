@@ -32,6 +32,7 @@ import { WORKTREE, showsGraph } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { cleanPatterns, type IgnoredEntry } from '../shared/worktreeSetup';
 import { submoduleFolder } from '../shared/submodules';
+import { FileIcons } from './fileIcons';
 import type {
   Action,
   CompareMode,
@@ -212,6 +213,11 @@ export class Controller implements vscode.Disposable {
   /** The pages that color code, which are sent the colors of the theme again when it changes. */
   private readonly colored = new Set<vscode.Webview>();
   private readonly themes = new ThemeService();
+  /** The pages that show files, which are sent the icons of the file icon theme again when it changes. */
+  private readonly iconed = new Set<vscode.Webview>();
+  private readonly fileIcons: FileIcons;
+  /** The folders the pages may load files from: the build, and the extensions with icon themes. */
+  private roots: vscode.Uri[];
   /** The tab where what new worktrees get is chosen, the repository it is of and what git ignores there, once looked at. */
   /** `saving` while the tab writes the settings one after the other, which it shows once they are all written. */
   private setupTab?: { panel: vscode.WebviewPanel; repo: Repo; entries: IgnoredEntry[] | null; saving: boolean };
@@ -232,8 +238,12 @@ export class Controller implements vscode.Disposable {
     private readonly memento: vscode.Memento,
   ) {
     const schedule = () => this.scheduleRefresh();
+    this.fileIcons = new FileIcons(log);
+    this.roots = this.resourceRoots();
     this.subscriptions = [
       this.stateEmitter,
+      this.fileIcons,
+      this.fileIcons.onDidChange(() => this.sendFileIcons()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.locate()),
       vscode.workspace.onDidSaveTextDocument(schedule),
       vscode.workspace.onDidCreateFiles(schedule),
@@ -264,7 +274,7 @@ export class Controller implements vscode.Disposable {
   /** Loads the UI into a webview and wires it to this controller. `data` is written on the page for the view to read. */
   attach(webview: vscode.Webview, kind: ViewKind, data: Record<string, string> = {}): vscode.Disposable {
     const dist = vscode.Uri.joinPath(this.extensionUri, 'dist');
-    webview.options = { enableScripts: true, localResourceRoots: [dist] };
+    webview.options = { enableScripts: true, localResourceRoots: this.roots };
     // The session tells the page what it remembers from an earlier start of VS Code, for what is to start afresh each time.
     webview.html = this.html(webview, dist, { view: kind, session: vscode.env.sessionId, ...data });
     this.views.set(webview, kind);
@@ -273,6 +283,7 @@ export class Controller implements vscode.Disposable {
       listener.dispose();
       this.views.delete(webview);
       this.colored.delete(webview);
+      this.iconed.delete(webview);
       this.setFocused(webview, false);
     });
   }
@@ -1674,6 +1685,9 @@ export class Controller implements vscode.Disposable {
       case 'syntaxTheme':
         this.colored.add(webview);
         return this.post({ type: 'syntaxTheme', theme: (await this.themes.resolveActive()) ?? null }, webview);
+      case 'fileIcons':
+        this.iconed.add(webview);
+        return this.post({ type: 'fileIcons', theme: await this.fileIcons.for(webview) }, webview);
       case 'getWorktreeSetup':
         return this.sendSetup(webview, message.rescan === true);
       case 'previewWorktreeSetup': {
@@ -1984,6 +1998,23 @@ export class Controller implements vscode.Disposable {
     }
   }
 
+  private resourceRoots(): vscode.Uri[] {
+    return [vscode.Uri.joinPath(this.extensionUri, 'dist'), ...FileIcons.roots()];
+  }
+
+  /**
+   * Sends the pages that show files the icons of the file icon theme, which changed. An extension with icon themes
+   * added since they were opened is let in first: that loads them again, and they ask for the icons anew.
+   */
+  private sendFileIcons(): void {
+    const roots = this.resourceRoots();
+    if (roots.join('\n') !== this.roots.join('\n')) {
+      this.roots = roots;
+      for (const webview of this.views.keys()) webview.options = { ...webview.options, localResourceRoots: roots };
+    }
+    for (const webview of this.iconed) void this.fileIcons.for(webview).then((theme) => this.post({ type: 'fileIcons', theme }, webview));
+  }
+
   /** `data` becomes the `data-` attributes of the body, which is where the page reads what view it is. */
   private html(webview: vscode.Webview, dist: vscode.Uri, data: Record<string, string>): string {
     const escape = (text: string) => text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
@@ -1992,7 +2023,8 @@ export class Controller implements vscode.Disposable {
     const script = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.js'));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.css'));
     // The scripts of the extension itself, besides the page's own: those that color code are imported once it shows some.
-    const csp = `default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};`;
+    // Images and fonts also for the icons of the file icon theme.
+    const csp = `default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource};`;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

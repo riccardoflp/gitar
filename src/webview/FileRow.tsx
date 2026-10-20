@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { FileChange } from '../shared/protocol';
+import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
 
 export interface FileAction {
@@ -98,6 +99,7 @@ export function FileRow({ file, onOpen, actions, extra, depth, onPick, picked, m
       {onPick && <Check checked={!!picked} mixed={mixed} label={`${pickVerb} ${file.path}`} title={pickTitle} onChange={onPick} />}
       <button className="file-open" title={fileTitle(file)} onClick={onOpen}>
         <Status file={file} />
+        <FileIcon path={file.path} />
         <span className="name">{file.path.slice(slash + 1)}</span>
         {depth === undefined && slash > 0 && (
           <span className="dir">

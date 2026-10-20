@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import type { TreeNode } from '../shared/tree';
+import { FolderIcon, useFileIcons } from './FileIcon';
 import { INDENT } from './FileRow';
 import { Icon } from './Icon';
 
@@ -23,13 +24,17 @@ export const toggled = (set: ReadonlySet<string>, value: string) => {
 
 /** Files under their directories, each of which opens and closes. */
 export function FileTree<T>({ nodes, depth = 0, folded, onFold, row }: Props<T>) {
+  // A theme that draws folders open or closed can want no arrow beside them.
+  const theme = useFileIcons();
+  const arrows = !(theme?.hidesArrows && theme.folder);
   return nodes.map((node) => {
     if (node.item !== undefined) return <Fragment key={`file:${node.path}`}>{row(node.item, depth)}</Fragment>;
     const open = !folded.has(node.path);
     return (
       <div key={`directory:${node.path}`}>
         <button className="file directory" style={{ paddingLeft: 12 + depth * INDENT }} aria-expanded={open} onClick={() => onFold(node.path)}>
-          <Icon name={open ? 'chevron-down' : 'chevron-right'} />
+          {arrows && <Icon name={open ? 'chevron-down' : 'chevron-right'} />}
+          <FolderIcon path={node.path} open={open} />
           <span className="name">{node.name}</span>
         </button>
         {open && <FileTree nodes={node.children} depth={depth + 1} folded={folded} onFold={onFold} row={row} />}

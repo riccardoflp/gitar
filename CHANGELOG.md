@@ -14,6 +14,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - The file blame keeps saying whose the lines in sight are when the first line of their commit is scrolled out of sight: with `gitardo.fileBlame.groupLines` on, the first line in sight says it too.
 - The code in the diffs of the tab of a commit and of a comparison is in the colors your theme gives it in the editor, or those of Dark+ and Light+ when the theme cannot be read. What colors it is loaded only once diffs are shown.
 - Once the tab of a commit or of a comparison is scrolled down, a round button in its corner takes it back to the top.
+- Files have the icon your file icon theme gives them in the Explorer: in the Changes view, the details of a commit, the Commits and Stashes views and the tabs of a commit and of a comparison. The directories of a tree have theirs too when the theme has icons for folders, without the arrow beside them when the theme hides it. With the theme set to **None**, files are listed as before.
 
 ### Changed
 

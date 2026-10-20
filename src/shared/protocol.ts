@@ -1,4 +1,5 @@
 import type { SyntaxTheme } from '../flow/diff/protocol';
+import type { FileIconTheme } from './fileIcons';
 import type { SetupPatterns, SetupPreview, SetupTarget, WorktreeSetupInfo } from './worktreeSetup';
 
 /** Pseudo-hash of the row that stands for uncommitted changes. */
@@ -523,6 +524,11 @@ export type HostMessage =
    * Null when the theme cannot be read: the page then takes those of Dark+ or Light+.
    */
   | { type: 'syntaxTheme'; theme: SyntaxTheme | null }
+  /**
+   * The icons of the file icon theme of VS Code, once the page asked for them, and again whenever they change. Null when
+   * the user chose none, or when it cannot be read: the files are then shown with no icons, as in VS Code.
+   */
+  | { type: 'fileIcons'; theme: FileIconTheme | null }
   | { type: 'busy'; title: string | null }
   /**
    * The graph is being read again: for a filter, a scope or a repository just chosen (`filter`), or for the commits
@@ -562,6 +568,8 @@ export type WebviewMessage =
   | { type: 'ready' }
   /** The page colors code: it is sent the colors of the theme, now and whenever they change. */
   | { type: 'syntaxTheme' }
+  /** The page shows files: it is sent the icons of the file icon theme, now and whenever they change. */
+  | { type: 'fileIcons' }
   /** A view with a search box has the keyboard, or no longer: while it does, the key that searches is its own. */
   | { type: 'focus'; focused: boolean }
   | { type: 'refresh' }

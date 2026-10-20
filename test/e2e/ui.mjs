@@ -242,6 +242,37 @@ try {
     await until('the two changed files again', () => changes.evaluate(`document.querySelectorAll('.group .file').length === 2`));
   });
 
+  await step('the files have the icons of the file icon theme of VS Code, and none when the user chose None', async () => {
+    const changes = await webview('changes');
+    // Seti, the theme VS Code starts with, draws them with a font of its own, which the page must be let to load.
+    await until('the icons of Seti', () =>
+      changes.evaluate(`(async () => {
+        const icons = [...document.querySelectorAll('.group .file .file-icon')];
+        if (icons.length !== 2 || !icons.every((icon) => icon.dataset.character)) return false;
+        await document.fonts.ready;
+        return [...document.fonts].some((font) => font.family.startsWith('gitardo-file-icons') && font.status === 'loaded');
+      })()`),
+    );
+    await shot('file-icons-seti');
+    // Minimal draws them with pictures, from the folder of its extension.
+    setting('workbench.iconTheme', 'vs-minimal');
+    await until('the pictures of Minimal', () =>
+      changes.evaluate(`(async () => {
+        const icon = document.querySelector('.group .file .file-icon');
+        const picture = icon?.style.backgroundImage.slice(5, -2);
+        if (!picture) return false;
+        const image = new Image();
+        image.src = picture;
+        return image.decode().then(() => image.naturalWidth > 0, () => false);
+      })()`),
+    );
+    await shot('file-icons-minimal');
+    setting('workbench.iconTheme', null);
+    await until('no icons', () => changes.evaluate(`!document.querySelector('.file-icon') && document.querySelectorAll('.group .file').length === 2`));
+    setting('workbench.iconTheme', undefined);
+    await until('the icons of Seti again', () => changes.evaluate(`document.querySelectorAll('.group .file .file-icon').length === 2`));
+  });
+
   await step('stages a file by ticking its box, in the one list of changes, and commits it with a typed message', async () => {
     const changes = await webview('changes');
     assert((await changeBox(changes, null)).state === 'unstaged', 'nothing is staged yet');

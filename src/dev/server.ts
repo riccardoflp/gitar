@@ -6,16 +6,59 @@ import { parseGitHubRemote } from '../git/github';
 import { samePath } from '../git/parse';
 import { Repo } from '../git/repo';
 import { previewSetup, scanIgnored } from '../git/worktreeSetup';
+import { addressed, languageMap, readFileIconTheme } from '../extension/fileIconTheme';
 import { WORKTREE, type CompareMode, type Filter, type HostMessage, type Scope, type ViewKind, type WebviewMessage } from '../shared/protocol';
 import { cleanPatterns, type SetupLayer, type SetupSource } from '../shared/worktreeSetup';
 
-// Usage: node dist/dev-server.js [--port=5174] [folder...]   (every repository found in the folders can be chosen in the page)
+// Usage: node dist/dev-server.js [--port=5174] [--icon-theme=<file>] [folder...]   (every repository found in the folders can be chosen in the page)
 // Read-only: actions that would change the repository or open an editor are only logged.
 
 const PAGE_SIZE = 1000;
 const options = process.argv.slice(2).filter((argument) => argument.startsWith('--'));
 const port = Number(options.find((option) => option.startsWith('--port='))?.slice(7) ?? process.env.PORT ?? 5174);
 const assets = __dirname;
+
+/** Where VS Code keeps its own extensions, in the places it is installed in: newer versions on Windows in a folder of their own. */
+function builtInExtensions(): string | undefined {
+  const windows = path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Microsoft VS Code');
+  const versions = fs.existsSync(windows) ? fs.readdirSync(windows).map((name) => path.join(windows, name)) : [];
+  const apps = [windows, ...versions, '/usr/share/code'].map((folder) => path.join(folder, 'resources', 'app'));
+  apps.push('/Applications/Visual Studio Code.app/Contents/Resources/app');
+  return apps.map((app) => path.join(app, 'extensions')).find((folder) => fs.existsSync(path.join(folder, 'theme-seti')));
+}
+
+/**
+ * The file icon theme of the preview: the one given with `--icon-theme=` (its JSON file, or `none`), else Seti, the
+ * theme VS Code starts with, from where VS Code is installed. Its files are served from the folder of its extension.
+ */
+const extensions = builtInExtensions();
+const iconThemeOption = options.find((option) => option.startsWith('--icon-theme='))?.slice(13);
+const iconThemeFile =
+  iconThemeOption === 'none'
+    ? undefined
+    : iconThemeOption
+      ? path.resolve(iconThemeOption)
+      : extensions && path.join(extensions, 'theme-seti', 'icons', 'vs-seti-icon-theme.json');
+const iconThemeRoot = iconThemeFile && extensionFolder(iconThemeFile);
+
+/** The folder of the extension a file is in: the nearest with a manifest, else the file's own. */
+function extensionFolder(file: string): string {
+  for (let folder = path.dirname(file); folder !== path.dirname(folder); folder = path.dirname(folder)) {
+    if (fs.existsSync(path.join(folder, 'package.json'))) return folder;
+  }
+  return path.dirname(file);
+}
+
+/** The languages of the extensions of VS Code, for the icons a theme gives a language. */
+const languages = languageMap(
+  (extensions ? fs.readdirSync(extensions) : []).flatMap((name) => {
+    try {
+      return [JSON.parse(fs.readFileSync(path.join(extensions!, name, 'package.json'), 'utf8'))];
+    } catch {
+      return [];
+    }
+  }),
+);
 
 const THEMES = {
   dark: {
@@ -123,7 +166,7 @@ body { background: ${t.background}; }
 <script>
 window.acquireVsCodeApi = () => ({
   async postMessage(message) {
-    const response = await fetch('/message', { method: 'POST', body: JSON.stringify(message) });
+    const response = await fetch('/message?theme=${theme}', { method: 'POST', body: JSON.stringify(message) });
     for (const reply of await response.json()) window.postMessage(reply, '*');
   },
   getState: () => JSON.parse(sessionStorage.getItem('gitardo') || 'null'),
@@ -203,7 +246,8 @@ async function main() {
     return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', home: away } }];
   }
 
-  async function handle(message: WebviewMessage): Promise<HostMessage[]> {
+  /** `light` for a page in the light theme, which can have other file icons. */
+  async function handle(message: WebviewMessage, light: boolean): Promise<HostMessage[]> {
     switch (message.type) {
       case 'selectRepo': {
         const root = inRoots(message.root) ?? worktrees.find((dir) => samePath(dir, message.root));
@@ -300,6 +344,12 @@ async function main() {
       // No theme of VS Code here: the page takes the colors of Dark+ or Light+.
       case 'syntaxTheme':
         return [{ type: 'syntaxTheme', theme: null }];
+      case 'fileIcons': {
+        if (!iconThemeFile || !iconThemeRoot) return [{ type: 'fileIcons', theme: null }];
+        const theme = await readFileIconTheme(iconThemeFile, light ? 'light' : 'dark');
+        const address = (file: string) => `/icon-theme/${path.relative(iconThemeRoot, file).split(path.sep).map(encodeURIComponent).join('/')}`;
+        return [{ type: 'fileIcons', theme: addressed(theme, languages, address) }];
+      }
       case 'saveWorktreeSetup':
         setup[message.target] = message.patterns ? { link: cleanPatterns(message.patterns.link), copy: cleanPatterns(message.patterns.copy) } : {};
         return worktreeSetup();
@@ -309,7 +359,15 @@ async function main() {
     }
   }
 
-  const types: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf' };
+  const types: Record<string, string> = {
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.ttf': 'font/ttf',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+  };
 
   http
     .createServer(async (request, response) => {
@@ -319,7 +377,7 @@ async function main() {
           let body = '';
           for await (const chunk of request) body += chunk;
           response.setHeader('Content-Type', 'application/json');
-          response.end(JSON.stringify(await handle(JSON.parse(body))));
+          response.end(JSON.stringify(await handle(JSON.parse(body), url.searchParams.get('theme') === 'light')));
         } else if (url.pathname === '/') {
           response.setHeader('Content-Type', 'text/html');
           const theme = url.searchParams.get('theme') === 'light' ? 'light' : 'dark';
@@ -333,6 +391,13 @@ async function main() {
             compared = { from: url.searchParams.get('from') ?? 'HEAD~1', to: url.searchParams.get('to') ?? 'HEAD', mode, path: url.searchParams.get('path') };
             response.end(page(theme, { view, root: repo.root, files }));
           } else response.end(page(theme, commit && repo ? { view, commit, root: repo.root, files } : { view }));
+        } else if (url.pathname.startsWith('/icon-theme/') && iconThemeRoot) {
+          // The files of the file icon theme, never out of its extension.
+          const parts = url.pathname.slice(12).split('/').map(decodeURIComponent);
+          const file = path.join(iconThemeRoot, ...parts.filter((part) => part && part !== '..'));
+          if (!file.startsWith(iconThemeRoot + path.sep)) throw new Error(`Not a file of the icon theme: ${url.pathname}`);
+          response.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream');
+          response.end(fs.readFileSync(file));
         } else {
           // In folders too, such as the script that colors code and its chunks: never out of the build.
           const file = path.join(assets, ...url.pathname.split('/').filter((part) => part && part !== '..'));
