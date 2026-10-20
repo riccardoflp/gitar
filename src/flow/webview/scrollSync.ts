@@ -75,6 +75,28 @@ export class ScrollSync {
     ];
   }
 
+  /** Stops following the two editors, as for one that is hidden. */
+  detach(): void {
+    this.listeners.forEach((d) => d.dispose());
+    this.listeners = [];
+    this.left = this.right = this.model = undefined;
+  }
+
+  /** Brings the other editor to where this one is, as a scroll of this one would. */
+  alignTo(source: Editor): void {
+    const { left, right } = this;
+    if (!left || !right || (source !== left && source !== right)) {
+      return;
+    }
+    this.setAnchors();
+    this.expected.delete(source);
+    if (source === left) {
+      this.onScroll(left, right, true);
+    } else {
+      this.onScroll(right, left, false);
+    }
+  }
+
   private setAnchors(): void {
     const { left, right, model } = this;
     if (!left || !right || !model) {

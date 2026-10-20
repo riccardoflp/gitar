@@ -2236,6 +2236,28 @@ export async function run(): Promise<void> {
       await vscode.window.showTextDocument(shown.document);
       await vscode.commands.executeCommand('workbench.action.files.revert');
       assert.equal(fs.readFileSync(file, 'utf8'), marked);
+
+      // Mark as Resolved: with the markers still in, only after a question; then saved, staged, and the page closed.
+      await vscode.commands.executeCommand('gitardo.openInFlowMerge', vscode.Uri.file(file));
+      const [resolving] = await until('the Flow Merge', () => (panels().length ? panels() : undefined));
+      await until('the Flow Merge page to load', () => resolving.initSent);
+      const sendTo = (message: unknown) => (resolving as unknown as { onMessage(message: unknown): void }).onMessage(message);
+      asked.length = 0;
+      answer = () => undefined;
+      sendTo({ type: 'markResolved' });
+      await until('the question about the markers', () => asked.length > 0);
+      assert.match(asked[0].message, /b\.txt still has a conflict marked by git\. Mark it as resolved all the same/);
+      assert.equal(panels().length, 1, 'not resolved without an answer');
+      assert.deepEqual(state().working.conflicts, [{ status: 'U', path: 'b.txt' }]);
+      // An edit and the button right after it, as the page sends them: the edit is in the file before it is saved.
+      answer = run;
+      sendTo({ type: 'edit', text: 'bee\nmain\nfeature\n' });
+      sendTo({ type: 'markResolved' });
+      await until('the page closed', () => panels().length === 0);
+      assert.equal(fs.readFileSync(file, 'utf8'), 'bee\nmain\nfeature\n');
+      assert.equal(document()?.isDirty ?? false, false);
+      await until('the file staged', () => state().working.conflicts.length === 0);
+      assert.equal(state().operation, 'merge');
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       answer = run;

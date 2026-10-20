@@ -26,4 +26,6 @@ export type MergeWebviewMessage =
   /** The whole text of the result, as typed or chosen in it: the host puts it in the file, unsaved. */
   | { type: 'edit'; text: string }
   /** Ctrl+S in the page: save the file. */
-  | { type: 'saveFile' };
+  | { type: 'saveFile' }
+  /** The button of the result: save the file and stage it. */
+  | { type: 'markResolved' };

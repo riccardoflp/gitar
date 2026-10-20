@@ -1846,6 +1846,40 @@ try {
       await until('the conflict back', () => flow.evaluate(`document.querySelector('.fm-conflicts')?.textContent === '1 conflict left'`));
       await until('the markers back', async () => (await result()).includes('<<<<<<<'));
 
+      // Git took in the changes that needed no choice: there are none left to accept.
+      const simple = await flow.evaluate(`(() => { const button = document.querySelector('.fm-accept-simple'); return { disabled: button.disabled, title: button.title }; })()`);
+      assert(simple.disabled && simple.title === 'No changes to accept without a choice', `accept simple: ${JSON.stringify(simple)}`);
+
+      // The base, in a column at the left of the current side, joined to it by the bands of what it changed.
+      await flow.click('.fm-toggle-base');
+      const withBase = await until('the column of the base', () =>
+        flow.evaluate(`(() => {
+          const host = document.querySelector('.editor-host.fm-base');
+          if (!host || host.getBoundingClientRect().width < 50) return null;
+          return {
+            label: document.querySelector('.fm-label-base').textContent,
+            lines: [...host.querySelectorAll('.view-line')].length,
+            bands: document.querySelectorAll('.gutter.fm-base path.connector').length,
+          };
+        })()`),
+      );
+      assert(withBase.label.startsWith('Base') && withBase.lines >= 9 && withBase.bands >= 2, `base: ${JSON.stringify(withBase)}`);
+      await shot('flow-merge-base');
+      await flow.click('.fm-toggle-base');
+      await until('the base hidden', () => flow.evaluate(`document.querySelector('.editor-host.fm-base').getBoundingClientRect().width === 0`));
+
+      // Mark as Resolved with the markers still in asks first; Escape leaves the file in conflict.
+      await flow.click('.fm-resolve');
+      const question = await until('the question about the markers', async () => {
+        const now = await prompt();
+        return now?.kind === 'dialog' ? now : null;
+      });
+      assert(/shapes\.ts still has a conflict marked by git/.test(question.text), `question: ${question.text}`);
+      await shot('flow-merge-resolve-question');
+      await key('Escape');
+      await until('the question gone', async () => (await prompt())?.kind !== 'dialog');
+      assert(/^UU shapes\.ts$/m.test(git(app, 'status', '--porcelain').toString()), 'still in conflict');
+
       const back = await titleButton('Open in Merge Editor');
       await mouse(back.x, back.y);
       await until('the merge editor again', mergeEditor);

@@ -38,7 +38,7 @@ export class FlowDiff implements vscode.Disposable {
       navigateFile: (panel, direction) => void this.openAdjacentFile(panel, direction),
     });
     this.refresher = new Refresher(this.registry, refresh);
-    this.merge = new FlowMerge(extensionUri, this.engine, themes);
+    this.merge = new FlowMerge(extensionUri, this.engine, themes, runOp);
 
     const command = (id: string, handler: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(id, handler);
     this.disposables.push(

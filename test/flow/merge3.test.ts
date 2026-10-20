@@ -4,8 +4,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'vitest';
-import { computeMerge, mergeEditorStart } from '../../src/flow/diff/merge3';
-import { applyChoice, choiceLines, type MergeModel, paneChunks, replaceLines, resultLine } from '../../src/flow/diff/mergeModel';
+import { computeMerge, markerBlockCount, mergeEditorStart } from '../../src/flow/diff/merge3';
+import { applyChoice, applyChoices, baseChunks, choiceLines, type MergeModel, paneChunks, replaceLines, resultLine, simpleChoices } from '../../src/flow/diff/mergeModel';
 
 const labels = { languageId: 'plaintext', filePath: 'sample.txt', oursLabel: 'Current', theirsLabel: 'Incoming', resultLabel: 'Result' };
 const merge = (base: string, ours: string, theirs: string, result: string) => computeMerge({ base, ours, theirs, result, ...labels });
@@ -223,4 +223,50 @@ test('a choice made in the page moves the regions after it, as the model of the 
     assert.deepEqual(chosen.regions, computed.regions, choice);
     assert.deepEqual(chosen.markerLines, computed.markerLines, choice);
   }
+});
+
+test('the changes that need no choice are the ones of one side, and the conflicts git marked where the sides agree', () => {
+  const base = text('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i');
+  const ours = text('a', 'B', 'c', 'd', 'mine', 'f', 'g', 'h', 'i');
+  const theirs = text('a', 'b', 'c', 'D', 'yours', 'f', 'g', 'h', 'I');
+  // As the merge editor starts it: the base everywhere, the changes of each side to be taken again.
+  const model = merge(base, ours, theirs, base);
+  assert.deepEqual(
+    model.regions.map((region) => region.kind),
+    ['ours', 'conflict', 'theirs'],
+  );
+  assert.deepEqual(simpleChoices(model), [
+    { regionId: 0, choice: 'ours' },
+    { regionId: 2, choice: 'theirs' },
+  ]);
+  const accepted = applyChoices(model, simpleChoices(model));
+  assert.equal(accepted.result, text('a', 'B', 'c', 'd', 'e', 'f', 'g', 'h', 'I'));
+  assert.deepEqual(accepted.regions, merge(base, ours, theirs, accepted.result).regions);
+  // Nothing more once they are in.
+  assert.deepEqual(simpleChoices(merge(base, ours, theirs, accepted.result)), []);
+  // A conflict git marked, where the two sides wrote the same lines.
+  const agreed = merge(text('one', 'two'), text('one', 'same'), text('one', 'same'), text('one', '<<<<<<< HEAD', 'same', '=======', 'same', '>>>>>>> other'));
+  assert.deepEqual(simpleChoices(agreed), [{ regionId: 0, choice: 'ours' }]);
+});
+
+test('the base is joined to the current side, and a line of it opens the result where it stands', () => {
+  const base = text('a', 'b', 'c');
+  const ours = text('a', 'B', 'B2', 'c');
+  const theirs = text('a', 'b', 'c', 'd');
+  const model = merge(base, ours, theirs, text('a', 'B', 'B2', 'c', 'd'));
+  assert.deepEqual(
+    baseChunks(model.regions).map((chunk) => [chunk.leftStart, chunk.leftCount, chunk.rightStart, chunk.rightCount]),
+    [
+      [2, 1, 2, 2],
+      [3, 0, 4, 0],
+    ],
+  );
+  assert.equal(resultLine(model, 'base', 2), 2);
+  assert.equal(resultLine(model, 'base', 3), 4);
+});
+
+test('the conflicts marked in a text are counted where their markers pair up', () => {
+  assert.equal(markerBlockCount(text('a', '<<<<<<< HEAD', 'x', '=======', 'y', '>>>>>>> other', 'b')), 1);
+  assert.equal(markerBlockCount(text('a', '<<<<<<< HEAD', 'x', 'b')), 0);
+  assert.equal(markerBlockCount(text('a', 'b')), 0);
 });

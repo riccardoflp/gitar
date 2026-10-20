@@ -220,6 +220,11 @@ interface Block {
 
 const marks = (line: string, sign: string) => line.startsWith(sign.repeat(MARKER)) && (line.length === MARKER || line[MARKER] === ' ');
 
+/** How many conflicts git marked in a text with LF line endings, whose markers pair up. */
+export function markerBlockCount(text: string): number {
+  return markerBlocks(lines(text)).length;
+}
+
 /** The conflicts git marked in the result. Markers that do not pair up are not taken for any. */
 function markerBlocks(resultLines: string[]): Block[] {
   const found: Block[] = [];

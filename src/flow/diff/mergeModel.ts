@@ -69,13 +69,14 @@ export interface MergeModel {
  * The line of the result that a line of a pane stands for, for opening the file there: the same line past the
  * regions before it, and the start of the region it is in.
  */
-export function resultLine(model: Pick<MergeModel, 'regions'>, pane: 'ours' | 'theirs', line: number): number {
+export function resultLine(model: Pick<MergeModel, 'regions'>, pane: 'ours' | 'theirs' | 'base', line: number): number {
   let shift = 0;
   for (const region of model.regions) {
     const side = region[pane];
     const [from, to] = bounds(side);
     if (line <= from) break;
-    if (line <= to) return Math.max(1, bounds(pane === 'ours' ? region.resultOurs : region.resultTheirs)[0] + 1);
+    const there = pane === 'ours' ? region.resultOurs : pane === 'theirs' ? region.resultTheirs : region.result;
+    if (line <= to) return Math.max(1, bounds(there)[0] + 1);
     shift = bounds(region.result)[1] - to;
   }
   return Math.max(1, line + shift);
@@ -101,6 +102,22 @@ export function paneChunks(regions: MergeRegion[], left: 'ours' | 'result', righ
         rightCount: r.count,
       };
     });
+}
+
+/** The chunks from the base to the current side, for the bands and the scroll of the column of the base. */
+export function baseChunks(regions: MergeRegion[], only?: (region: MergeRegion) => boolean): DiffChunk[] {
+  return regions
+    .filter((region) => !only || only(region))
+    .map((region): DiffChunk => ({
+      id: region.id,
+      kind: region.base.count === 0 ? 'added' : region.ours.count === 0 ? 'removed' : 'modified',
+      rowStart: 0,
+      rowEnd: 0,
+      leftStart: region.base.start,
+      leftCount: region.base.count,
+      rightStart: region.ours.start,
+      rightCount: region.ours.count,
+    }));
 }
 
 /** The lines a choice puts in place of a region. */
@@ -153,6 +170,29 @@ export function applyChoice(model: MergeModel, regionId: number, choice: Choice)
     ),
     markerLines: model.markerLines.filter((line) => line <= from || line > to).map((line) => (line > to ? line + shift : line)),
   };
+}
+
+/** The model once each of the choices is put in place of its region, in order. */
+export function applyChoices(model: MergeModel, choices: { regionId: number; choice: Choice }[]): MergeModel {
+  return choices.reduce((current, { regionId, choice }) => applyChoice(current, regionId, choice), model);
+}
+
+/**
+ * The choices that need no one to make them: the side that changed a region where only one did, or both the same
+ * way, and either side where git marked a conflict that the two sides agree on, or where one of them is the base.
+ * Only where the result does not have it already.
+ */
+export function simpleChoices(model: MergeModel): { regionId: number; choice: Choice }[] {
+  const same = (one: string[], other: string[]) => one.length === other.length && one.every((line, index) => line === other[index]);
+  return model.regions.flatMap((region) => {
+    const of = (choice: Choice) => choiceLines(model, region, choice);
+    let choice: Choice | undefined;
+    if (region.kind === 'theirs') choice = 'theirs';
+    else if (region.kind !== 'conflict') choice = 'ours';
+    else if (same(of('ours'), of('theirs')) || same(of('theirs'), of('base'))) choice = 'ours';
+    else if (same(of('ours'), of('base'))) choice = 'theirs';
+    return choice && !same(of(choice), resultLines(model, region)) ? [{ regionId: region.id, choice }] : [];
+  });
 }
 
 /** The lines of the result in a region, to tell whether a choice would change them. */

@@ -1,16 +1,17 @@
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { CONFLICT_SIDES } from '../git/ops';
+import { CONFLICT_SIDES, stageOp } from '../git/ops';
 import { Repo } from '../git/repo';
 import { samePath } from '../git/parse';
 import type { Operation } from '../shared/protocol';
 import { CONFLICT, contentUri } from '../extension/content';
 import { normalizeEol } from './diff/hunks';
-import { mergeEditorStart } from './diff/merge3';
+import { markerBlockCount, mergeEditorStart } from './diff/merge3';
 import type { MergeModel } from './diff/mergeModel';
 import type { MergeHostMessage, MergeWebviewMessage } from './diff/mergeProtocol';
 import { minimalReplace, offsetToPosition } from './diff/textEdit';
+import type { RunOp } from './chunks';
 import type { DiffEngine } from './engine';
 import { inRepository } from './sides';
 import type { ThemeService } from './theme';
@@ -64,6 +65,7 @@ export class FlowMerge implements vscode.Disposable {
     private readonly extensionUri: vscode.Uri,
     private readonly engine: DiffEngine,
     private readonly themes: ThemeService,
+    private readonly runOp: RunOp,
   ) {
     const command = (id: string, handler: (...args: unknown[]) => unknown) => vscode.commands.registerCommand(id, handler);
     this.disposables.push(
@@ -104,10 +106,13 @@ export class FlowMerge implements vscode.Disposable {
     }
     const built = await buildMerge(this.engine, descriptor, true);
     if (!built) return false;
-    const panel = new MergePanel(this.extensionUri, descriptor, this.themes, viewColumn, () => {
-      this.panels.splice(this.panels.indexOf(panel), 1);
-      clearTimeout(this.timers.get(panel));
-      this.timers.delete(panel);
+    const panel = new MergePanel(this.extensionUri, descriptor, this.themes, viewColumn, {
+      onDispose: () => {
+        this.panels.splice(this.panels.indexOf(panel), 1);
+        clearTimeout(this.timers.get(panel));
+        this.timers.delete(panel);
+      },
+      markResolved: () => this.markResolved(panel),
     });
     this.panels.push(panel);
     panel.setModel(built.model, built.inputKey);
@@ -129,6 +134,27 @@ export class FlowMerge implements vscode.Disposable {
     // Once resolved and added, the file has no sides any more: the panel keeps what it showed last.
     const built = await buildMerge(this.engine, panel.descriptor, false, panel.inputKey);
     if (built && this.panels.includes(panel)) panel.setModel(built.model, built.inputKey);
+  }
+
+  /**
+   * The button of the page: the file saved and staged, which is how git is told a conflict is resolved, and the page
+   * closed. Markers of git still in it are asked about first: staged with them, they would be committed.
+   */
+  private async markResolved(panel: MergePanel): Promise<void> {
+    const { repoRoot, path: file } = panel.descriptor;
+    const document = await vscode.workspace.openTextDocument(fileUri(panel.descriptor));
+    const left = markerBlockCount(normalizeEol(document.getText()));
+    if (left > 0) {
+      const mark = 'Mark as Resolved';
+      const choice = await vscode.window.showWarningMessage(
+        `${path.posix.basename(file)} still has ${left === 1 ? 'a conflict' : `${left} conflicts`} marked by git. Mark it as resolved all the same, with the markers in it?`,
+        { modal: true },
+        mark,
+      );
+      if (choice !== mark) return;
+    }
+    if (document.isDirty && !(await document.save())) return;
+    if (await this.runOp(repoRoot, stageOp([file]))) panel.close();
   }
 
   private active(): MergePanel | undefined {
@@ -243,6 +269,7 @@ export class MergePanel {
   private modelInputKey: string | undefined;
   private webviewReady = false;
   private closing = false;
+  private queue: Promise<void> = Promise.resolve();
   /** Whether the page has its first model; public for the tests. */
   initSent = false;
 
@@ -251,7 +278,7 @@ export class MergePanel {
     readonly descriptor: MergeDescriptor,
     private readonly themes: ThemeService,
     viewColumn: vscode.ViewColumn | undefined,
-    onDispose: () => void,
+    private readonly handlers: { onDispose: () => void; markResolved: () => Promise<void> },
   ) {
     this.panel = vscode.window.createWebviewPanel(MergePanel.viewType, `${path.posix.basename(descriptor.path)} (Current ↔ Incoming)`, viewColumn ?? vscode.ViewColumn.Active, {
       enableScripts: true,
@@ -263,7 +290,7 @@ export class MergePanel {
     this.panel.onDidDispose(
       () => {
         this.disposables.forEach((d) => d.dispose());
-        onDispose();
+        handlers.onDispose();
         // Closed with what was chosen or typed in it not saved: the file shows in an editor, not to be forgotten.
         if (!this.closing) void this.showIfUnsaved(viewColumn);
       },
@@ -333,6 +360,11 @@ export class MergePanel {
   }
 
   private onMessage(message: MergeWebviewMessage): void {
+    // What changes the file runs in the order it was sent: an edit before a save, a save before the staging.
+    if (message.type === 'edit' || message.type === 'saveFile' || message.type === 'markResolved') {
+      this.queue = this.queue.then(() => this.run(message)).catch(() => {});
+      return;
+    }
     switch (message.type) {
       case 'ready':
         this.webviewReady = true;
@@ -343,12 +375,18 @@ export class MergePanel {
         void vscode.window.showTextDocument(fileUri(this.descriptor), { selection: new vscode.Range(line, 0, line, 0), preview: false });
         break;
       }
+    }
+  }
+
+  private async run(message: Extract<MergeWebviewMessage, { type: 'edit' | 'saveFile' | 'markResolved' }>): Promise<void> {
+    switch (message.type) {
       case 'edit':
-        void this.applyWebviewEdit(message.text);
-        break;
+        return this.applyWebviewEdit(message.text);
       case 'saveFile':
-        void vscode.workspace.openTextDocument(fileUri(this.descriptor)).then((document) => document.save());
-        break;
+        await (await vscode.workspace.openTextDocument(fileUri(this.descriptor))).save();
+        return;
+      case 'markResolved':
+        return this.handlers.markResolved();
     }
   }
 

@@ -2,7 +2,8 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import 'monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css';
 import type { DiffChunk } from '../diff/model';
 import {
-  applyChoice,
+  applyChoices,
+  baseChunks,
   type Choice,
   choiceLines,
   type LineHighlight,
@@ -12,6 +13,7 @@ import {
   paneChunks,
   resultLine,
   resultLines,
+  simpleChoices,
 } from '../diff/mergeModel';
 import type { MergeHostMessage, MergeSettings, MergeWebviewMessage } from '../diff/mergeProtocol';
 import type { SyntaxTheme } from '../diff/protocol';
@@ -30,9 +32,14 @@ import './merge.css';
  */
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
-type Pane = 'ours' | 'result' | 'theirs';
+type Pane = 'base' | 'ours' | 'result' | 'theirs';
 
-declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
+/** What the page keeps of itself while it is hidden or reloaded. */
+interface PageState {
+  showBase?: boolean;
+}
+
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): PageState | undefined; setState(state: PageState): void };
 
 const vscodeApi = acquireVsCodeApi();
 const root = document.getElementById('app') as HTMLElement;
@@ -41,9 +48,12 @@ setupMonacoEnvironment(root.dataset.worker ?? '');
 interface Layout {
   labels: Record<Pane, HTMLElement>;
   hosts: Record<Pane, HTMLElement>;
-  gutters: { left: HTMLElement; right: HTMLElement };
+  gutters: { base: HTMLElement; left: HTMLElement; right: HTMLElement };
   resultName: HTMLElement;
 }
+
+const BASE_LABEL = 'Base — What the two sides started from';
+let showBase = vscodeApi.getState()?.showBase ?? false;
 
 let model: MergeModel | undefined;
 let layout: Layout | undefined;
@@ -57,7 +67,7 @@ let applyingRemote = false;
 let localDirty = false;
 let editTimer: number | undefined;
 /** A choice clicked while what was typed was on its way: made once the model of that text is back. */
-let pending: { regionId: number; choice: Choice } | undefined;
+let pending: (() => void) | undefined;
 
 /** The buttons of the bands: each puts one side, or both, in place of the region in the result. */
 type MergeAction = 'acceptOurs' | 'acceptTheirs' | 'acceptOursThenTheirs' | 'acceptTheirsThenOurs';
@@ -76,13 +86,17 @@ const GLYPHS: Record<MergeAction, { glyph: string; title: string }> = {
 
 const left = new Connectors<MergeAction>();
 const right = new Connectors<MergeAction>();
+const baseBands = new Connectors();
 const redraw = () => {
   left.schedule();
   right.schedule();
+  baseBands.schedule();
 };
-// The result is the hub: each side scrolls with it, and so with the other side through it.
+// The result is the hub: each side scrolls with it, and so with the other side through it. The base, when it is
+// shown, scrolls with the current side.
 const leftSync = new ScrollSync(redraw);
 const rightSync = new ScrollSync(redraw);
+const baseSync = new ScrollSync(redraw);
 const toolbar = createToolbar();
 const navigation = new Navigation({ onChange: onNavChange, onHint: () => {}, onFileJump: () => {} });
 
@@ -107,6 +121,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'editorConfig':
       if (editors) {
+        applyPaneOptions(editors.base, message.options, 'reference', true);
         applyPaneOptions(editors.ours, message.options, 'reference', true);
         applyPaneOptions(editors.result, message.options, 'main', false);
         applyPaneOptions(editors.theirs, message.options, 'reference', true);
@@ -119,7 +134,9 @@ window.addEventListener('message', (event: MessageEvent) => {
 async function onInit(m: MergeModel, settings: MergeSettings, theme: SyntaxTheme | undefined): Promise<void> {
   layout = createLayout(root);
   const user = settings.editorOptions ?? {};
+  root.classList.toggle('fm-with-base', showBase);
   editors = {
+    base: createPane(layout.hosts.base, user, 'reference'),
     ours: createPane(layout.hosts.ours, user, 'reference'),
     result: createPane(layout.hosts.result, user, 'main'),
     theirs: createPane(layout.hosts.theirs, user, 'reference'),
@@ -138,7 +155,7 @@ function onUpdate(m: MergeModel): void {
   if (!editors) return;
   const eds = editors;
   remote(() => {
-    for (const pane of ['ours', 'theirs'] as const) if (eds[pane].getValue() !== m[pane]) eds[pane].setValue(m[pane]);
+    for (const pane of ['base', 'ours', 'theirs'] as const) if (eds[pane].getValue() !== m[pane]) eds[pane].setValue(m[pane]);
     const typed = eds.result.getValue();
     // The same text: the file has what was typed. Another, with nothing typed on its way: the file changed elsewhere.
     if (typed === m.result) localDirty = false;
@@ -147,11 +164,9 @@ function onUpdate(m: MergeModel): void {
   // The model of a text older than the one in the pane would put its bands in the wrong places: the next one is coming.
   if (eds.result.getValue() !== m.result) return;
   refreshAll(m);
-  if (pending) {
-    const { regionId, choice } = pending;
-    pending = undefined;
-    choose(regionId, choice);
-  }
+  const waiting = pending;
+  pending = undefined;
+  waiting?.();
 }
 
 function remote(run: () => void): void {
@@ -182,21 +197,39 @@ function postEdit(): void {
   else post({ type: 'edit', text });
 }
 
-/**
- * Puts a choice in place of a region of the result, as an edit of the pane that Ctrl+Z takes back. The model is
- * moved along at once, and the text goes to the host without waiting.
- */
+/** Puts a choice in place of a region of the result. */
 function choose(regionId: number, choice: Choice): void {
+  whenCurrent(() => apply([{ regionId, choice }]), () => choose(regionId, choice));
+}
+
+/** Puts every choice that needs no one to make it in the result, as one step that Ctrl+Z takes back. */
+function acceptSimple(): void {
+  whenCurrent(() => model && apply(simpleChoices(model)), acceptSimple);
+}
+
+/**
+ * Runs what puts choices in the result once the model is that of the text in the pane. Typed and not yet back as a
+ * model, the regions are not where they were: what was typed goes to the host now, and `later` runs with its model.
+ */
+function whenCurrent(now: () => void, later: () => void): void {
   if (!editors || !model) return;
-  const editor = editors.result;
-  const before = editor.getValue();
-  if (before !== model.result) {
-    // Typed and not yet back as a model: the regions are not where they were. Wait for the model of this text.
-    pending = { regionId, choice };
-    postEdit();
+  if (editors.result.getValue() === model.result) {
+    now();
     return;
   }
-  const next = applyChoice(model, regionId, choice);
+  pending = later;
+  postEdit();
+}
+
+/**
+ * Puts choices in place of their regions, as one edit of the pane that Ctrl+Z takes back. The model is moved along
+ * at once, and the text goes to the host without waiting.
+ */
+function apply(choices: { regionId: number; choice: Choice }[]): void {
+  if (!editors || !model || choices.length === 0) return;
+  const editor = editors.result;
+  const before = editor.getValue();
+  const next = applyChoices(model, choices);
   const change = minimalReplace(before, next.result);
   if (!change) return;
   const [start, end] = [offsetToPosition(before, change.start), offsetToPosition(before, change.end)];
@@ -225,11 +258,13 @@ function bandActions(side: 'ours' | 'theirs'): ChunkActionsConfig<MergeAction> {
   };
 }
 
-const PANES: Pane[] = ['ours', 'result', 'theirs'];
+const PANES: Pane[] = ['base', 'ours', 'result', 'theirs'];
 
 function refreshAll(m: MergeModel): void {
   model = m;
   if (!editors || !layout) return;
+  layout.labels.base.textContent = BASE_LABEL;
+  layout.labels.base.title = BASE_LABEL;
   layout.labels.ours.textContent = m.oursLabel;
   layout.resultName.textContent = `${m.filePath} — ${m.resultLabel}`;
   layout.labels.theirs.textContent = m.theirsLabel;
@@ -240,9 +275,13 @@ function refreshAll(m: MergeModel): void {
   // Every region anchors the scroll; the bands of a gutter are the changes of its own side.
   leftSync.attach(editors.ours, editors.result, { chunks: paneChunks(m.regions, 'ours', 'result') });
   rightSync.attach(editors.result, editors.theirs, { chunks: paneChunks(m.regions, 'result', 'theirs') });
+  // Hidden, the base has no height: following it would pull the current side to its top.
+  if (showBase) baseSync.attach(editors.base, editors.ours, { chunks: baseChunks(m.regions) });
+  else baseSync.detach();
   const band = (chunk: DiffChunk) => bandClasses(m.regions[chunk.id]);
   left.attach(layout.gutters.left, editors.ours, editors.result, { chunks: paneChunks(m.regions, 'ours', 'result', (region) => region.kind !== 'theirs') }, bandActions('ours'), band);
   right.attach(layout.gutters.right, editors.result, editors.theirs, { chunks: paneChunks(m.regions, 'result', 'theirs', (region) => region.kind !== 'ours') }, bandActions('theirs'), band);
+  baseBands.attach(layout.gutters.base, editors.base, editors.ours, { chunks: baseChunks(m.regions, (region) => region.kind !== 'theirs') }, undefined, band);
   navigation.setModel({ chunks: paneChunks(m.regions, 'ours', 'result') });
 
   const open = m.regions.filter((region) => region.unresolved).length;
@@ -250,6 +289,10 @@ function refreshAll(m: MergeModel): void {
   toolbar.conflicts.textContent =
     open > 0 ? `${open} ${open === 1 ? 'conflict' : 'conflicts'} left` : conflicts > 0 ? 'No conflicts left' : 'No conflicts';
   toolbar.conflicts.classList.toggle('done', open === 0);
+  const simple = simpleChoices(m).length;
+  toolbar.simple.disabled = simple === 0;
+  toolbar.simple.title =
+    simple === 0 ? 'No changes to accept without a choice' : `Accept ${simple === 1 ? 'the change' : `the ${simple} changes`} that need no choice: of one side, or the same on both`;
 }
 
 function bandClasses(region: MergeRegion | undefined): string[] {
@@ -264,6 +307,8 @@ function setDecorations(m: MergeModel): void {
     if (!collection) decorations.set(pane, (collection = editors![pane].createDecorationsCollection([])));
     collection.set(list);
   };
+  // The base is what every region changed.
+  set('base', m.regions.flatMap((region) => lineDecorations(region.base, `fm-${region.kind}`)));
   set('ours', sideDecorations(m.regions.filter((region) => region.kind !== 'theirs'), 'ours', m.oursHighlights));
   set('theirs', sideDecorations(m.regions.filter((region) => region.kind !== 'ours'), 'theirs', m.theirsHighlights));
   set('result', [...resultDecorations(m), ...rulerDecorations(m)]);
@@ -342,6 +387,7 @@ function onNavChange(current: number, total: number, scroll: boolean): void {
   toolbar.counter.textContent = total === 0 ? 'No changes' : `${current >= 0 ? current + 1 : '–'} / ${total}`;
   left.setActiveChunk(current);
   right.setActiveChunk(current);
+  baseBands.setActiveChunk(current);
   const region = current >= 0 ? model?.regions[current] : undefined;
   if (!editors) return;
   for (const pane of PANES) {
@@ -358,6 +404,7 @@ function scrollToRegion(eds: Record<Pane, Editor>, region: MergeRegion): void {
     const [top, bottom] = sideExtent(editor, span.start, span.count);
     return (top + bottom) / 2 - editor.getLayoutInfo().height / 2;
   };
+  if (showBase) baseSync.setScrollTop(eds.base, center(eds.base, region.base));
   leftSync.setScrollTop(eds.ours, center(eds.ours, region.ours));
   leftSync.setScrollTop(eds.result, center(eds.result, region.result));
   rightSync.setScrollTop(eds.theirs, center(eds.theirs, region.theirs));
@@ -394,19 +441,33 @@ function createLayout(container: HTMLElement): Layout {
   container.textContent = '';
   const header = el('div', 'header');
   const body = el('div', 'diff-body');
-  const labels = { ours: el('div', 'pane-label fm-label-ours'), result: el('div', 'pane-label fm-result-label'), theirs: el('div', 'pane-label fm-label-theirs') };
+  const labels = {
+    base: el('div', 'pane-label fm-base fm-label-base'),
+    ours: el('div', 'pane-label fm-label-ours'),
+    result: el('div', 'pane-label fm-result-label'),
+    theirs: el('div', 'pane-label fm-label-theirs'),
+  };
   // The toolbar sits in the header of the result: floating over the panes, it would hide the code of the one under it.
   const resultName = el('span', 'fm-result-name');
   labels.result.append(resultName, toolbar.element);
-  const hosts = { ours: el('div', 'editor-host'), result: el('div', 'editor-host'), theirs: el('div', 'editor-host') };
-  const gutters = { left: el('div', 'gutter'), right: el('div', 'gutter') };
-  header.append(labels.ours, el('div', 'gutter-spacer'), labels.result, el('div', 'gutter-spacer'), labels.theirs);
-  body.append(hosts.ours, gutters.left, hosts.result, gutters.right, hosts.theirs);
+  const hosts = { base: el('div', 'editor-host fm-base'), ours: el('div', 'editor-host'), result: el('div', 'editor-host fm-result-host'), theirs: el('div', 'editor-host') };
+  const gutters = { base: el('div', 'gutter fm-base'), left: el('div', 'gutter'), right: el('div', 'gutter') };
+  // Over the bottom of the result, as in the merge editor of VS Code.
+  hosts.result.append(toolbar.resolve);
+  header.append(labels.base, el('div', 'gutter-spacer fm-base'), labels.ours, el('div', 'gutter-spacer'), labels.result, el('div', 'gutter-spacer'), labels.theirs);
+  body.append(hosts.base, gutters.base, hosts.ours, gutters.left, hosts.result, gutters.right, hosts.theirs);
   container.append(header, body);
   return { labels, hosts, gutters, resultName };
 }
 
-function createToolbar(): { element: HTMLElement; counter: HTMLElement; conflicts: HTMLElement } {
+function createToolbar(): {
+  element: HTMLElement;
+  counter: HTMLElement;
+  conflicts: HTMLElement;
+  simple: HTMLButtonElement;
+  base: HTMLButtonElement;
+  resolve: HTMLButtonElement;
+} {
   const element = el('div', 'toolbar');
   const prev = document.createElement('button');
   prev.textContent = '▲';
@@ -418,8 +479,46 @@ function createToolbar(): { element: HTMLElement; counter: HTMLElement; conflict
   next.title = 'Next Change (F7)';
   next.addEventListener('click', () => navigation.next());
   const conflicts = el('span', 'fm-conflicts');
-  element.append(prev, counter, next, conflicts);
-  return { element, counter, conflicts };
+  const simple = iconButton('check-all', 'fm-accept-simple');
+  simple.addEventListener('click', acceptSimple);
+  const base = iconButton('history', 'fm-toggle-base');
+  base.title = showBase ? 'Hide the Base' : 'Show the Base';
+  base.classList.toggle('toggled', showBase);
+  base.addEventListener('click', () => toggleBase(base));
+  element.append(prev, counter, next, conflicts, simple, base);
+  const resolve = document.createElement('button');
+  resolve.className = 'fm-resolve';
+  resolve.textContent = 'Mark as Resolved';
+  resolve.title = 'Save the file and stage it, which tells git that its conflicts are resolved';
+  resolve.addEventListener('click', () => {
+    // What was typed goes first: the host saves what the file has when this gets there.
+    if (editTimer !== undefined) postEdit();
+    post({ type: 'markResolved' });
+  });
+  return { element, counter, conflicts, simple, base, resolve };
+}
+
+function iconButton(icon: string, className: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.className = className;
+  button.innerHTML = `<span class="codicon codicon-${icon}"></span>`;
+  return button;
+}
+
+/** Shows or hides the column of the base, at the left of the current side. */
+function toggleBase(button: HTMLButtonElement): void {
+  showBase = !showBase;
+  vscodeApi.setState({ showBase });
+  root.classList.toggle('fm-with-base', showBase);
+  button.classList.toggle('toggled', showBase);
+  button.title = showBase ? 'Hide the Base' : 'Show the Base';
+  if (model) refreshAll(model);
+  // Once it has its size, the base comes to where the current side is.
+  if (showBase && editors) {
+    const eds = editors;
+    requestAnimationFrame(() => baseSync.alignTo(eds.ours));
+  }
+  redraw();
 }
 
 function el(tag: string, className: string): HTMLElement {
