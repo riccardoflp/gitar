@@ -2925,6 +2925,120 @@ input:focus-visible,
   font-style: italic;
 }
 
+/*
+ * A conflict in three columns, as the Flow Merge shows a file: the current side, what is proposed and the incoming
+ * side, with the bands of the Flow Merge between them, in the colors of the merge editor.
+ */
+.conflict .columns {
+  --current: var(--vscode-merge-currentHeaderBackground, rgba(64, 200, 174, 0.5));
+  --incoming: var(--vscode-merge-incomingHeaderBackground, rgba(64, 166, 255, 0.5));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 24px minmax(0, 1fr);
+  align-items: start;
+  padding: 0 10px 8px;
+}
+
+.conflict .columns .bands {
+  align-self: stretch;
+  position: relative;
+}
+
+.conflict .columns .bands svg {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.conflict .columns .bands path {
+  stroke-width: 1;
+}
+
+.conflict .columns .bands path.ours {
+  fill: color-mix(in srgb, var(--current) 45%, transparent);
+  stroke: var(--current);
+}
+
+.conflict .columns .bands path.theirs {
+  fill: color-mix(in srgb, var(--incoming) 45%, transparent);
+  stroke: var(--incoming);
+}
+
+.conflict .side.proposed {
+  border-top: 2px solid var(--rules);
+}
+
+.conflict .side.proposed.ai {
+  border-top-color: var(--ai);
+}
+
+.conflict.accepted .side.proposed {
+  border-top-color: var(--accepted);
+}
+
+.conflict .side.proposed .nothing {
+  margin: 0;
+  padding: 6px 10px;
+}
+
+/* What a side has that the proposal takes, and what it leaves out. */
+.conflict .columns .ours .code-line.taken {
+  background: color-mix(in srgb, var(--current) 22%, transparent);
+}
+
+.conflict .columns .theirs .code-line.taken {
+  background: color-mix(in srgb, var(--incoming) 22%, transparent);
+}
+
+.conflict .columns .code-line.left-out {
+  opacity: 0.5;
+}
+
+/* Each line proposed, marked by the side it comes from: at the left for the current one, at the right for the incoming. */
+.conflict .columns .code-line.from-ours {
+  box-shadow: inset 3px 0 var(--current);
+}
+
+.conflict .columns .code-line.from-theirs {
+  box-shadow: inset -3px 0 var(--incoming);
+}
+
+.conflict .columns .code-line.from-both {
+  box-shadow:
+    inset 3px 0 var(--current),
+    inset -3px 0 var(--incoming);
+}
+
+.conflict .columns .code-line.new {
+  box-shadow: inset 3px 0 var(--ai);
+  background: color-mix(in srgb, var(--ai) 14%, transparent);
+}
+
+.conflict .columns-reason {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 10px 8px;
+}
+
+.conflict .columns-reason .warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* One under the other in a narrow tab, where bands between them would join nothing. */
+@container (max-width: 640px) {
+  .conflict .columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .conflict .columns .bands,
+  .conflict .columns > div:empty {
+    display: none;
+  }
+}
+
 .conflict .button.accept.on {
   color: var(--accepted);
   border-color: color-mix(in srgb, var(--accepted) 60%, transparent);

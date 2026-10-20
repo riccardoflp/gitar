@@ -97,6 +97,10 @@ export function reviewFiles(plans: ConflictPlan[], rules: boolean, asked: Asked)
         base: conflict.stretch?.base ?? null,
         before: lines.slice(Math.max(0, from - AROUND), from).join(''),
         after: lines.slice(to, to + AROUND).join(''),
+        region: {
+          ours: lines.slice(from, conflict.from).join('') + conflict.ours + lines.slice(conflict.to, to).join(''),
+          theirs: lines.slice(from, conflict.from).join('') + conflict.theirs + lines.slice(conflict.to, to).join(''),
+        },
         proposal,
         asking: proposal ? null : (asked.asking(plan.path, print) ?? null),
       };

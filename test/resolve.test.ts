@@ -196,6 +196,9 @@ describe('conflicts of a real repository', { timeout: 120_000 }, () => {
     expect(b.conflicts[0].proposal?.reason).toBe('Changes to lines next to each other');
     expect(c.conflicts).toMatchObject([{ ours: text('ours'), theirs: text('theirs'), base: text('one'), after: text('two', 'three', 'four') }]);
     expect(c.conflicts[0].proposal).toMatchObject({ source: 'ai', from: 0, to: 5, text: 'ours and theirs\n', confidence: 'medium', newLines: 1 });
+    // What each proposal takes the place of, as each side has it, for the columns.
+    expect(b.conflicts[0].region).toEqual({ ours: text('two', 'THREE'), theirs: text('TWO', 'three') });
+    expect(c.conflicts[0].region).toEqual({ ours: text('ours'), theirs: text('theirs') });
     // Without the rules, only the language model proposes.
     expect(reviewFiles(await plans(), false, asked).map((file) => file.conflicts[0].proposal?.source ?? null)).toEqual([null, 'ai']);
 

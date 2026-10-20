@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Hunk } from '../shared/protocol';
 import type { Asking, ConflictRef, ConflictReview, Proposal, ReviewConflict, ReviewFile } from '../shared/resolution';
 import { Piece } from './FileChanges';
@@ -7,9 +7,13 @@ import { Icon } from './Icon';
 import { useColors, type Token } from './syntax';
 import { loadUiState, onMessage, post, saveUiState } from './vscode';
 
-/** What the page remembers while it is hidden: the conflicts whose proposal was accepted, by file and key. */
+/**
+ * What the page remembers while it is hidden: the conflicts whose proposal was accepted, by file and key, and whether
+ * they are shown in columns.
+ */
 interface Remembered {
   accepted: string[];
+  columns?: boolean;
 }
 
 const idOf = (path: string, key: string) => `${path}\0${key}`;
@@ -105,6 +109,140 @@ function AskingState({ asking, onRetry }: { asking: Asking; onRetry(): void }) {
   );
 }
 
+/** Which lines of `a` are lines of `b`, in the same order, as pairs of their indexes: as many as can be. */
+function sameLines(a: string[], b: string[]): [number, number][] {
+  // Past this, a conflict is too large to be worth pairing line by line: the columns show it without bands.
+  if (!a.length || !b.length || a.length * b.length > 250_000) return [];
+  const same = (one: string, other: string) => one.trim() === other.trim();
+  const longest = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) longest[i][j] = same(a[i], b[j]) ? longest[i + 1][j + 1] + 1 : Math.max(longest[i + 1][j], longest[i][j + 1]);
+  }
+  const pairs: [number, number][] = [];
+  for (let i = 0, j = 0; i < a.length && j < b.length; ) {
+    if (same(a[i], b[j])) pairs.push([i++, j++]);
+    else if (longest[i + 1][j] >= longest[i][j + 1]) i++;
+    else j++;
+  }
+  return pairs;
+}
+
+/** Where a line is drawn, from the top of the columns. */
+interface Place {
+  top: number;
+  bottom: number;
+}
+
+/** The bands of a gutter: each joins lines of the column at its left to the same lines in the column at its right. */
+function Bands(props: { pairs: [number, number][]; left: Place[]; right: Place[]; side: 'ours' | 'theirs' }) {
+  const { pairs, left, right, side } = props;
+  const width = 24;
+  const runs: [number, number, number, number][] = [];
+  for (const [i, j] of pairs) {
+    const last = runs[runs.length - 1];
+    if (last && last[1] === i - 1 && last[3] === j - 1) {
+      last[1] = i;
+      last[3] = j;
+    } else runs.push([i, i, j, j]);
+  }
+  const middle = width / 2;
+  // The bands take the height of the row, and never set it: the lines they join are measured in that row.
+  return (
+    <div className="bands">
+      <svg width={width} aria-hidden="true">
+        {runs.map(([fromLeft, toLeft, fromRight, toRight]) => {
+          const [a, b, c, d] = [left[fromLeft]?.top, left[toLeft]?.bottom, right[fromRight]?.top, right[toRight]?.bottom];
+          if ([a, b, c, d].some((y) => y === undefined)) return null;
+          return (
+            <path
+              key={`${fromLeft}:${fromRight}`}
+              className={side}
+              d={`M0 ${a} C${middle} ${a} ${middle} ${c} ${width} ${c} L${width} ${d} C${middle} ${d} ${middle} ${b} 0 ${b} Z`}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * A conflict in three columns, as the Flow Merge shows a file: the current side, what is proposed, and the incoming
+ * side, with bands that join each line proposed to the side it comes from.
+ */
+function Columns(props: {
+  conflict: ReviewConflict;
+  labels: [string, string];
+  accepted: boolean;
+  colors?: (Token[] | null)[][];
+  middle: ReactNode;
+}) {
+  const { conflict, labels, accepted, colors, middle } = props;
+  const { proposal } = conflict;
+  const ours = linesOf(conflict.region.ours);
+  const theirs = linesOf(conflict.region.theirs);
+  const proposed = linesOf(proposal?.text ?? '');
+  const fromOurs = useMemo(() => (proposal ? sameLines(ours, proposed) : []), [conflict.region.ours, proposal?.text]);
+  const toTheirs = useMemo(() => (proposal ? sameLines(proposed, theirs) : []), [conflict.region.theirs, proposal?.text]);
+  const taken = {
+    ours: new Set(fromOurs.map(([i]) => i)),
+    theirs: new Set(toTheirs.map(([, j]) => j)),
+    byOurs: new Set(fromOurs.map(([, j]) => j)),
+    byTheirs: new Set(toTheirs.map(([i]) => i)),
+  };
+  const grid = useRef<HTMLDivElement>(null);
+  const [places, setPlaces] = useState<{ ours: Place[]; proposed: Place[]; theirs: Place[] }>({ ours: [], proposed: [], theirs: [] });
+  useLayoutEffect(() => {
+    const element = grid.current;
+    if (!element) return;
+    // Lines wrap in a narrow column: where each one is drawn is measured, again whenever the columns change size.
+    const measure = () => {
+      const top = element.getBoundingClientRect().top;
+      const of = (column: string) =>
+        [...element.querySelectorAll(`:scope > .side.${column} .code-line`)].map((line) => {
+          const box = line.getBoundingClientRect();
+          return { top: box.top - top, bottom: box.bottom - top };
+        });
+      const next = { ours: of('ours'), proposed: of('proposed'), theirs: of('theirs') };
+      setPlaces((now) => (JSON.stringify(now) === JSON.stringify(next) ? now : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [conflict.region.ours, conflict.region.theirs, proposal?.text]);
+
+  const kindOfProposed = (line: string, index: number) => {
+    const [byOurs, byTheirs] = [taken.byOurs.has(index), taken.byTheirs.has(index)];
+    if (byOurs && byTheirs) return 'from-both';
+    if (byOurs) return 'from-ours';
+    if (byTheirs) return 'from-theirs';
+    return line.trim() ? 'new' : '';
+  };
+  return (
+    <div className="columns" ref={grid}>
+      <div className="side ours">
+        <div className="side-label" title={labels[0]}>
+          Current · {labels[0]}
+        </div>
+        <Code text={conflict.region.ours} colors={colors?.[6]} kind={(_line, index) => (!proposal ? '' : taken.ours.has(index) ? 'taken' : 'left-out')} />
+      </div>
+      {proposal ? <Bands pairs={fromOurs} left={places.ours} right={places.proposed} side="ours" /> : <div />}
+      <div className={`side proposed${proposal ? ` ${proposal.source}` : ''}`}>
+        <div className="side-label">{proposal ? (accepted ? 'Accepted' : 'Proposed') : 'Nothing proposed yet'}</div>
+        {proposal ? <Code text={proposal.text} colors={colors?.[3]} kind={kindOfProposed} /> : middle}
+      </div>
+      {proposal ? <Bands pairs={toTheirs} left={places.proposed} right={places.theirs} side="theirs" /> : <div />}
+      <div className="side theirs">
+        <div className="side-label" title={labels[1]}>
+          Incoming · {labels[1]}
+        </div>
+        <Code text={conflict.region.theirs} colors={colors?.[7]} kind={(_line, index) => (!proposal ? '' : taken.theirs.has(index) ? 'taken' : 'left-out')} />
+      </div>
+    </div>
+  );
+}
+
 /** One conflict: what each side has, what is proposed in its place, and what can be done with it. */
 function Conflict(props: {
   file: ReviewFile;
@@ -113,20 +251,17 @@ function Conflict(props: {
   ai: boolean;
   accepted: boolean;
   busy: boolean;
+  /** Whether it is shown in three columns rather than as the two sides over what is proposed. */
+  columns: boolean;
   onAccept(accepted: boolean): void;
 }) {
-  const { file, conflict, labels, ai, accepted, busy, onAccept } = props;
+  const { file, conflict, labels, ai, accepted, busy, columns, onAccept } = props;
   const { proposal, asking } = conflict;
   const ref: ConflictRef = { path: file.path, key: conflict.key };
-  // Each part is colored on its own: the lines before, the two sides, the proposal, the lines after and the base.
-  const hunks = useMemo<Hunk[]>(
-    () =>
-      [conflict.before, conflict.ours, conflict.theirs, proposal?.text ?? '', conflict.after, conflict.base ?? ''].map((text) => ({
-        header: '',
-        lines: linesOf(text).map((line) => ` ${line}`),
-      })),
-    [conflict.before, conflict.ours, conflict.theirs, proposal?.text, conflict.after, conflict.base],
-  );
+  // Each part is colored on its own: the lines before, the two sides, the proposal, the lines after, the base, and the
+  // lines the proposal replaces on each side, which the columns show.
+  const parts = [conflict.before, conflict.ours, conflict.theirs, proposal?.text ?? '', conflict.after, conflict.base ?? '', conflict.region.ours, conflict.region.theirs];
+  const hunks = useMemo<Hunk[]>(() => parts.map((text) => ({ header: '', lines: linesOf(text).map((line) => ` ${line}`) })), parts);
   const colors = useColors(file.path, hunks, true);
   const [showBase, setShowBase] = useState(false);
   const known = useMemo(
@@ -134,6 +269,11 @@ function Conflict(props: {
     [conflict.ours, conflict.theirs, conflict.base],
   );
   const open = (editor: 'flowMerge' | 'mergeEditor' | 'text') => post({ type: 'openConflict', path: file.path, line: conflict.line, editor });
+  const nothing = asking ? (
+    <AskingState asking={asking} onRetry={() => post({ type: 'askAI', conflicts: [ref] })} />
+  ) : (
+    <p className="muted nothing">Nothing is proposed: the two sides changed the same lines in different ways.</p>
+  );
 
   return (
     <article className={`conflict${accepted ? ' accepted' : ''}${proposal ? ` proposed ${proposal.source}` : ''}`} aria-label={`Conflict at line ${conflict.line}`}>
@@ -155,45 +295,64 @@ function Conflict(props: {
           <Code text={conflict.base} colors={colors?.[5]} />
         </div>
       )}
-      <div className="sides">
-        <div className="side ours">
-          <div className="side-label" title={labels[0]}>
-            Current · {labels[0]}
-          </div>
-          <Code text={conflict.ours} colors={colors?.[1]} />
-        </div>
-        <div className="side theirs">
-          <div className="side-label" title={labels[1]}>
-            Incoming · {labels[1]}
-          </div>
-          <Code text={conflict.theirs} colors={colors?.[2]} />
-        </div>
-      </div>
-
-      {proposal && (
-        <div className={`proposal ${proposal.source}`} key={`${proposal.source}:${proposal.text}`}>
-          <div className="side-label">
-            {accepted ? 'Accepted' : 'Proposed'}
-            <span className="muted"> · {proposal.reason}</span>
-          </div>
-          <Code text={conflict.before} colors={colors?.[0]} className="around" />
-          <Code
-            text={proposal.text}
-            colors={colors?.[3]}
-            className="resolved"
-            kind={(line) => (proposal.source === 'ai' && line.trim() && !known.has(line.trim()) ? 'new' : '')}
-          />
-          <Code text={conflict.after} colors={colors?.[4]} className="around" />
-          {proposal.newLines > 0 && (
-            <p className="note">
-              <Icon name="warning" />
-              {plural(proposal.newLines, 'line is', 'lines are')} new: neither side has {proposal.newLines === 1 ? 'it' : 'them'}.
+      {columns ? (
+        <>
+          <Columns conflict={conflict} labels={labels} accepted={accepted} colors={colors} middle={nothing} />
+          {proposal && (
+            <p className="columns-reason">
+              <span className="muted">{proposal.reason}</span>
+              {proposal.newLines > 0 && (
+                <span className="warning">
+                  <Icon name="warning" />
+                  {plural(proposal.newLines, 'line is', 'lines are')} new: neither side has {proposal.newLines === 1 ? 'it' : 'them'}.
+                </span>
+              )}
             </p>
           )}
-        </div>
+        </>
+      ) : (
+        <>
+          <div className="sides">
+            <div className="side ours">
+              <div className="side-label" title={labels[0]}>
+                Current · {labels[0]}
+              </div>
+              <Code text={conflict.ours} colors={colors?.[1]} />
+            </div>
+            <div className="side theirs">
+              <div className="side-label" title={labels[1]}>
+                Incoming · {labels[1]}
+              </div>
+              <Code text={conflict.theirs} colors={colors?.[2]} />
+            </div>
+          </div>
+
+          {proposal && (
+            <div className={`proposal ${proposal.source}`} key={`${proposal.source}:${proposal.text}`}>
+              <div className="side-label">
+                {accepted ? 'Accepted' : 'Proposed'}
+                <span className="muted"> · {proposal.reason}</span>
+              </div>
+              <Code text={conflict.before} colors={colors?.[0]} className="around" />
+              <Code
+                text={proposal.text}
+                colors={colors?.[3]}
+                className="resolved"
+                kind={(line) => (proposal.source === 'ai' && line.trim() && !known.has(line.trim()) ? 'new' : '')}
+              />
+              <Code text={conflict.after} colors={colors?.[4]} className="around" />
+              {proposal.newLines > 0 && (
+                <p className="note">
+                  <Icon name="warning" />
+                  {plural(proposal.newLines, 'line is', 'lines are')} new: neither side has {proposal.newLines === 1 ? 'it' : 'them'}.
+                </p>
+              )}
+            </div>
+          )}
+          {!proposal && asking && <AskingState asking={asking} onRetry={() => post({ type: 'askAI', conflicts: [ref] })} />}
+          {!proposal && !asking && <p className="muted nothing">Nothing is proposed: the two sides changed the same lines in different ways.</p>}
+        </>
       )}
-      {!proposal && asking && <AskingState asking={asking} onRetry={() => post({ type: 'askAI', conflicts: [ref] })} />}
-      {!proposal && !asking && <p className="muted nothing">Nothing is proposed: the two sides changed the same lines in different ways.</p>}
 
       <footer>
         {proposal && (
@@ -296,6 +455,7 @@ export function ConflictsApp() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [accepted, setAccepted] = useState(() => new Set(loadUiState<Remembered>({ accepted: [] }).accepted));
+  const [columns, setColumns] = useState(() => loadUiState<Remembered>({ accepted: [] }).columns === true);
 
   useEffect(() => {
     const stop = onMessage((message) => {
@@ -312,7 +472,7 @@ export function ConflictsApp() {
   // What was accepted and is no longer there, written or edited, is forgotten.
   const present = useMemo(() => new Set(review?.files.flatMap((file) => file.conflicts.filter((each) => each.proposal).map((each) => idOf(file.path, each.key)))), [review]);
   const chosen = useMemo(() => [...accepted].filter((id) => present.has(id)), [accepted, present]);
-  useEffect(() => saveUiState({ accepted: chosen }), [chosen]);
+  useEffect(() => saveUiState({ accepted: chosen, columns }), [chosen, columns]);
 
   if (review === undefined) return <div className="empty">Reading the files in conflict…</div>;
   if (review === null) return <div className="empty">Gitardo could not read the files in conflict. {error}</div>;
@@ -390,6 +550,26 @@ export function ConflictsApp() {
             </button>
           )}
           <span className="grow" />
+          <div className="segmented" role="group" aria-label="How each conflict is shown">
+            <button
+              className={`button${columns ? '' : ' on'}`}
+              aria-pressed={!columns}
+              title="Show the two sides of each conflict over what is proposed, with the lines around it"
+              onClick={() => setColumns(false)}
+            >
+              <Icon name="list-flat" />
+              Cards
+            </button>
+            <button
+              className={`button${columns ? ' on' : ''}`}
+              aria-pressed={columns}
+              title="Show each conflict in three columns, as the Flow Merge does: the current side, what is proposed and the incoming side, joined by bands"
+              onClick={() => setColumns(true)}
+            >
+              <Icon name="editor-layout" />
+              Columns
+            </button>
+          </div>
           <button
             className="button"
             disabled={!chosen.length}
@@ -440,6 +620,7 @@ export function ConflictsApp() {
                 labels={labels}
                 ai={review.ai}
                 busy={busy}
+                columns={columns}
                 accepted={accepted.has(idOf(file.path, conflict.key))}
                 onAccept={(on) => accept([idOf(file.path, conflict.key)], on)}
               />

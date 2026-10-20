@@ -49,6 +49,11 @@ export interface ReviewConflict {
   /** A few lines of the file before the markers and after them. */
   before: string;
   after: string;
+  /**
+   * The lines the proposal takes the place of, as each side has them: what is between the markers, and the lines
+   * around them that the rules take too. Without a proposal, what is between the markers.
+   */
+  region: { ours: string; theirs: string };
   proposal: Proposal | null;
   asking: Asking | null;
 }
