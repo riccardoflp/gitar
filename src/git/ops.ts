@@ -1,5 +1,7 @@
-import type { Operation, RebaseStep, RepoState, PullAction, Resolution, SyncAction, WorkingState } from '../shared/protocol';
+import type { Operation, RebaseStep, RepoState, PullAction, SyncAction, WorkingState } from '../shared/protocol';
 import { canFastForward, refArg } from '../shared/refs';
+import { RESOLUTIONS, type Proposal } from '../shared/resolution';
+import { applyReplacements, conflictCount } from './conflicts';
 import { type FileWrite, GitError, formatCommand, git } from './exec';
 import type { ConflictPlan } from './repo';
 
@@ -940,13 +942,6 @@ export const CONFLICT_SIDES: Record<Operation | 'none', [current: string, incomi
   none: ['Your files', 'The changes being applied'],
 };
 
-const RESOLUTIONS: Record<Resolution, string> = {
-  separate: 'changes to lines next to each other',
-  same: 'the same change on both sides',
-  whitespace: 'spaces or line endings only',
-  oneSide: 'a change on one side only',
-};
-
 const plural = (count: number, one: string) => (count === 1 ? `1 ${one}` : `${count} ${one}s`);
 
 /**
@@ -975,6 +970,41 @@ export function resolveConflictsOp(plans: ConflictPlan[]): GitOp {
     commands: done.length ? [['add', '--', ...done.map((plan) => pathspec(plan.path))]] : [],
     confirm: true,
     note: `${files.join('\n')}\n\nEvery line written is a line of one of the two sides. ${rest}`,
+  };
+}
+
+/** A file in conflict with the proposals accepted for it: what it has now, and how many conflicts it has. */
+export interface AcceptedFile {
+  path: string;
+  text: string;
+  conflicts: number;
+  proposals: Proposal[];
+}
+
+/**
+ * Writes the resolutions accepted in the review of the conflicts. The files left without conflicts are staged, and the
+ * others keep the markers of what is left. Nothing is written when a file is no longer what the proposals were made from.
+ */
+export function writeResolutionsOp(files: AcceptedFile[]): GitOp {
+  const chosen = files.filter((file) => file.proposals.length);
+  const count = chosen.reduce((sum, file) => sum + file.proposals.length, 0);
+  if (!count) throw new Error('No resolution is accepted.');
+  const writes = chosen.map((file) => ({ path: file.path, content: applyReplacements(file.text, file.proposals), expected: file.text }));
+  const done = writes.filter((write) => conflictCount(write.content) === 0);
+  const fromAI = chosen.reduce((sum, file) => sum + file.proposals.filter((proposal) => proposal.source === 'ai').length, 0);
+  const lines = chosen.map((file) => {
+    const ai = file.proposals.filter((proposal) => proposal.source === 'ai').length;
+    const how = ai === file.proposals.length ? 'by the AI' : ai ? `${ai} by the AI` : 'by the rules';
+    return `${file.path}: ${file.proposals.length} of ${plural(file.conflicts, 'conflict')} (${how})`;
+  });
+  const left = files.reduce((sum, file) => sum + file.conflicts, 0) - count;
+  const rest = left ? `${plural(left, 'conflict')} will be left to resolve by hand, with the markers as they are.` : 'No conflict will be left.';
+  const warning = fromAI ? `\n\n${fromAI === count ? 'All of them were' : `${fromAI} of them were`} written by a language model: look at them before you commit.` : '';
+  return {
+    title: `Write the ${count === 1 ? 'resolution of 1 conflict' : `resolutions of ${count} conflicts`}`,
+    writes,
+    commands: done.length ? [['add', '--', ...done.map((write) => pathspec(write.path))]] : [],
+    note: `${lines.join('\n')}\n\n${rest}${warning}`,
   };
 }
 

@@ -342,6 +342,18 @@
         "icon": "$(wand)"
       },
       {
+        "command": "gitardo.reviewConflicts",
+        "title": "Review the Resolutions of the Conflicts",
+        "category": "Gitardo",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "gitardo.resolveConflictsWithAI",
+        "title": "Resolve Conflicts with AI",
+        "category": "Gitardo",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "gitardo.createBranch",
         "title": "Create Branch…",
         "category": "Gitardo",
@@ -511,6 +523,14 @@
         {
           "command": "gitardo.resolveConflicts",
           "when": "config.gitardo.conflicts.autoResolve"
+        },
+        {
+          "command": "gitardo.reviewConflicts",
+          "when": "config.gitardo.conflicts.autoResolve || config.gitardo.conflicts.ai"
+        },
+        {
+          "command": "gitardo.resolveConflictsWithAI",
+          "when": "config.gitardo.conflicts.ai"
         },
         {
           "command": "gitardo.showFileBlame",
@@ -1212,7 +1232,15 @@
           "tags": [
             "experimental"
           ],
-          "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitardo shows what it would write before writing it, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
+          "markdownDescription": "Offer to resolve automatically the conflicts that need no choice between the two sides: changes to lines next to each other, the same change made twice, changes that differ only in whitespace. Gitardo shows each resolution first, in a tab where they are accepted all at once or one by one, and the conflicts can be restored with **Undo**. This is still being tested: look at what it wrote before you commit."
+        },
+        "gitardo.conflicts.ai": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "experimental"
+          ],
+          "markdownDescription": "Offer to ask the language model you use in VS Code, such as GitHub Copilot, how to resolve the conflicts that `#gitardo.conflicts.autoResolve#` leaves. Gitardo sends each conflict and the lines around it to the model, and shows what it proposes in the tab of the review, where nothing is written until you accept it. A model can write lines that neither side has: look at each resolution before you accept it."
         },
         "gitardo.flowDiff.collapseUnchanged": {
           "type": "boolean",

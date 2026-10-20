@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { Repo } from '../git/repo';
 import { buildPrompt, cleanMessage } from '../shared/commitPrompt';
+import { buildConflictPrompt, parseConflictAnswer, type ConflictAnswer, type ConflictQuestion } from '../shared/conflictPrompt';
 import type { RepoState } from '../shared/protocol';
 
 /**
@@ -27,4 +28,24 @@ export async function draftCommitMessage(repo: Repo, state: RepoState, token: vs
   let text = '';
   for await (const chunk of response.text) text += chunk;
   return cleanMessage(text);
+}
+
+/**
+ * Asks the language model the user has set up in VS Code how to resolve one conflict of a merge. `onText` is called
+ * with the whole answer so far, each time more of it comes.
+ */
+export async function askResolution(question: ConflictQuestion, token: vscode.CancellationToken, onText: (text: string) => void): Promise<ConflictAnswer> {
+  const [model] = await vscode.lm.selectChatModels();
+  if (!model) {
+    throw new Error('No language model is available in VS Code. Install an extension that provides one, such as GitHub Copilot.');
+  }
+  const messages = [vscode.LanguageModelChatMessage.User(buildConflictPrompt(question))];
+  const options = { justification: 'Gitardo sends the conflicts of the merge, and the lines around them, to the model to propose how to resolve them.' };
+  const response = await model.sendRequest(messages, options, token);
+  let text = '';
+  for await (const chunk of response.text) {
+    text += chunk;
+    onText(text);
+  }
+  return parseConflictAnswer(text);
 }

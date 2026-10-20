@@ -6,9 +6,12 @@ import { Repo } from '../git/repo';
 import { samePath } from '../git/parse';
 import type { Operation } from '../shared/protocol';
 import { CONFLICT, contentUri } from '../extension/content';
+import { answers } from '../extension/answers';
+import { resolveConflicts } from '../git/conflicts';
+import { answerProposal, fingerprint, rulesProposal } from '../git/review';
 import { normalizeEol } from './diff/hunks';
 import { markerBlockCount, mergeEditorStart } from './diff/merge3';
-import type { MergeModel } from './diff/mergeModel';
+import { bounds, type MergeModel, type MergeProposal } from './diff/mergeModel';
 import type { MergeHostMessage, MergeWebviewMessage } from './diff/mergeProtocol';
 import { minimalReplace, offsetToPosition } from './diff/textEdit';
 import type { RunOp } from './chunks';
@@ -79,6 +82,12 @@ export class FlowMerge implements vscode.Disposable {
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('editor')) for (const panel of this.panels) panel.refreshEditorConfig();
+        // The rules propose, or no longer.
+        if (event.affectsConfiguration('gitardo.conflicts')) for (const panel of this.panels) void this.refresh(panel, true);
+      }),
+      // The language model answered about a conflict, here or in the review of the conflicts.
+      answers.onDidChange((root) => {
+        for (const panel of this.panels) if (samePath(panel.descriptor.repoRoot, root)) void this.refresh(panel, true);
       }),
       // The result is the file: what is typed in its editor shows here as it is typed.
       vscode.workspace.onDidChangeTextDocument((event) => {
@@ -130,9 +139,10 @@ export class FlowMerge implements vscode.Disposable {
     );
   }
 
-  private async refresh(panel: MergePanel): Promise<void> {
+  /** Builds the model of a panel again, when what it is made from changed, or when `always` because the proposals did. */
+  private async refresh(panel: MergePanel, always = false): Promise<void> {
     // Once resolved and added, the file has no sides any more: the panel keeps what it showed last.
-    const built = await buildMerge(this.engine, panel.descriptor, false, panel.inputKey);
+    const built = await buildMerge(this.engine, panel.descriptor, false, always ? undefined : panel.inputKey);
     if (built && this.panels.includes(panel)) panel.setModel(built.model, built.inputKey);
   }
 
@@ -490,5 +500,23 @@ async function buildMerge(
     tell(outcome.tooComplex ? 'this file has too many differences to display.' : `could not compute the merge — ${outcome.message}`);
     return undefined;
   }
-  return { model: outcome.model, inputKey };
+  return { model: { ...outcome.model, proposals: proposalsOf(outcome.model, descriptor) }, inputKey };
+}
+
+/**
+ * What the rules, when they are switched on, and the language model, when it was asked, propose for the conflicts
+ * still marked in the result, each with the region it is of.
+ */
+function proposalsOf(model: MergeModel, descriptor: MergeDescriptor): MergeProposal[] {
+  const rules = vscode.workspace.getConfiguration('gitardo').get<boolean>('conflicts.autoResolve') === true;
+  const { conflicts } = resolveConflicts(model.result, model.base, { ours: model.ours, theirs: model.theirs });
+  return conflicts.flatMap((conflict) => {
+    const answer = answers.get(descriptor.repoRoot, descriptor.path, fingerprint(model.result, conflict));
+    const proposal = (rules ? rulesProposal(conflict) : null) ?? (answer ? answerProposal(model.result, conflict, answer) : null);
+    const region = model.regions.find((each) => {
+      const [from, to] = bounds(each.result);
+      return each.unresolved && from <= conflict.from && conflict.from < Math.max(to, from + 1);
+    });
+    return proposal && region ? [{ region: region.id, proposal }] : [];
+  });
 }

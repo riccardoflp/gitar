@@ -2643,3 +2643,531 @@ input:focus-visible,
 .file-icon::before {
   content: attr(data-character);
 }
+
+/* The tab of the review of the conflicts: each conflict, what is proposed for it, and what is accepted. */
+.conflicts-page {
+  --ai: var(--vscode-charts-purple, #b180d7);
+  --rules: var(--vscode-charts-blue, #3794ff);
+  --accepted: var(--vscode-testing-iconPassed, #73c991);
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 0 24px 24px;
+  container-type: inline-size;
+}
+
+.conflicts-page > * {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.conflicts-page h1 {
+  margin: 0 0 6px;
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+.conflicts-page p {
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.conflicts-page .note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* What is said and done for all the conflicts, along the top however far the page is scrolled. */
+.conflicts-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 16px 0 10px;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.conflicts-head .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.conflicts-page .ask-all:not(:disabled) .codicon {
+  color: var(--ai);
+}
+
+.conflict-file h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 20px 0 8px;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.conflict-file h2 .path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-file h2 .muted {
+  font-weight: 400;
+}
+
+.conflict {
+  margin: 0 0 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-left: 3px solid var(--vscode-editorWarning-foreground, #cca700);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-foreground));
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.conflict.proposed.rules {
+  border-left-color: var(--rules);
+}
+
+.conflict.proposed.ai {
+  border-left-color: var(--ai);
+}
+
+.conflict.accepted {
+  border-color: color-mix(in srgb, var(--accepted) 55%, transparent);
+  border-left-color: var(--accepted);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accepted) 30%, transparent);
+}
+
+.conflict > header,
+.conflict > footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.conflict > footer {
+  flex-wrap: wrap;
+  padding-top: 0;
+}
+
+.conflict .button.icon.toggled {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.conflict .source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+/* The text is in the color of text, which reads on every theme; the color of where it comes from is on its icon. */
+.conflict .source.rules {
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--rules) 20%, transparent);
+}
+
+.conflict .source.ai {
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--ai) 20%, transparent);
+}
+
+.conflict .source.ai.low {
+  background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 24%, transparent);
+}
+
+.conflict .source.rules .codicon {
+  color: var(--rules);
+}
+
+.conflict .source.ai .codicon {
+  color: var(--ai);
+}
+
+.conflict .source.ai.low .codicon {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.conflict .sides {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 10px 8px;
+}
+
+/* Side by side while they fit, one under the other in a narrow tab. */
+@container (max-width: 640px) {
+  .conflict .sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.conflict .side,
+.conflict .proposal {
+  min-width: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.conflict .side.base {
+  margin: 0 10px 8px;
+}
+
+.conflict .side-label {
+  padding: 3px 8px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict .ours {
+  border-top: 2px solid var(--vscode-merge-currentHeaderBackground, var(--vscode-gitDecoration-addedResourceForeground));
+}
+
+.conflict .theirs {
+  border-top: 2px solid var(--vscode-merge-incomingHeaderBackground, var(--vscode-textLink-foreground));
+}
+
+.code-lines {
+  position: relative;
+  padding: 3px 0;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.5;
+}
+
+.code-line {
+  min-height: 1.5em;
+  padding: 0 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+.code-lines.empty-lines {
+  padding: 3px 10px;
+  font-family: inherit;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.conflict .proposal {
+  margin: 0 10px 8px;
+  animation: arrive 0.35s ease-out;
+}
+
+.conflict .proposal.ai {
+  border-color: color-mix(in srgb, var(--ai) 45%, var(--vscode-panel-border));
+}
+
+.conflict.accepted .proposal {
+  border-color: color-mix(in srgb, var(--accepted) 55%, var(--vscode-panel-border));
+}
+
+/* The lines around the conflict, which stay as they are: shown for where the resolution goes. */
+.conflict .proposal .around {
+  opacity: 0.5;
+}
+
+.conflict .proposal .around.empty-lines {
+  display: none;
+}
+
+.conflict .proposal .resolved {
+  background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, var(--accepted) 12%, transparent));
+}
+
+.conflict .proposal .resolved.empty-lines {
+  background: var(--vscode-diffEditor-removedLineBackground, transparent);
+}
+
+/* A line that neither side has, written by the language model. */
+.conflict .proposal .code-line.new {
+  box-shadow: inset 3px 0 var(--ai);
+  background: color-mix(in srgb, var(--ai) 14%, transparent);
+}
+
+.conflict .proposal .note {
+  margin: 0;
+  padding: 4px 8px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.conflict .nothing {
+  margin: 0 10px 8px;
+  font-style: italic;
+}
+
+.conflict .button.accept.on {
+  color: var(--accepted);
+  border-color: color-mix(in srgb, var(--accepted) 60%, transparent);
+}
+
+.conflict .button.accept.on .codicon {
+  animation: pop 0.3s ease-out;
+}
+
+/* The language model at work on a conflict: waiting for its turn, reading, or writing the lines as they come. */
+.conflict .asking {
+  margin: 0 10px 8px;
+  padding: 8px;
+  border-radius: 3px;
+  border: 1px dashed color-mix(in srgb, var(--ai) 55%, transparent);
+  background: color-mix(in srgb, var(--ai) 6%, var(--vscode-editor-background));
+}
+
+.conflict .asking-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--ai);
+}
+
+.conflict .asking.waiting .asking-label {
+  color: var(--vscode-descriptionForeground);
+}
+
+.conflict .asking.failed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--vscode-errorForeground) 50%, transparent);
+  background: color-mix(in srgb, var(--vscode-errorForeground) 6%, var(--vscode-editor-background));
+  color: var(--vscode-errorForeground);
+}
+
+.conflict .asking.failed .grow {
+  color: var(--vscode-foreground);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skeleton span {
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--vscode-foreground) 7%, transparent) 0%,
+    color-mix(in srgb, var(--ai) 28%, transparent) 50%,
+    color-mix(in srgb, var(--vscode-foreground) 7%, transparent) 100%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton span:nth-child(1) {
+  width: 72%;
+}
+
+.skeleton span:nth-child(2) {
+  width: 90%;
+  animation-delay: 0.15s;
+}
+
+.skeleton span:nth-child(3) {
+  width: 48%;
+  animation-delay: 0.3s;
+}
+
+.asking.waiting .skeleton span {
+  animation-duration: 2.6s;
+  opacity: 0.6;
+}
+
+.code-lines.streaming {
+  border-radius: 3px;
+  background: var(--vscode-editor-background);
+}
+
+/* The caret stays at the end of what was written last. */
+.code-lines.streaming .code-line:last-of-type {
+  display: inline;
+}
+
+.caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--ai);
+  animation: blink 1s steps(1) infinite;
+}
+
+/* The sparkle turns while the model works. */
+.orbit {
+  display: inline-flex;
+  color: var(--ai);
+  animation: orbit 2.4s linear infinite;
+}
+
+.orbit .codicon {
+  animation: glow 1.2s ease-in-out infinite alternate;
+}
+
+/* How far the questions to the language model have gone, under the actions of the page. */
+.ai-progress {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 8px 9px;
+  border-radius: 4px;
+  overflow: hidden;
+  color: var(--ai);
+  background: color-mix(in srgb, var(--ai) 9%, transparent);
+  animation: arrive 0.3s ease-out;
+}
+
+.ai-progress .grow {
+  color: var(--vscode-foreground);
+}
+
+.ai-progress .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: color-mix(in srgb, var(--ai) 20%, transparent);
+}
+
+.ai-progress .bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: calc(var(--done) * 100%);
+  min-width: 6%;
+  background: linear-gradient(90deg, var(--ai), color-mix(in srgb, var(--ai) 50%, var(--vscode-foreground)), var(--ai));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  transition: width 0.4s ease-out;
+}
+
+.report {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--accepted) 45%, transparent);
+  background: color-mix(in srgb, var(--accepted) 9%, transparent);
+  animation: arrive 0.35s ease-out;
+}
+
+.report > .codicon {
+  color: var(--accepted);
+}
+
+.conflict-file.others ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conflict-file.others li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.empty-review {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 48px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.empty-review > .codicon {
+  font-size: 32px;
+  color: var(--accepted);
+}
+
+.conflicts-page .footnote {
+  margin-top: 16px;
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes glow {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  50% {
+    transform: scale(1.35);
+  }
+}
+
+/* Nothing moves: what is under way only fades in and out. */
+@media (prefers-reduced-motion: reduce) {
+  .conflict .proposal,
+  .ai-progress,
+  .report,
+  .conflict .button.accept.on .codicon {
+    animation: none;
+  }
+
+  .orbit,
+  .skeleton span,
+  .ai-progress .bar::before {
+    animation: pulse 1.6s ease-in-out infinite alternate;
+  }
+}

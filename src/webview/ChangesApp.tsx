@@ -231,7 +231,10 @@ export function ChangesApp() {
                 onOpen={() => post({ type: 'openDiff', source: { kind: 'conflict' }, file })}
                 actions={[
                   ...(resolvable
-                    ? [{ icon: 'wand', title: `Resolve ${some} automatically`, run: () => act({ kind: 'resolveConflicts', paths: [file.path] }) }]
+                    ? [{ icon: 'wand', title: `Resolve ${some} automatically, after looking at what is proposed`, run: () => post({ type: 'reviewConflicts', paths: [file.path] }) }]
+                    : []),
+                  ...(state.resolveWithAI && (!marked || resolvable < marked)
+                    ? [{ icon: 'sparkle', title: 'Resolve with AI, after looking at what is proposed', run: () => post({ type: 'reviewConflicts', paths: [file.path], ai: true }) }]
                     : []),
                   { icon: 'arrow-left', title: 'Take the current side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'ours' }) },
                   { icon: 'arrow-right', title: 'Take the incoming side for the whole file', run: () => act({ kind: 'takeSide', path: file.path, side: 'theirs' }) },

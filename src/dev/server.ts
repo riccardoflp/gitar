@@ -4,10 +4,14 @@ import * as path from 'node:path';
 import { discoverRepos, repoName } from '../git/discover';
 import { parseGitHubRemote } from '../git/github';
 import { samePath } from '../git/parse';
+import type { Conflict } from '../git/conflicts';
+import { CONFLICT_SIDES } from '../git/ops';
 import { Repo } from '../git/repo';
+import { fingerprint, reviewFiles, type Answer } from '../git/review';
 import { previewSetup, scanIgnored } from '../git/worktreeSetup';
 import { addressed, languageMap, readFileIconTheme } from '../extension/fileIconTheme';
 import { WORKTREE, type CompareMode, type Filter, type HostMessage, type Scope, type ViewKind, type WebviewMessage } from '../shared/protocol';
+import type { Asking } from '../shared/resolution';
 import { cleanPatterns, type SetupLayer, type SetupSource } from '../shared/worktreeSetup';
 
 // Usage: node dist/dev-server.js [--port=5174] [--icon-theme=<file>] [folder...]   (every repository found in the folders can be chosen in the page)
@@ -93,7 +97,11 @@ const THEMES = {
   },
 };
 
-const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'sideGraph', 'branches', 'stashes', 'commit', 'compare', 'worktreeSetup'];
+const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'sideGraph', 'branches', 'stashes', 'commit', 'compare', 'worktreeSetup', 'conflicts'];
+
+/** How long the language model the preview pretends to ask waits for its turn, and then writes. */
+const PRETEND_WAIT = 1500;
+const PRETEND_WRITE = 6000;
 
 /** `data` is what the extension would write on the page: the view it is, and for a commit which one. */
 function page(theme: keyof typeof THEMES, data: Record<string, string>): string {
@@ -198,6 +206,49 @@ async function main() {
   const setup: { user: SetupLayer; workspace: SetupLayer } = { user: {}, workspace: {} };
   /** The two sides of the tab of a comparison, as `from=` and `to=` name them, once the page of one was asked for. */
   let compared: { from: string; to: string; mode: CompareMode; path: string | null } | null = null;
+  /** Whether the page is the review of the conflicts, which is sent the review when it is ready. */
+  let reviewing = false;
+  /**
+   * When each conflict was asked about, by file and fingerprint. There is no language model here: the preview pretends,
+   * and answers a little more each time the page asks for the review again.
+   */
+  const pretended = new Map<string, number>();
+
+  async function review(): Promise<HostMessage[]> {
+    if (!repo) return [{ type: 'review', review: null, error: 'No repository.' }];
+    const conflicted = await repo.conflicted();
+    const plans = await repo.conflictPlans(conflicted);
+    const operation = await repo.operation().catch(() => null);
+    const [oursLabel, theirsLabel] = CONFLICT_SIDES[operation ?? 'none'];
+    const sides = new Map(plans.flatMap((plan) => plan.conflicts.map((conflict): [string, Conflict] => [`${plan.path}\0${fingerprint(plan.text, conflict)}`, conflict])));
+    const now = Date.now();
+    const pretend = (id: string) => {
+      const conflict = sides.get(id);
+      return conflict && `${conflict.ours}${conflict.theirs}`;
+    };
+    const asked = {
+      answer: (file: string, print: string): Answer | undefined => {
+        const id = `${file}\0${print}`;
+        const at = pretended.get(id);
+        const text = pretend(id);
+        if (at === undefined || text === undefined || now - at < PRETEND_WAIT + PRETEND_WRITE) return undefined;
+        return { text, reason: 'The preview has no language model: it puts the two sides one after the other.', confidence: 'low' };
+      },
+      asking: (file: string, print: string): Asking | undefined => {
+        const id = `${file}\0${print}`;
+        const at = pretended.get(id);
+        const text = pretend(id) ?? '';
+        if (at === undefined) return undefined;
+        if (now - at < PRETEND_WAIT) return { state: 'waiting' };
+        return { state: 'thinking', text: text.slice(0, Math.floor((text.length * (now - at - PRETEND_WAIT)) / PRETEND_WRITE)) };
+      },
+    };
+    const files = reviewFiles(plans, true, asked);
+    const busy = files.some((file) => file.conflicts.some((conflict) => conflict.asking && conflict.asking.state !== 'failed'));
+    const others = conflicted.filter((file) => !plans.some((plan) => plan.path === file));
+    const shown = { root: repo.root, operation, oursLabel, theirsLabel, files, others, rules: true, ai: true, asking: busy, report: null, conflicted: conflicted.length };
+    return [{ type: 'review', review: shown }];
+  }
 
   async function comparison(): Promise<HostMessage[]> {
     if (!repo || !compared) return [];
@@ -243,7 +294,7 @@ async function main() {
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', home: away } }];
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', resolveWithAI: true, home: away } }];
   }
 
   /** `light` for a page in the light theme, which can have other file icons. */
@@ -284,7 +335,23 @@ async function main() {
       case 'compareWithSaved':
         return [];
       case 'ready':
-        return [...(await state()), ...(await comparison())];
+        return [...(await state()), ...(await comparison()), ...(reviewing ? await review() : [])];
+      case 'getReview':
+        return review();
+      case 'askAI': {
+        const [shown] = await review();
+        const files = shown.type === 'review' ? (shown.review?.files ?? []) : [];
+        for (const file of files) {
+          for (const conflict of file.conflicts) {
+            const wanted = message.conflicts ? message.conflicts.some((ref) => ref.path === file.path && ref.key === conflict.key) : !conflict.proposal;
+            if (wanted && conflict.proposal?.source !== 'rules') pretended.set(`${file.path}\0${conflict.key.slice(conflict.key.indexOf(':') + 1)}`, Date.now());
+          }
+        }
+        return review();
+      }
+      case 'stopAsking':
+        pretended.clear();
+        return review();
       case 'refresh':
         return state();
       case 'swapCompare':
@@ -386,6 +453,7 @@ async function main() {
           response.setHeader('Content-Type', 'text/html');
           const theme = url.searchParams.get('theme') === 'light' ? 'light' : 'dark';
           const view = VIEWS.find((candidate) => candidate === url.searchParams.get('view')) ?? 'graph';
+          reviewing = view === 'conflicts';
           // The tab of a commit: of the one asked for with `commit=`, or of the last.
           const commit = view === 'commit' ? await repo?.resolve(url.searchParams.get('commit') ?? 'HEAD') : null;
           const files = url.searchParams.get('files') === 'list' ? 'list' : 'tree';

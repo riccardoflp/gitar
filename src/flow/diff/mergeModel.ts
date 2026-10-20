@@ -2,6 +2,7 @@
  * The three-way model of a file in conflict, as the Flow Merge page reads it. Must stay free of `vscode` imports and
  * of the diff library: it is bundled into the webview.
  */
+import type { Proposal } from '../../shared/resolution';
 import type { CharRange, DiffChunk } from './model';
 
 /** Lines of a file, hunk-header style: from 1, and when `count` is 0 `start` is the line before the place meant. */
@@ -46,6 +47,16 @@ export interface LineHighlight {
   ranges: CharRange[];
 }
 
+/**
+ * What is proposed for a conflict still marked in the result, by the rules of Gitardo or by a language model: lines
+ * `from` to `to` of the result, from 0, with the text of the proposal in their place.
+ */
+export interface MergeProposal {
+  /** The region of the conflict. */
+  region: number;
+  proposal: Proposal;
+}
+
 export interface MergeModel {
   /** The texts of the three panes, with LF line endings. */
   ours: string;
@@ -58,6 +69,8 @@ export interface MergeModel {
   theirsHighlights: LineHighlight[];
   /** The lines of the result that are markers of git: `<<<<<<<`, `|||||||`, `=======`, `>>>>>>>`. */
   markerLines: number[];
+  /** What the rules and the language model propose for the conflicts still marked, which the host adds. */
+  proposals?: MergeProposal[];
   languageId: string;
   filePath: string;
   oursLabel: string;

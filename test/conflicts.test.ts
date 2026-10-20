@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diff, diffBackward, merge, resolveConflicts } from '../src/git/conflicts';
+import { applyReplacements, conflictCount, diff, diffBackward, merge, resolveConflicts } from '../src/git/conflicts';
 
 /** Lines as they are in a file: each with its line break. */
 const lines = (...texts: string[]) => texts.map((text) => `${text}\n`);
@@ -320,7 +320,7 @@ describe('the conflicts of a file', () => {
   it('writes a file checked out with other line endings as it is, and compares it as if it were not', () => {
     const windows = (...texts: string[]) => texts.map((text) => `${text}\r\n`).join('');
     const text = windows('top', ...conflict(['A', 'b'], ['a', 'B']), 'c');
-    expect(resolveConflicts(text, file('top', 'a', 'b', 'c'))).toEqual({ text: windows('top', 'A', 'B', 'c'), conflicts: [{ line: 2, resolution: 'separate' }] });
+    expect(resolveConflicts(text, file('top', 'a', 'b', 'c'))).toMatchObject({ text: windows('top', 'A', 'B', 'c'), conflicts: [{ line: 2, resolution: 'separate' }] });
     // A last line without a line break stays without one.
     expect(resolveConflicts(`${file(...conflict(['A', 'b'], ['a', 'B']))}end`, 'a\nb\nend').text).toBe('A\nB\nend');
   });
@@ -348,7 +348,7 @@ describe('the conflicts of a file', () => {
     expect(resolved(one, ['top', 'a', 'end'])).toEqual({ text: file(...one), how: [null], at: [2] });
     // Two sides that are the same lines ended differently are what git stops for when it is not told to see past that.
     const endings = `top\n<<<<<<< HEAD\na\r\n=======\na\n>>>>>>> feature\nend\n`;
-    expect(resolveConflicts(endings, 'top\na\nend\n')).toEqual({ text: 'top\na\r\nend\n', conflicts: [{ line: 2, resolution: 'whitespace' }] });
+    expect(resolveConflicts(endings, 'top\na\nend\n')).toMatchObject({ text: 'top\na\r\nend\n', conflicts: [{ line: 2, resolution: 'whitespace' }] });
   });
 
   it('leaves alone a conflict that reads differently with the lines that repeat paired another way', () => {
@@ -357,7 +357,7 @@ describe('the conflicts of a file', () => {
     const base = ['top', 'end', 'end', 'bottom'];
     const text = ['top', ...conflict([], ['end, theirs']), 'end', 'bottom'];
     const sides = { ours: file('top', 'end', 'bottom'), theirs: file('top', 'end, theirs', 'end', 'bottom') };
-    expect(resolveConflicts(file(...text), file(...base), sides)).toEqual({ text: file(...text), conflicts: [{ line: 2, resolution: null }] });
+    expect(resolveConflicts(file(...text), file(...base), sides)).toMatchObject({ text: file(...text), conflicts: [{ line: 2, resolution: null }] });
     expect(resolved(text, base)).toEqual({ text: file(...text), how: [null], at: [2] });
   });
 
@@ -371,7 +371,7 @@ describe('the conflicts of a file', () => {
     expect(resolveConflicts(file(...typed), file(...base), sides).text).toBe(file('top', 'A', 'B', 'mid', 'c', 'typed by hand', 'end'));
     // The line above the conflict changed by hand is not what either side has there: the conflict is left to who changed it.
     const edited = ['top, edited', ...text.slice(1)];
-    expect(resolveConflicts(file(...edited), file(...base), sides)).toEqual({ text: file(...edited), conflicts: [{ line: 2, resolution: null }] });
+    expect(resolveConflicts(file(...edited), file(...base), sides)).toMatchObject({ text: file(...edited), conflicts: [{ line: 2, resolution: null }] });
 
     // Git writes around a conflict the lines only one side changed too. Here one side moved an empty line above
     // "moved", and the other changed "moved" where it was: the line after the conflict is not one the other side has.
@@ -381,7 +381,7 @@ describe('the conflicts of a file', () => {
       theirs: file('top', '', 'moved, theirs', 'more', '', 'end'),
     };
     const marked = ['top', ...conflict([], ['', 'moved, theirs', 'more']), '', 'moved', 'end'];
-    expect(resolveConflicts(file(...marked), moved.base, moved)).toEqual({ text: file(...marked), conflicts: [{ line: 2, resolution: null }] });
+    expect(resolveConflicts(file(...marked), moved.base, moved)).toMatchObject({ text: file(...marked), conflicts: [{ line: 2, resolution: null }] });
 
     // At the two ends of a file the lines both have are its first and its last.
     const ends = { ours: file('A', 'b'), theirs: file('a', 'B') };
@@ -405,5 +405,44 @@ describe('the conflicts of a file', () => {
       '}',
     ];
     expect(resolved(text, base).text).toBe(file('function a() {', '  one();', '  two();', '}', '', 'function b() {', '  ONE();', '  TWO();', '}'));
+  });
+});
+
+describe('the resolution of each conflict, to look at before it is written', () => {
+  const hard = conflict(['ours'], ['theirs']);
+  const text = ['one', ...conflict(['A', 'b'], ['a', 'B']), 'two', ...hard, 'three', ...conflict(['x = 1'], ['x  =  1']), 'four'];
+  const base = ['one', 'a', 'b', 'two', 'old', 'three', 'x=0', 'four'];
+
+  it('says which lines each resolution replaces, and puts back the whole file when they are all taken', () => {
+    const { conflicts } = resolveConflicts(file(...text), file(...base));
+    expect(conflicts.map(({ from, to }) => [from, to])).toEqual([
+      [1, 8],
+      [9, 14],
+      [15, 20],
+    ]);
+    expect(conflicts.map((found) => found.patch)).toEqual([{ from: 1, to: 8, text: file('A', 'B') }, null, { from: 15, to: 20, text: file('x = 1') }]);
+    const patches = conflicts.flatMap((found) => found.patch ?? []);
+    expect(applyReplacements(file(...text), patches)).toBe(resolveConflicts(file(...text), file(...base)).text);
+  });
+
+  it('takes some of the resolutions only, and refuses two for the same lines', () => {
+    const { conflicts } = resolveConflicts(file(...text), file(...base));
+    const last = conflicts[2].patch!;
+    expect(applyReplacements(file(...text), [last])).toBe(file('one', ...conflict(['A', 'b'], ['a', 'B']), 'two', ...hard, 'three', 'x = 1', 'four'));
+    // A resolution of the conflict left for a person, as a language model would propose it.
+    const chosen = { from: conflicts[1].from, to: conflicts[1].to, text: file('ours and theirs') };
+    expect(applyReplacements(file(...text), [last, chosen])).toBe(file('one', ...conflict(['A', 'b'], ['a', 'B']), 'two', 'ours and theirs', 'three', 'x = 1', 'four'));
+    expect(() => applyReplacements(file(...text), [chosen, { ...chosen, text: '' }])).toThrow('same lines');
+    expect(conflictCount(applyReplacements(file(...text), [last, chosen]))).toBe(1);
+    expect(conflictCount(file(...text))).toBe(3);
+  });
+
+  it('tells what each side and the base have around a conflict, from the sides or from the markers', () => {
+    const { conflicts } = resolveConflicts(file(...text), file(...base));
+    expect(conflicts[1].stretch).toEqual({ base: file('old'), ours: file('ours'), theirs: file('theirs') });
+    // With a conflict right after another, the base is only known when git wrote it between the markers.
+    const close = [...conflict(['A'], ['B']), ...conflict(['C'], ['D'], ['c'])];
+    const found = resolveConflicts(file(...close), file('x', 'c')).conflicts;
+    expect(found.map((each) => each.stretch)).toEqual([null, { base: file('c'), ours: file('C'), theirs: file('D') }]);
   });
 });

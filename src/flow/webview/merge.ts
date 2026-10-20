@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import 'monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css';
+import { applyReplacements } from '../../git/conflicts';
 import type { DiffChunk } from '../diff/model';
 import {
   applyChoices,
@@ -76,9 +77,13 @@ let editTimer: number | undefined;
 /** A choice clicked while what was typed was on its way: made once the model of that text is back. */
 let pending: (() => void) | undefined;
 
-/** The buttons of the bands: each puts one side, or both, in place of the region in the result. */
-type MergeAction = 'acceptOurs' | 'acceptTheirs' | 'acceptOursThenTheirs' | 'acceptTheirsThenOurs';
-const CHOICES: Record<MergeAction, Choice> = {
+/**
+ * The buttons of the bands: each puts one side, or both, in place of the region in the result, or what the rules or
+ * the language model propose for it.
+ */
+type ChoiceAction = 'acceptOurs' | 'acceptTheirs' | 'acceptOursThenTheirs' | 'acceptTheirsThenOurs';
+type MergeAction = ChoiceAction | 'acceptProposal';
+const CHOICES: Record<ChoiceAction, Choice> = {
   acceptOurs: 'ours',
   acceptTheirs: 'theirs',
   acceptOursThenTheirs: 'oursThenTheirs',
@@ -89,6 +94,7 @@ const GLYPHS: Record<MergeAction, { glyph: string; title: string }> = {
   acceptTheirs: { glyph: '←', title: 'Accept Incoming' },
   acceptOursThenTheirs: { glyph: '+', title: 'Accept Both, Current First' },
   acceptTheirsThenOurs: { glyph: '+', title: 'Accept Both, Incoming First' },
+  acceptProposal: { glyph: '✦', title: 'Accept the Proposal' },
 };
 
 const left = new Connectors<MergeAction>();
@@ -244,22 +250,48 @@ function whenCurrent(now: () => void, later: () => void): void {
  */
 function apply(choices: { regionId: number; choice: Choice }[]): void {
   if (!editors || !model || choices.length === 0) return;
+  const next = applyChoices(model, choices);
+  if (replaceResult(next.result)) refreshAll(next);
+}
+
+/** What is proposed for a region still marked, if anything. */
+const proposalOf = (regionId: number) => model?.proposals?.find((each) => each.region === regionId && model?.regions[regionId]?.unresolved)?.proposal;
+
+/**
+ * Puts what is proposed in place of these conflicts, or of all of them, as one edit that Ctrl+Z takes back. The host
+ * sends the model of the new text, with the regions where they now are.
+ */
+function acceptProposals(regionIds?: number[]): void {
+  whenCurrent(
+    () => {
+      const chosen = (model?.proposals ?? []).filter((each) => (!regionIds || regionIds.includes(each.region)) && proposalOf(each.region));
+      if (editors && chosen.length) replaceResult(applyReplacements(editors.result.getValue(), chosen.map((each) => each.proposal)));
+    },
+    () => acceptProposals(regionIds),
+  );
+}
+
+/** Makes the result this text, as one edit of the pane, and sends it to the host. Whether it changed. */
+function replaceResult(next: string): boolean {
+  if (!editors) return false;
   const editor = editors.result;
   const before = editor.getValue();
-  const next = applyChoices(model, choices);
-  const change = minimalReplace(before, next.result);
-  if (!change) return;
+  const change = minimalReplace(before, next);
+  if (!change) return false;
   const [start, end] = [offsetToPosition(before, change.start), offsetToPosition(before, change.end)];
   editor.pushUndoStop();
   editor.executeEdits('flowMerge', [{ range: new monaco.Range(start.line + 1, start.character + 1, end.line + 1, end.character + 1), text: change.text }]);
   editor.pushUndoStop();
   postEdit();
-  refreshAll(next);
+  return true;
 }
 
-/** The buttons of the bands of a side: its choices that would change what the result has in the region. */
+/**
+ * The buttons of the bands of a side: its choices that would change what the result has in the region, and on the
+ * side of the current one what is proposed for a conflict still marked.
+ */
 function bandActions(side: 'ours' | 'theirs'): ChunkActionsConfig<MergeAction> {
-  const offered: MergeAction[] = side === 'ours' ? ['acceptOurs', 'acceptOursThenTheirs'] : ['acceptTheirs', 'acceptTheirsThenOurs'];
+  const offered: ChoiceAction[] = side === 'ours' ? ['acceptOurs', 'acceptOursThenTheirs'] : ['acceptTheirs', 'acceptTheirsThenOurs'];
   return {
     glyphs: GLYPHS,
     kindsFor: (chunk) => {
@@ -269,9 +301,20 @@ function bandActions(side: 'ours' | 'theirs'): ChunkActionsConfig<MergeAction> {
       const now = resultLines(m, region);
       const same = (other: string[]) => other.length === now.length && other.every((line, index) => line === now[index]);
       // Both sides together only where they differ: elsewhere it would be the same lines twice.
-      return offered.filter((action) => (region.kind === 'conflict' || CHOICES[action] === side) && !same(choiceLines(m, region, CHOICES[action])));
+      const choices: MergeAction[] = offered.filter(
+        (action) => (region.kind === 'conflict' || CHOICES[action] === side) && !same(choiceLines(m, region, CHOICES[action])),
+      );
+      return side === 'ours' && proposalOf(region.id) ? ['acceptProposal', ...choices] : choices;
     },
-    onAction: (action, regionId) => choose(regionId, CHOICES[action]),
+    onAction: (action, regionId) => (action === 'acceptProposal' ? acceptProposals([regionId]) : choose(regionId, CHOICES[action])),
+    titleFor: (action, chunk) => {
+      const proposal = action === 'acceptProposal' ? proposalOf(chunk.id) : undefined;
+      if (!proposal) return undefined;
+      const from = proposal.source === 'ai' ? `of the AI${proposal.confidence ? `, with ${proposal.confidence} confidence` : ''}` : 'of the Rules';
+      const count = proposal.newLines;
+      const fresh = count ? ` ${count === 1 ? 'One line is new: neither side has it.' : `${count} lines are new: neither side has them.`}` : '';
+      return `Accept the Proposal ${from} — ${proposal.reason}${fresh}`;
+    },
   };
 }
 
@@ -306,6 +349,13 @@ function refreshAll(m: MergeModel): void {
   toolbar.conflicts.textContent =
     open > 0 ? `${open} ${open === 1 ? 'conflict' : 'conflicts'} left` : conflicts > 0 ? 'No conflicts left' : 'No conflicts';
   toolbar.conflicts.classList.toggle('done', open === 0);
+  const proposed = (m.proposals ?? []).filter((each) => m.regions[each.region]?.unresolved);
+  const fromAI = proposed.filter((each) => each.proposal.source === 'ai').length;
+  const which = proposed.length === 1 ? 'the conflict' : `the ${proposed.length} conflicts`;
+  const by = fromAI === 0 ? 'by the rules' : fromAI === proposed.length ? 'by the AI' : `${fromAI} of them by the AI`;
+  toolbar.proposals.hidden = !m.proposals?.length;
+  toolbar.proposals.disabled = proposed.length === 0;
+  toolbar.proposals.title = proposed.length === 0 ? 'Nothing is proposed for the conflicts left' : `Accept what is proposed for ${which}, ${by}`;
   const simple = simpleChoices(m).length;
   toolbar.simple.disabled = simple === 0;
   toolbar.simple.title =
@@ -482,6 +532,7 @@ function createToolbar(): {
   counter: HTMLElement;
   conflicts: HTMLElement;
   simple: HTMLButtonElement;
+  proposals: HTMLButtonElement;
   base: HTMLButtonElement;
   resolve: HTMLButtonElement;
 } {
@@ -498,11 +549,14 @@ function createToolbar(): {
   const conflicts = el('span', 'fm-conflicts');
   const simple = iconButton('check-all', 'fm-accept-simple');
   simple.addEventListener('click', acceptSimple);
+  const proposals = iconButton('sparkle', 'fm-accept-proposals');
+  proposals.hidden = true;
+  proposals.addEventListener('click', () => acceptProposals());
   const base = iconButton('history', 'fm-toggle-base');
   base.title = showBase ? 'Hide the Base' : 'Show the Base';
   base.classList.toggle('toggled', showBase);
   base.addEventListener('click', () => toggleBase(base));
-  element.append(prev, counter, next, conflicts, simple, base);
+  element.append(prev, counter, next, conflicts, simple, proposals, base);
   const resolve = document.createElement('button');
   resolve.className = 'fm-resolve';
   resolve.textContent = 'Mark as Resolved';
@@ -512,7 +566,7 @@ function createToolbar(): {
     if (editTimer !== undefined) postEdit();
     post({ type: 'markResolved' });
   });
-  return { element, counter, conflicts, simple, base, resolve };
+  return { element, counter, conflicts, simple, proposals, base, resolve };
 }
 
 function iconButton(icon: string, className: string): HTMLButtonElement {

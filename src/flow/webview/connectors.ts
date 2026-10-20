@@ -19,6 +19,8 @@ export interface ChunkActionsConfig<K extends string = ChunkActionKind> {
   onAction: (kind: K, chunkId: number) => void;
   /** The glyph and the tooltip of each kind, for kinds other than the Flow Diff's own. */
   glyphs?: Record<K, { glyph: string; title: string }>;
+  /** A tooltip of a button that says more about its chunk than the one of its kind. */
+  titleFor?: (kind: K, chunk: DiffChunk) => string | undefined;
 }
 
 export const ACTION_GLYPHS: Record<ChunkActionKind, { glyph: string; title: string }> = {
@@ -162,7 +164,7 @@ export class Connectors<K extends string = ChunkActionKind> {
       const button = document.createElement('button');
       button.className = `chunk-btn ${kind}`;
       button.textContent = glyph;
-      button.title = chunk.staged && kind === 'unstageChunk' ? 'Staged — unstage chunk' : title;
+      button.title = chunk.staged && kind === 'unstageChunk' ? 'Staged — unstage chunk' : (this.actions.titleFor?.(kind, chunk) ?? title);
       button.addEventListener('click', (event) => {
         event.stopPropagation();
         this.actions?.onAction(kind, chunk.id);

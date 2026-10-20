@@ -58,6 +58,7 @@ import type {
 import { openMergeEditor } from '../flow/merge';
 import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHeldWorktree, refreshVSCodeGit, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
 import { draftCommitMessage } from './ai';
+import { ConflictReviewTab } from './conflictReview';
 import { INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
 import { editSetupJson, savePatterns, saveSetup, setupChangeText, setupPatterns, worktreeSetupInfo } from './worktreeSettings';
@@ -221,6 +222,8 @@ export class Controller implements vscode.Disposable {
   /** The tab where what new worktrees get is chosen, the repository it is of and what git ignores there, once looked at. */
   /** `saving` while the tab writes the settings one after the other, which it shows once they are all written. */
   private setupTab?: { panel: vscode.WebviewPanel; repo: Repo; entries: IgnoredEntry[] | null; saving: boolean };
+  /** The tab where what is proposed for the conflicts is looked at before it is written. */
+  private reviewTab?: ConflictReviewTab;
   /** The views with a search box that have the keyboard: one at most, but each says so on its own. */
   private readonly focused = new Set<vscode.Webview>();
   /** What identifies the commits each view that lists them was last sent. */
@@ -261,12 +264,14 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidDeleteFiles(schedule),
       vscode.workspace.onDidRenameFiles(schedule),
       vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
-      vscode.workspace.onDidChangeConfiguration(
-        (event) => ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches'].some((section) => event.affectsConfiguration(section)) && schedule(),
-      ),
-      // The branches a comparison is of may have moved.
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches'].some((section) => event.affectsConfiguration(section))) schedule();
+        if (event.affectsConfiguration('gitardo.conflicts')) void this.reviewTab?.reload();
+      }),
+      // The branches a comparison is of may have moved, and the conflicts of the review may be resolved.
       this.onDidChangeState(() => {
         for (const tab of this.compareTabs.values()) void this.sendCompare(tab);
+        void this.reviewTab?.reload();
       }),
       vscode.window.onDidChangeActiveColorTheme(async () => {
         if (!this.colored.size) return;
@@ -346,6 +351,7 @@ export class Controller implements vscode.Disposable {
           agentsWindow: await (this.agentsWindow ??= hasCommand(AGENTS_WINDOW)),
           worktreesRoot: worktreesFolder(state),
           openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
+          resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
       }
@@ -363,6 +369,71 @@ export class Controller implements vscode.Disposable {
   /** Resolving conflicts without choosing a side is experimental: nothing of it is offered, or run, until it is switched on. */
   private autoResolve(): boolean {
     return vscode.workspace.getConfiguration('gitardo').get<boolean>('conflicts.autoResolve') === true;
+  }
+
+  /** Asking a language model how to resolve conflicts is experimental too, with a setting of its own. */
+  private resolveWithAI(): boolean {
+    return vscode.workspace.getConfiguration('gitardo').get<boolean>('conflicts.ai') === true;
+  }
+
+  /**
+   * Opens the tab where what is proposed for the conflicts is looked at, of these files or of all of them, or shows the
+   * one open. With `ai` the language model is asked about the conflicts the rules leave.
+   */
+  async reviewConflicts(paths?: string[], ai = false): Promise<void> {
+    const repo = (await this.requireState()) && this.repo;
+    if (!repo) return;
+    if (!this.autoResolve() && !this.resolveWithAI()) {
+      void vscode.window
+        .showInformationMessage('Gitardo: resolving conflicts automatically is experimental, and it is switched off in the settings.', 'Open Settings')
+        .then((choice) => choice && vscode.commands.executeCommand('workbench.action.openSettings', 'gitardo.conflicts'));
+      return;
+    }
+    const wanted = paths?.filter((file) => typeof file === 'string');
+    if (this.reviewTab && samePath(this.reviewTab.repo.root, repo.root)) this.reviewTab.reveal(wanted);
+    else {
+      this.reviewTab?.dispose();
+      const host = {
+        attach: (webview: vscode.Webview, kind: ViewKind, data: Record<string, string>) => this.attach(webview, kind, data),
+        post: (message: HostMessage, webview: vscode.Webview) => this.post(message, webview),
+        write: (on: Repo, op: GitOp, files: string[]) => this.writeResolutions(on, op, files),
+        settings: () => ({ rules: this.autoResolve(), ai: this.resolveWithAI() }),
+      };
+      const tab: ConflictReviewTab = new ConflictReviewTab(host, repo, wanted, () => {
+        this.pinned.delete(tab.webview);
+        if (this.reviewTab === tab) this.reviewTab = undefined;
+      });
+      this.reviewTab = tab;
+      this.pinned.set(tab.webview, repo);
+      await tab.reload();
+    }
+    if (ai) await this.reviewTab?.ask();
+  }
+
+  /** Opens a file in conflict where it is resolved by hand: the Flow Merge, the merge editor of VS Code, or the file itself at a line. */
+  private async openConflict(repo: Repo, file: string, line: number, editor: 'flowMerge' | 'mergeEditor' | 'text'): Promise<void> {
+    if (typeof file !== 'string' || !(await repo.conflicted()).includes(file)) return;
+    const uri = vscode.Uri.file(path.join(repo.root, file));
+    try {
+      if (editor === 'flowMerge') return void (await vscode.commands.executeCommand('gitardo.openInFlowMerge', uri));
+      const stages = await repo.conflictStages(file);
+      // The merge editor needs all three sides: a file both sides added has no base.
+      if (editor === 'mergeEditor' && [1, 2, 3].every((stage) => stages.includes(stage))) {
+        return await openMergeEditor(repo.root, file, await repo.operation().catch(() => null));
+      }
+    } catch (error) {
+      this.log.warn(`Could not open ${file} to resolve it: ${errorText(error)}`);
+    }
+    const at = Math.max(0, (Number(line) || 1) - 1);
+    await vscode.window.showTextDocument(uri, { selection: new vscode.Range(at, 0, at, 0), preview: false });
+  }
+
+  /** Writes resolutions of conflicts, with the way back, and says what is left. */
+  private async writeResolutions(repo: Repo, op: GitOp, files: string[]): Promise<boolean> {
+    const top = (await repo.reflog('HEAD', 1).catch(() => []))[0];
+    if (!(await this.run(op, { repo })).ok) return false;
+    if (this.repo && samePath(this.repo.root, repo.root)) this.undoable = { reflogTop: top ? `${top.hash} ${top.subject}` : '', op: restoreConflictsOp(files) };
+    return true;
   }
 
   /** A search git cannot run, such as an invalid regular expression, is reported and dropped rather than taking the graph down. */
@@ -1323,7 +1394,7 @@ export class Controller implements vscode.Disposable {
       if (!op) return;
       // What is about to be written can be looked at first.
       const asked = action.kind === 'resolveConflicts';
-      if (asked && !(await this.confirmWrites(repo, op))) return;
+      if (asked && !(await this.confirmWrites(repo, op, action.paths))) return;
 
       const { result, ran } = await this.runWithFallback(op, asked);
       if (action.kind === 'cherryPickMany' && state.head && (result.ok || this.state?.operation === 'cherry-pick')) {
@@ -1375,17 +1446,13 @@ export class Controller implements vscode.Disposable {
     return { result, ran: op };
   }
 
-  /** Asks before an operation writes files, and shows what it would write in each to who wants to see that first. */
-  private async confirmWrites(repo: Repo, op: GitOp): Promise<boolean> {
-    let choice = await vscode.window.showInformationMessage(`${op.title}?`, { modal: true, detail: this.describe(repo, op) }, 'Resolve', 'Preview');
-    if (choice === 'Preview') {
-      const resources = (op.writes ?? []).map((write) => {
-        const onDisk = vscode.Uri.file(path.join(repo.root, write.path));
-        return [onDisk, onDisk, proposalUri(repo.root, write.path, write.content)];
-      });
-      await vscode.commands.executeCommand('vscode.changes', 'Preview of the conflicts resolved automatically', resources);
-      choice = await vscode.window.showInformationMessage(`${op.title}, as in the preview?`, 'Resolve');
-    }
+  /**
+   * Asks before an operation writes files. Who wants to look at each resolution first, and choose among them, is shown
+   * them in the tab of the review.
+   */
+  private async confirmWrites(repo: Repo, op: GitOp, paths?: string[]): Promise<boolean> {
+    const choice = await vscode.window.showInformationMessage(`${op.title}?`, { modal: true, detail: this.describe(repo, op) }, 'Resolve', 'Review');
+    if (choice === 'Review') await this.reviewConflicts(paths);
     return choice === 'Resolve';
   }
 
@@ -1763,6 +1830,9 @@ export class Controller implements vscode.Disposable {
     // What the tab of a commit asks is about the repository of its commit.
     const repo = this.pinned.get(webview) ?? this.repo;
     const compareTab = this.compareTabs.get(webview);
+    const review = this.reviewTab?.webview === webview ? this.reviewTab : undefined;
+    // The tab of the review reads the files in conflict by itself.
+    if (review && message.type === 'ready') return review.reload();
     switch (message.type) {
       case 'focus':
         return this.setFocused(webview, message.focused === true);
@@ -1828,6 +1898,20 @@ export class Controller implements vscode.Disposable {
       }
       case 'editWorktreeSetup':
         return repo && editSetupJson(repo.root, message.target === 'user' ? 'user' : 'workspace');
+      case 'reviewConflicts':
+        return this.reviewConflicts(Array.isArray(message.paths) ? message.paths : undefined, message.ai === true);
+      case 'getReview':
+        return review?.reload();
+      case 'writeResolutions':
+        return Array.isArray(message.accepted) ? review?.write(message.accepted) : undefined;
+      case 'previewResolutions':
+        return Array.isArray(message.accepted) ? review?.preview(message.accepted) : undefined;
+      case 'askAI':
+        return review?.ask(Array.isArray(message.conflicts) ? message.conflicts : undefined);
+      case 'stopAsking':
+        return review?.stop();
+      case 'openConflict':
+        return repo && this.openConflict(repo, message.path, message.line, message.editor);
       case 'refresh':
         return this.refresh();
       case 'loadMore':
@@ -2001,15 +2085,14 @@ export class Controller implements vscode.Disposable {
       // The ones that need no choice between the two sides are a click away.
       const which = marked === 1 ? 'the conflict' : resolvable === marked ? `all ${marked} conflicts` : `${resolvable} of the ${marked} conflicts`;
       const offer = resolvable ? ` Gitardo can resolve ${which} automatically.` : '';
-      void vscode.window
-        .showWarningMessage(
-          `${op.title} stopped: ${files}. Resolve them, then ${then}.${offer}`,
-          ...(resolvable ? ['Resolve Automatically', 'Show Log'] : ['Show Log']),
-        )
-        .then((choice) => {
-          if (choice === 'Resolve Automatically') void this.action({ kind: 'resolveConflicts' });
-          if (choice === 'Show Log') this.log.show();
-        });
+      // The language model is offered for what the rules leave.
+      const ai = this.resolveWithAI() && (!marked || resolvable < marked);
+      const items = [...(resolvable ? ['Resolve Automatically'] : []), ...(ai ? ['Resolve with AI'] : []), 'Show Log'];
+      void vscode.window.showWarningMessage(`${op.title} stopped: ${files}. Resolve them, then ${then}.${offer}`, ...items).then((choice) => {
+        if (choice === 'Resolve Automatically') void this.action({ kind: 'resolveConflicts' });
+        if (choice === 'Resolve with AI') void this.reviewConflicts(undefined, true);
+        if (choice === 'Show Log') this.log.show();
+      });
       return;
     }
     // Git prefixes the line that matters; hints and progress come after it.

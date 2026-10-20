@@ -167,3 +167,31 @@
 .fm-resolve:hover {
   background: var(--vscode-button-hoverBackground, #1177bb);
 }
+
+/* What the rules or the language model propose for a conflict: brighter than the other buttons of its band. */
+.chunk-btn.acceptProposal {
+  color: var(--vscode-charts-purple, #b180d7);
+  opacity: 0.9;
+  animation: fm-proposed 0.5s ease-out;
+}
+
+.toolbar .fm-accept-proposals:not(:disabled) {
+  color: var(--vscode-charts-purple, #b180d7);
+}
+
+.toolbar button[hidden] {
+  display: none;
+}
+
+@keyframes fm-proposed {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chunk-btn.acceptProposal {
+    animation: none;
+  }
+}

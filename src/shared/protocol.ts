@@ -1,5 +1,6 @@
 import type { SyntaxTheme } from '../flow/diff/protocol';
 import type { FileIconTheme } from './fileIcons';
+import type { ConflictRef, ConflictReview } from './resolution';
 import type { SetupPatterns, SetupPreview, SetupTarget, WorktreeSetupInfo } from './worktreeSetup';
 
 /** Pseudo-hash of the row that stands for uncommitted changes. */
@@ -231,6 +232,8 @@ export interface RepoState {
   worktreesRoot: string | null;
   /** What a double click on a branch does, as the settings say: check it out here, or open its worktree. */
   openBranches: 'checkout' | 'worktree';
+  /** Whether a language model can be asked how to resolve the conflicts, as the settings say. */
+  resolveWithAI: boolean;
   /**
    * The repository of the workspace the views go back to, while they show a worktree of it that is not in the
    * workspace. Null when they show a repository of the workspace.
@@ -355,9 +358,9 @@ export interface CompareView {
  * with its files, apart from the graph, and `sideGraph` is the graph without the references beside it. `commit` is
  * one commit in an editor tab, with its message, its files and what it changed in them. `compare` is two branches,
  * tags or commits compared in an editor tab. `worktreeSetup` is the tab where what new worktrees get of what git
- * ignores is chosen.
+ * ignores is chosen. `conflicts` is the tab where what is proposed for the conflicts is looked at before it is written.
  */
-export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit' | 'compare' | 'worktreeSetup';
+export type ViewKind = 'graph' | 'changes' | 'commits' | 'sideGraph' | 'branches' | 'stashes' | 'commit' | 'compare' | 'worktreeSetup' | 'conflicts';
 
 /** The views that show the graph, and so are sent its commits. */
 export const showsGraph = (kind: ViewKind) => kind === 'graph' || kind === 'sideGraph';
@@ -550,7 +553,9 @@ export type HostMessage =
   /** What the tab of the setup of new worktrees shows. Null, with `error`, when it could not be read. */
   | { type: 'worktreeSetup'; info: WorktreeSetupInfo | null; error?: string }
   /** What the patterns take from the checkout. Null when git could not say. */
-  | { type: 'worktreeSetupPreview'; patterns: SetupPatterns; preview: SetupPreview | null; error?: string };
+  | { type: 'worktreeSetupPreview'; patterns: SetupPatterns; preview: SetupPreview | null; error?: string }
+  /** What the tab of the review of the conflicts shows. Null, with `error`, when the files could not be read. */
+  | { type: 'review'; review: ConflictReview | null; error?: string };
 
 /** Things the UI can ask for that need the extension to prompt, pick or open something. */
 export type UiCommand =
@@ -636,4 +641,19 @@ export type WebviewMessage =
   | { type: 'saveWorktreeSetup'; target: SetupTarget; patterns: SetupPatterns | null; alsoVSCode?: boolean }
   /** Opens the file of the settings there. */
   | { type: 'editWorktreeSetup'; target: SetupTarget }
+  /**
+   * Opens the tab of the review of the conflicts, of these files or of all of them, or shows the one open. With `ai`
+   * the language model is asked about the conflicts the rules leave.
+   */
+  | { type: 'reviewConflicts'; paths?: string[]; ai?: boolean }
+  | { type: 'getReview' }
+  /** Writes the proposals accepted in the review. */
+  | { type: 'writeResolutions'; accepted: ConflictRef[] }
+  /** Shows each file in conflict beside what the proposals accepted would make of it, in a multi-file diff editor. */
+  | { type: 'previewResolutions'; accepted: ConflictRef[] }
+  /** Asks the language model about these conflicts, or about all the ones with nothing proposed. */
+  | { type: 'askAI'; conflicts?: ConflictRef[] }
+  | { type: 'stopAsking' }
+  /** Opens a file in conflict in the Flow Merge, or in the merge editor, at the line of a conflict. */
+  | { type: 'openConflict'; path: string; line: number; editor: 'flowMerge' | 'mergeEditor' | 'text' }
   | { type: 'copy'; text: string };

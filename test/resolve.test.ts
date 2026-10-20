@@ -18,9 +18,11 @@ import {
   stashOp,
   stashPushOp,
   takeSideOp,
+  writeResolutionsOp,
   type GitOp,
 } from '../src/git/ops';
 import { Repo } from '../src/git/repo';
+import { reviewFiles } from '../src/git/review';
 
 // Conflicts as git itself leaves them, in a throwaway repository, resolved the way the extension does it.
 
@@ -178,6 +180,38 @@ describe('conflicts of a real repository', { timeout: 120_000 }, () => {
     expect((await state()).working.conflicts.map((file) => file.path)).toEqual(['a.txt', 'b.txt', 'c.txt']);
     const only = resolveConflictsOp(await repo.conflictPlans(['b.txt']));
     expect(only).toMatchObject({ title: 'Resolve the conflict automatically', commands: [['add', '--', 'b.txt']] });
+  });
+
+  it('proposes a resolution for each conflict, and writes only the ones accepted', async () => {
+    await divergent(
+      { 'b.txt': BASE, 'c.txt': BASE },
+      { 'b.txt': BASE.replace('two', 'TWO'), 'c.txt': BASE.replace('one', 'theirs') },
+      { 'b.txt': BASE.replace('three', 'THREE'), 'c.txt': BASE.replace('one', 'ours') },
+    );
+    await expect(run(mergeOp('other', 'main'))).rejects.toThrow();
+    const answered = { text: 'ours and theirs\n', reason: 'Both sides renamed the first line.', confidence: 'medium' as const };
+    const asked = { answer: (file: string) => (file === 'c.txt' ? answered : undefined), asking: () => undefined };
+    const [b, c] = reviewFiles(await plans(), true, asked);
+    expect(b.conflicts).toMatchObject([{ line: 2, ours: text('two', 'THREE'), theirs: text('TWO', 'three'), proposal: { source: 'rules', text: text('TWO', 'THREE'), newLines: 0 } }]);
+    expect(b.conflicts[0].proposal?.reason).toBe('Changes to lines next to each other');
+    expect(c.conflicts).toMatchObject([{ ours: text('ours'), theirs: text('theirs'), base: text('one'), after: text('two', 'three', 'four') }]);
+    expect(c.conflicts[0].proposal).toMatchObject({ source: 'ai', from: 0, to: 5, text: 'ours and theirs\n', confidence: 'medium', newLines: 1 });
+    // Without the rules, only the language model proposes.
+    expect(reviewFiles(await plans(), false, asked).map((file) => file.conflicts[0].proposal?.source ?? null)).toEqual([null, 'ai']);
+
+    // Only the one of the language model is accepted: its file has no conflict left, and is staged.
+    const files = (await plans()).map((plan, index) => ({ path: plan.path, text: plan.text, conflicts: plan.conflicts.length, proposals: index ? [c.conflicts[0].proposal!] : [] }));
+    const op = writeResolutionsOp(files);
+    expect(op).toMatchObject({ title: 'Write the resolution of 1 conflict', commands: [['add', '--', 'c.txt']] });
+    expect(op.note).toBe('c.txt: 1 of 1 conflict (by the AI)\n\n1 conflict will be left to resolve by hand, with the markers as they are.\n\nAll of them were written by a language model: look at them before you commit.');
+    await run(op);
+    expect(read('c.txt')).toBe(BASE.replace('one', 'ours and theirs'));
+    expect((await state()).working.conflicts.map((file) => file.path)).toEqual(['b.txt']);
+    expect(() => writeResolutionsOp(files.map((file) => ({ ...file, proposals: [] })))).toThrow('No resolution is accepted.');
+    // A file changed since the proposals were made is not written.
+    write('b.txt', `${read('b.txt')}typed\n`);
+    const stale = writeResolutionsOp([{ ...files[0], proposals: [b.conflicts[0].proposal!] }]);
+    await expect(run(stale)).rejects.toThrow('b.txt has changed since it was read');
   });
 
   it('puts the conflicts back as git left them, also in a file that was staged since', async () => {

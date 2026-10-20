@@ -37,7 +37,7 @@ When this checkout has worktrees of its own under `.claude/worktrees`, a bare `n
 
 | Path | What is there |
 | --- | --- |
-| `src/git` | Git itself, with no VS Code in it: running it (`exec.ts`), reading a repository (`repo.ts`), parsing what git prints (`parse.ts`), the commands of each operation (`ops.ts`), the conflicts that need no choice (`conflicts.ts`), what new worktrees get (`worktreeSetup.ts`), GitHub URLs. |
+| `src/git` | Git itself, with no VS Code in it: running it (`exec.ts`), reading a repository (`repo.ts`), parsing what git prints (`parse.ts`), the commands of each operation (`ops.ts`), the conflicts that need no choice (`conflicts.ts`), what is proposed for each conflict (`review.ts`), what new worktrees get (`worktreeSetup.ts`), GitHub URLs. |
 | `src/shared` | What the extension and the webviews both use: the messages between them (`protocol.ts`), the lanes of the graph, the tree of files, how references and messages are named and shown. |
 | `src/extension` | VS Code: activation and commands (`extension.ts`), the `Controller` that owns the state and every webview (`controller.ts`), what an action asks the user and which operation it becomes (`actions.ts`), blame, the content of the diffs (`content.ts`), GitHub sign-in, the language model. |
 | `src/webview` | The React UI of every view and tab, in one bundle. `main.tsx` picks the component from the `data-view` the host writes on the page. |

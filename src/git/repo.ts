@@ -272,6 +272,23 @@ export class Repo {
   }
 
   /** Which sides of a conflict the index has for a file: 1 is the common ancestor, 2 "ours", 3 "theirs". */
+  /** The files in conflict, from the root of the repository. */
+  async conflicted(): Promise<string[]> {
+    const out = await this.read(['diff', '--name-only', '--diff-filter=U', '-z'], true);
+    return [...new Set(out.split('\0').filter(Boolean))];
+  }
+
+  /**
+   * The subjects of the commit checked out and of the one coming in, for whoever is asked to resolve a conflict
+   * between them. Null where there is no such commit.
+   */
+  async conflictSubjects(): Promise<[ours: string | null, theirs: string | null]> {
+    const incoming = { merge: 'MERGE_HEAD', 'cherry-pick': 'CHERRY_PICK_HEAD', revert: 'REVERT_HEAD', rebase: 'REBASE_HEAD' };
+    const operation = await this.operation().catch(() => null);
+    const subject = async (ref: string) => (await this.read(['log', '-1', '--format=%s', ref, '--'], true)).trim() || null;
+    return [await subject('HEAD'), operation ? await subject(incoming[operation]) : null];
+  }
+
   async conflictStages(file: string): Promise<number[]> {
     const out = await this.read(['ls-files', '--unmerged', '-z', '--', `:(literal)${file}`], true);
     // Each record is "<mode> <object> <stage>\t<path>".
@@ -561,6 +578,7 @@ export class Repo {
       agentsWindow: false,
       worktreesRoot: null,
       openBranches: 'checkout',
+      resolveWithAI: false,
       home: null,
     };
   }

@@ -12,6 +12,7 @@ import { git } from '../../src/git/exec';
 import { samePath } from '../../src/git/parse';
 import { Repo } from '../../src/git/repo';
 import { WORKTREE, type CompareMode, type CompareSide, type Filter, type HostMessage, type RebaseStep, type RepoState, type ViewKind, type WebviewMessage } from '../../src/shared/protocol';
+import type { ConflictReview } from '../../src/shared/resolution';
 
 /** The parts of the controller that are private to everyone but these tests. */
 interface Internals {
@@ -139,6 +140,9 @@ export async function run(): Promise<void> {
     errors.push(String(message));
     logError(message, ...rest);
   };
+
+  /** What the tab of the review of the conflicts was sent last. */
+  const lastReview = () => posted.reduce<ConflictReview | null | undefined>((last, message) => (message.type === 'review' ? message.review : last), undefined);
 
   // Prompts are answered by these, which each test sets as it needs.
   const ui = vscode.window as unknown as Record<string, (...args: never[]) => unknown>;
@@ -2328,25 +2332,30 @@ export async function run(): Promise<void> {
       assert.match(stopped?.message ?? '', /Gitardo can resolve 2 of the 3 conflicts automatically\.$/);
       assert.deepEqual(stopped?.items, ['Resolve Automatically', 'Show Log']);
 
-      // It asks first, saying the files it writes and the command it runs, and shows each file beside what it would become.
+      // It asks first, saying the files it writes and the command it runs; each resolution can be looked at in the review.
       const marked = read('c.txt');
       asked.length = 0;
-      answer = (_text, _detail, items) => (items.includes('Preview') ? 'Preview' : undefined);
+      posted.length = 0;
+      addressed.length = 0;
+      answer = (_text, _detail, items) => (items.includes('Review') ? 'Review' : undefined);
       await vscode.commands.executeCommand('gitardo.resolveConflicts');
       assert.equal(asked[0].message, 'Resolve 2 of 3 conflicts automatically?');
-      assert.deepEqual(asked[0].items, ['Resolve', 'Preview']);
+      assert.deepEqual(asked[0].items, ['Resolve', 'Review']);
       assert.match(asked[0].detail, /^c\.txt: 1 of 2 conflicts \(changes to lines next to each other\)\nd\.txt: 1 of 1 conflict \(/);
       assert.match(asked[0].detail, /1 conflict will be left to resolve by hand/);
       assert.match(asked[0].detail, /Gitardo will write in [^\n]+:\n\nc\.txt\nd\.txt\n\nand then run:\n\ngit add -- d\.txt$/);
-      assert.equal(asked[1].message, 'Resolve 2 of 3 conflicts automatically, as in the preview?');
-      assert.deepEqual(asked[1].items, ['Resolve']);
-      const tab = await until('the preview', () => vscode.window.tabGroups.activeTabGroup.activeTab);
-      assert.match(tab.label, /^Preview of the conflicts resolved automatically/);
-      const proposed = await until('what is proposed for d.txt', () =>
-        vscode.workspace.textDocuments.find((document) => document.uri.scheme === 'gitardo' && document.uri.path === '/d.txt' && /proposal/.test(document.uri.query)),
+      const tab = await until('the review', () => vscode.window.tabGroups.activeTabGroup.activeTab);
+      assert.equal(tab.label, 'Conflicts · app');
+      const shown = await until('the review sent', () => lastReview());
+      assert.deepEqual(
+        shown.files.map((file) => [file.path, file.conflicts.map((conflict) => conflict.proposal?.source ?? null)]),
+        [
+          ['c.txt', ['rules', null]],
+          ['d.txt', ['rules']],
+        ],
       );
-      assert.equal(proposed.getText(), 'ONE\nTWO\n');
-      // The second question was left without an answer: nothing is written.
+      assert.equal(shown.files[1].conflicts[0].proposal?.text, 'ONE\nTWO\n');
+      // Nothing is written until a resolution is accepted there.
       assert.equal(read('c.txt'), marked);
       assert.deepEqual(state().conflictFiles, both);
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -2416,6 +2425,136 @@ export async function run(): Promise<void> {
     } finally {
       await autoResolve(undefined);
     }
+  });
+
+  await step('shows what the rules and the AI propose for each conflict, writes only what is accepted, and takes it back', async () => {
+    const lines = (changes: Record<number, string> = {}) => Array.from({ length: 12 }, (_, index) => `${changes[index] ?? `line ${index}`}\n`).join('');
+    const read = (file: string) => fs.readFileSync(path.join(app, file), 'utf8');
+    write('e.txt', lines());
+    await git(app, ['add', '--', 'e.txt']);
+    await git(app, ['commit', '-m', 'Add e']);
+    await git(app, ['checkout', '-b', 'aside']);
+    write('e.txt', lines({ 2: 'two, theirs', 9: 'nine, theirs' }));
+    await git(app, ['commit', '-am', 'Aside, theirs']);
+    await git(app, ['checkout', 'main']);
+    write('e.txt', lines({ 3: 'three, ours', 9: 'nine, ours' }));
+    await git(app, ['commit', '-am', 'Aside, ours']);
+
+    // No language model can be signed in to here: one that answers as a model would takes its place.
+    const lm = vscode.lm as unknown as Record<string, unknown>;
+    const select = lm.selectChatModels;
+    const prompts: string[] = [];
+    const reply = ['<resolution>\n', 'nine, ours', ' and theirs\n', '</resolution>\n<reason>Both sides renamed line nine.</reason>\n', '<confidence>high</confidence>'];
+    const model = {
+      sendRequest: async (messages: vscode.LanguageModelChatMessage[]) => {
+        prompts.push(messages.map((each) => each.content.map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : '')).join('')).join('\n'));
+        return {
+          text: (async function* () {
+            for (const chunk of reply) {
+              await sleep(150);
+              yield chunk;
+            }
+          })(),
+        };
+      },
+    };
+    let models: unknown[] = [model];
+    lm.selectChatModels = async () => models;
+    const settings = vscode.workspace.getConfiguration('gitardo');
+    const set = (key: string, value: boolean | undefined) => settings.update(key, value, vscode.ConfigurationTarget.Global);
+    await set('conflicts.autoResolve', true);
+    await set('conflicts.ai', true);
+    try {
+      await until('the setting of the AI in the state', () => state().resolveWithAI);
+      asked.length = 0;
+      answer = run;
+      await controller.action({ kind: 'merge', ref: 'aside' });
+      const stopped = asked.find((question) => /stopped: 1 file has conflicts/.test(question.message));
+      assert.deepEqual(stopped?.items, ['Resolve Automatically', 'Resolve with AI', 'Show Log']);
+      const marked = read('e.txt');
+
+      // The rules propose for the first conflict; the model is asked about the second, and its answer shows as it comes.
+      posted.length = 0;
+      addressed.length = 0;
+      await fromWebview({ type: 'reviewConflicts', ai: true });
+      const answered = await until('the answer of the model', () => {
+        const review = lastReview();
+        return review?.files[0]?.conflicts[1]?.proposal?.source === 'ai' && review;
+      });
+      const thinking = posted.flatMap((message) => (message.type === 'review' && message.review ? message.review.files[0].conflicts[1].asking ?? [] : []));
+      assert.ok(thinking.some((asking) => asking.state === 'waiting' || asking.state === 'thinking'));
+      assert.ok(thinking.some((asking) => asking.state === 'thinking' && asking.text === 'nine, ours'));
+      assert.equal(prompts.length, 1);
+      assert.match(prompts[0], /^Resolve one merge conflict in the file e\.txt\./);
+      assert.match(prompts[0], /"Incoming" is the branch being merged, in the commit "Aside, theirs"\./);
+      assert.match(prompts[0], /<current>\nnine, ours\n<\/current>\n<incoming>\nnine, theirs\n<\/incoming>/);
+      const [rules, ai] = answered.files[0].conflicts;
+      assert.equal(rules.proposal?.source, 'rules');
+      assert.deepEqual(ai.proposal, { source: 'ai', from: 14, to: 19, text: 'nine, ours and theirs\n', reason: 'Both sides renamed line nine.', confidence: 'high', newLines: 1 });
+      assert.equal(answered.asking, false);
+      assert.equal(read('e.txt'), marked);
+
+      // The same answer shows in the Flow Merge, beside the proposal of the rules.
+      interface Panel {
+        initSent: boolean;
+        currentModel: { proposals?: { proposal: { source: string } }[] } | undefined;
+      }
+      const panels = () => flowDiff.merge.all() as unknown as Panel[];
+      await vscode.commands.executeCommand('gitardo.openInFlowMerge', vscode.Uri.file(path.join(app, 'e.txt')));
+      const [panel] = await until('the Flow Merge', () => (panels().length ? panels() : undefined));
+      assert.deepEqual(
+        panel.currentModel?.proposals?.map((each) => each.proposal.source),
+        ['rules', 'ai'],
+      );
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+      // Only what is accepted is written: the file left with no conflict is staged, and the review says what it did.
+      await fromWebview({ type: 'reviewConflicts' });
+      const tab = view('conflicts');
+      logged.length = 0;
+      posted.length = 0;
+      addressed.length = 0;
+      await internals.onMessage(tab, { type: 'writeResolutions', accepted: [{ path: 'e.txt', key: rules.key }, { path: 'e.txt', key: ai.key }] });
+      assert.deepEqual(
+        logged.filter((line) => line.startsWith('> ')),
+        ['> write e.txt', '> git add -- e.txt'],
+      );
+      assert.equal(read('e.txt'), lines({ 2: 'two, theirs', 3: 'three, ours', 9: 'nine, ours and theirs' }));
+      assert.deepEqual(state().working.conflicts, []);
+      const after = await until('the report', () => lastReview()?.report && lastReview());
+      assert.deepEqual(after.report, { resolved: 2, files: 1, staged: 1, fromAI: 1 });
+      assert.equal(after.conflicted, 0);
+
+      // Undo puts the conflicts back, with the sides named as git names them then.
+      answer = run;
+      await controller.action({ kind: 'undo' });
+      const unnamed = (text: string) => text.replace(/^(<{7}|>{7}) .*$/gm, '$1');
+      assert.equal(unnamed(read('e.txt')), unnamed(marked));
+      assert.equal(state().working.conflicts.length, 1);
+
+      // Without a model, asking says why it could not.
+      models = [];
+      posted.length = 0;
+      addressed.length = 0;
+      await internals.onMessage(tab, { type: 'askAI', conflicts: [{ path: 'e.txt', key: ai.key }] });
+      const failed = await until('the failure', () => {
+        const asking = lastReview()?.files[0]?.conflicts[1]?.asking;
+        return asking?.state === 'failed' && asking;
+      });
+      assert.match(failed.state === 'failed' ? failed.error : '', /No language model is available in VS Code/);
+    } finally {
+      lm.selectChatModels = select;
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await set('conflicts.autoResolve', undefined);
+      await set('conflicts.ai', undefined);
+      answer = run;
+      if (state().operation) await controller.action({ kind: 'abort' });
+    }
+    assert.equal(state().operation, null);
+    assert.deepEqual(
+      vscode.workspace.textDocuments.filter((document) => document.isDirty).map((document) => document.uri.toString()),
+      [],
+    );
   });
 
   await step('names who changed each line of a file, what is typed as not committed, and stops when asked', async () => {

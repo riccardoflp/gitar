@@ -354,6 +354,8 @@ interface Block {
   to: number;
   ours: string[];
   theirs: string[];
+  /** What it was before either side changed it, when git wrote that too, as its styles `diff3` and `zdiff3` do. */
+  base: string[] | null;
   /** Markers inside it that make no sense, as when a side has a line of equal signs of its own. */
   broken: boolean;
 }
@@ -371,7 +373,7 @@ function blocks(lines: string[]): Block[] | null {
   for (const [index, line] of lines.entries()) {
     if (!block) {
       if (marks(line, '<')) {
-        block = { from: index, to: index, ours: [], theirs: [], broken: false };
+        block = { from: index, to: index, ours: [], theirs: [], base: null, broken: false };
         part = 'ours';
       }
       continue;
@@ -384,14 +386,34 @@ function blocks(lines: string[]): Block[] | null {
       block.broken = true;
     } else if (marks(line, '|') && part === 'ours') {
       part = 'base';
+      block.base = [];
     } else if (bare(line) === '='.repeat(MARKER)) {
       if (part === 'theirs') block.broken = true;
       part = 'theirs';
-    } else if (part !== 'base') {
+    } else if (part === 'base') {
+      block.base?.push(line);
+    } else {
       block[part].push(line);
     }
   }
   return block ? null : found;
+}
+
+/** Lines `from` to `to` of a text, from 0, and what to have in their place. */
+export interface Replacement {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/**
+ * A conflict with the lines around it, up to where the two sides are known to be at the same place, as each side has
+ * them and as they were before either changed them.
+ */
+export interface Stretch {
+  base: string;
+  ours: string;
+  theirs: string;
 }
 
 export interface Conflict {
@@ -399,6 +421,16 @@ export interface Conflict {
   line: number;
   /** How it is resolved, or null when it is left for a person. */
   resolution: Resolution | null;
+  /** The lines of the file from its first marker to the one after its last, from 0. */
+  from: number;
+  to: number;
+  /** What each side has between the markers. */
+  ours: string;
+  theirs: string;
+  /** What the rules put in its place, when they resolve it: it can take some of the lines around the markers too. */
+  patch: Replacement | null;
+  /** What each side and the base have there, when that can be told: for whoever is asked to resolve it. */
+  stretch: Stretch | null;
 }
 
 export interface Resolved {
@@ -416,6 +448,29 @@ export interface Sides {
 const split = (text: string) => (text ? text.split(/(?<=\n)/) : []);
 
 /**
+ * A text with some of its lines replaced. The replacements must not overlap: the rules never make two that do, and
+ * each conflict is resolved once.
+ */
+export function applyReplacements(text: string, replacements: Replacement[]): string {
+  const lines = text.split(/(?<=\n)/);
+  const out: string[] = [];
+  let written = 0;
+  for (const replacement of [...replacements].sort((one, two) => one.from - two.from)) {
+    if (replacement.from < written || replacement.to > lines.length) throw new Error('Two resolutions are for the same lines of the file.');
+    append(out, lines.slice(written, replacement.from));
+    out.push(replacement.text);
+    written = replacement.to;
+  }
+  append(out, lines.slice(written));
+  return out.join('');
+}
+
+/** How many conflicts git marked in a text, whose markers pair up. */
+export function conflictCount(text: string): number {
+  return blocks(text.split(/(?<=\n)/))?.length ?? 0;
+}
+
+/**
  * Resolves what can be resolved of the conflicts marked in `text`, a file as git left it or as it was edited since.
  * `base` is the file before either side changed it: empty when both added it. With the file of each side in
  * `sides`, a conflict is resolved only where both really have the lines around it that the file says they share:
@@ -425,20 +480,19 @@ export function resolveConflicts(text: string, base: string, sides?: Sides): Res
   // Each line with what ends it, so that putting them together again gives the file back.
   const lines = text.split(/(?<=\n)/);
   const found = blocks(lines);
-  const untouched: Resolved = { text, conflicts: (found ?? []).map((block) => ({ line: block.from + 1, resolution: null })) };
-  if (!found?.length || lines.length > MAX_LINES) return untouched;
+  const untouched = (): Resolved => ({ text, conflicts: (found ?? []).map((block) => unresolved(block, null)) });
+  if (!found?.length || lines.length > MAX_LINES) return untouched();
   const baseLines = split(base);
   const real = sides && [split(sides.ours), split(sides.theirs)];
-  if (baseLines.length > MAX_LINES || real?.some((side) => side.length > MAX_LINES)) return untouched;
+  if (baseLines.length > MAX_LINES || real?.some((side) => side.length > MAX_LINES)) return untouched();
 
   const [one, two] = WAYS.map((differ) => plan(lines, found, baseLines, real, differ));
-  const out: string[] = [];
   const conflicts: Conflict[] = [];
   let written = 0;
   found.forEach((block, index) => {
-    const conflict: Conflict = { line: block.from + 1, resolution: null };
+    const conflict = unresolved(block, one[index].stretch);
     conflicts.push(conflict);
-    const [first, second] = [one[index], two[index]];
+    const [first, second] = [one[index].patch, two[index].patch];
     if (!first || !second) return;
     // The two may have looked as far as different lines around the conflict: over the same lines they have to say the same.
     const [start, end] = [Math.min(first.from, second.from), Math.max(first.to, second.to)];
@@ -446,12 +500,18 @@ export function resolveConflicts(text: string, base: string, sides?: Sides): Res
     const resolved = over(first);
     if (start < written || resolved.join('') !== over(second).join('')) return;
     conflict.resolution = first.resolution;
-    append(out, lines.slice(written, start));
-    append(out, resolved);
+    conflict.patch = { from: start, to: end, text: resolved.join('') };
     written = end;
   });
-  append(out, lines.slice(written));
-  return { text: out.join(''), conflicts };
+  return { text: applyReplacements(text, conflicts.flatMap((conflict) => conflict.patch ?? [])), conflicts };
+}
+
+/** A conflict as git marked it, before anything is known of how it resolves. */
+function unresolved(block: Block, stretch: Stretch | null): Conflict {
+  // Where the base cannot be told from the sides, git may have written it between the markers.
+  const [ours, theirs] = [block.ours.join(''), block.theirs.join('')];
+  const marked = !stretch && block.base ? { base: block.base.join(''), ours, theirs } : null;
+  return { line: block.from + 1, resolution: null, from: block.from, to: block.to, ours, theirs, patch: null, stretch: stretch ?? marked };
 }
 
 /** Lines of a file, from `from` up to `to`, and the lines to have in their place. */
@@ -462,8 +522,14 @@ interface Patch {
   resolution: Resolution;
 }
 
+/** What a conflict resolves to, or null when it takes a choice, and what each side and the base have there. */
+interface Planned {
+  patch: Patch | null;
+  stretch: Stretch | null;
+}
+
 /** What each conflict of a file resolves to, or null for the ones that take a choice, with its lines paired with the ones of the base by `differ`. */
-function plan(lines: string[], found: Block[], baseLines: string[], real: string[][] | undefined, differ: Differ): (Patch | null)[] {
+function plan(lines: string[], found: Block[], baseLines: string[], real: string[][] | undefined, differ: Differ): Planned[] {
   // The file as each side would have it: what is outside the conflicts, which they share, and its own part of each.
   // `shared` says which line of the file, if any, a line of a side is: the lines outside the conflicts.
   const sides = [0, 1].map(() => ({ lines: [] as string[], shared: [] as number[], starts: [] as number[], ends: [] as number[] }));
@@ -541,8 +607,9 @@ function plan(lines: string[], found: Block[], baseLines: string[], real: string
     }
   };
 
-  return found.map((block, index) => {
-    if (block.broken) return null;
+  return found.map((block, index): Planned => {
+    const none = { patch: null, stretch: null };
+    if (block.broken) return none;
     const up = anchor(
       sides.map((side) => side.starts[index]),
       -1,
@@ -551,21 +618,23 @@ function plan(lines: string[], found: Block[], baseLines: string[], real: string
       sides.map((side) => side.ends[index]),
       1,
     );
-    if (!up || !down || up.base >= down.base) return null;
+    if (!up || !down || up.base >= down.base) return none;
+    // The conflict with the lines around it up to those two places, as each side has it and as it was before.
+    const [ours, theirs] = sides.map((side) => side.lines.slice(side.starts[index] - up.distance + 1, side.ends[index] + down.distance));
+    const before = baseLines.slice(up.base + 1, down.base);
+    const stretch = { base: before.join(''), ours: ours.join(''), theirs: theirs.join('') };
     // Those two lines and what is between them, in the file of each side: the start and the end of a file are such lines too.
     const [first, last] = [up.base < 0, down.base >= baseLines.length];
     const there = sides.every((side, which) =>
       has(which, side.starts[index] - up.distance + (first ? 1 : 0), side.ends[index] + down.distance + (last ? 0 : 1), first, last),
     );
-    if (!there) return null;
-    // The conflict with the lines around it up to those two places, as each side has it and as it was before.
-    const [ours, theirs] = sides.map((side) => side.lines.slice(side.starts[index] - up.distance + 1, side.ends[index] + down.distance));
-    const merged = mergeWith(baseLines.slice(up.base + 1, down.base), ours, theirs, differ);
-    if (!merged) return null;
+    if (!there) return { patch: null, stretch };
+    const merged = mergeWith(before, ours, theirs, differ);
+    if (!merged) return { patch: null, stretch };
     // Git stopped here because changes of the two sides touched. A pairing of the lines by which they do not is not
     // the one git made, and what it resolves to is not what git stopped for. Sides that differ in their line endings
     // alone are the exception: no change of lines is seen in those.
-    if (!merged.met && !alike(block.ours, block.theirs, bare)) return null;
-    return { from: block.from - (up.distance - 1), to: block.to + down.distance, lines: merged.lines, resolution: merged.resolution };
+    if (!merged.met && !alike(block.ours, block.theirs, bare)) return { patch: null, stretch };
+    return { patch: { from: block.from - (up.distance - 1), to: block.to + down.distance, lines: merged.lines, resolution: merged.resolution }, stretch };
   });
 }

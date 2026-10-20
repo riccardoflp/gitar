@@ -167,6 +167,8 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     command('gitardo.goToCommit', () => controller.goToCommit()),
     command('gitardo.openCommit', (hash) => controller.openCommit(typeof hash === 'string' ? hash : undefined)),
     command('gitardo.resolveConflicts', () => controller.action({ kind: 'resolveConflicts' })),
+    command('gitardo.reviewConflicts', () => controller.reviewConflicts()),
+    command('gitardo.resolveConflictsWithAI', () => controller.reviewConflicts(undefined, true)),
     // The views that list commits put the cursor in their search box at Ctrl+F by themselves. While one of them has the
     // keyboard the key is bound to this, for VS Code to run something other than the search of the editor behind them.
     command('gitardo.find', () => {}),

@@ -37,7 +37,7 @@ function Stat({ patch }: { patch?: FilePatch }) {
 }
 
 /** A piece of code in the color the theme gives it. */
-function Piece({ token }: { token: Token }) {
+export function Piece({ token }: { token: Token }) {
   const style = token.style ?? 0;
   if (!token.color && !style) return token.text;
   const decoration = [style & 4 && 'underline', style & 8 && 'line-through'].filter(Boolean).join(' ');
