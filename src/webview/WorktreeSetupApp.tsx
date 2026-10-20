@@ -2,11 +2,17 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   LARGE_COPY,
   choose,
+  chooseAll,
+  chooseOne,
   cleanPatterns,
+  groupEntries,
   sizeText,
   statusNow,
+  statusOfAll,
   type IgnoredEntry,
   type SetupChoice,
+  type SetupGroup,
+  type SetupKind,
   type SetupPatterns,
   type SetupPreview,
   type SetupSource,
@@ -15,9 +21,9 @@ import {
 } from '../shared/worktreeSetup';
 import { EntryIcon } from './FileIcon';
 import { Icon } from './Icon';
-import { onMessage, post } from './vscode';
+import { loadUiState, onMessage, post, saveUiState } from './vscode';
 
-/** How many of what git ignores are listed before asking for the rest. */
+/** How many lines of a section, or places of a name, are listed before asking for the rest. */
 const LISTED = 200;
 
 const CHOICES: { choice: SetupChoice; label: string; icon: string; title: string }[] = [
@@ -26,14 +32,88 @@ const CHOICES: { choice: SetupChoice; label: string; icon: string; title: string
   { choice: 'none', label: 'Nothing', icon: 'circle-slash', title: 'Left out: the worktree does without it, or makes its own' },
 ];
 
+/** The sections of what git ignores, one for each kind. */
+const SECTIONS: Record<SetupKind, { title: string; icon: string; why: string }> = {
+  unknown: { title: 'Not one Gitardo knows', icon: 'question', why: 'Nothing is proposed for them' },
+  dependencies: { title: 'Dependencies', icon: 'package', why: 'The same in every worktree, as long as the branches agree on them' },
+  local: { title: 'Settings and secrets of this machine', icon: 'key', why: 'Kept out of commits, and needed in each worktree' },
+  editor: { title: 'Settings of the editor', icon: 'settings-gear', why: 'Each worktree starts with the same' },
+  build: { title: 'Build output', icon: 'tools', why: 'Each worktree makes its own' },
+  worktrees: { title: 'Other worktrees', icon: 'worktree', why: 'Not to be inside one another' },
+  noise: { title: 'Logs and files the system leaves', icon: 'output', why: 'No worktree needs them' },
+};
+
+/** The kinds whose section is open even when nothing in it gets anything: those where something is proposed, or to choose. */
+const OPEN: SetupKind[] = ['unknown', 'dependencies', 'local', 'editor'];
+
 const keyOf = (patterns: SetupPatterns) => JSON.stringify(patterns);
 const same = (a: string[] | undefined, b: string[]) => !!a && a.length === b.length && a.every((pattern, index) => pattern === b[index]);
+const groupKey = (group: SetupGroup) => `${group.kind}:${group.name}${group.folder ? '/' : ''}`;
 
-function filesText(entry: IgnoredEntry): string {
-  if (entry.link) return 'a link';
-  if (!entry.folder) return sizeText(entry.bytes);
-  const files = `${entry.files.toLocaleString('en')}${entry.more ? '+' : ''} ${entry.files === 1 && !entry.more ? 'file' : 'files'}`;
-  return `${entry.more ? 'over ' : ''}${sizeText(entry.bytes)} · ${files}`;
+/** The size of what git ignores, and how many files a folder has: of one, or of all the places of a name. */
+function filesText(entries: IgnoredEntry[]): string {
+  const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+  const files = entries.reduce((sum, entry) => sum + entry.files, 0);
+  const more = entries.some((entry) => entry.more);
+  if (entries.every((entry) => entry.link)) return entries.length === 1 ? 'a link' : `${entries.length} links`;
+  if (!entries[0].folder) return sizeText(bytes);
+  return `${more ? 'over ' : ''}${sizeText(bytes)} · ${files.toLocaleString('en')}${more ? '+' : ''} ${files === 1 && !more ? 'file' : 'files'}`;
+}
+
+/** The three buttons that choose what new worktrees get, with the one chosen pressed and the one proposed underlined. */
+function ChoiceButtons(props: {
+  label: string;
+  folder: boolean;
+  suggestion: SetupChoice;
+  chosen: SetupChoice | 'mixed' | null;
+  /** Said after the title of each button, for all the places of a name. */
+  scope?: string;
+  onChoose(choice: SetupChoice): void;
+}) {
+  const { label, folder, suggestion, chosen, scope, onChoose } = props;
+  return (
+    <div className="choices" role="radiogroup" aria-label={`What new worktrees get of ${label}`}>
+      {CHOICES.map(({ choice, label, icon, title }) => {
+        const on = chosen === choice;
+        const disabled = choice === 'link' && !folder;
+        return (
+          <button
+            key={choice}
+            role="radio"
+            aria-checked={on}
+            aria-label={label}
+            className={`choice${on ? ' on' : ''}${suggestion === choice ? ' suggested' : ''}`}
+            disabled={disabled}
+            title={disabled ? 'Only folders are linked' : `${title}${scope ? `: ${scope}` : ''}${suggestion === choice ? ' (proposed)' : ''}`}
+            onClick={() => onChoose(choice)}
+          >
+            <Icon name={icon} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The warnings of what git ignores, as chosen, after what is said of it. */
+function Notes(props: { said?: string | false; notes: (string | false | undefined)[] }) {
+  return (
+    <td className="why">
+      {props.said && (
+        <span className="muted said">
+          <Icon name="info" />
+          {props.said}
+        </span>
+      )}
+      {props.notes.filter(Boolean).map((note) => (
+        <span key={note as string} className="note">
+          <Icon name="warning" />
+          {note}
+        </span>
+      ))}
+    </td>
+  );
 }
 
 function sourceText(source: SetupSource, kind: 'link' | 'copy', info: WorktreeSetupInfo): string {
@@ -50,17 +130,12 @@ interface Checked {
   preview: SetupPreview;
 }
 
-/** What one thing git ignores gets, chosen with three buttons. */
-function EntryRow(props: { entry: IgnoredEntry; patterns: SetupPatterns; checked: Checked | null; onChoose(choice: SetupChoice): void }) {
-  const { entry, patterns, checked, onChoose } = props;
+/** What one thing git ignores gets, chosen with three buttons: on its own, or as one of the places of its name. */
+function EntryRow(props: { entry: IgnoredEntry; patterns: SetupPatterns; checked: Checked | null; nested?: boolean; onChoose(choice: SetupChoice): void }) {
+  const { entry, patterns, checked, nested, onChoose } = props;
   const status = statusNow(entry, patterns, checked);
-  const notes = [
-    entry.link && 'A link already, in this checkout',
-    status?.partly && `Only part of it is ${status.choice === 'link' ? 'linked' : 'copied'}, by a pattern below`,
-    status?.choice === 'copy' && !status.partly && entry.bytes > LARGE_COPY && 'Large to copy into each worktree: better linked, or made again',
-  ].filter(Boolean);
   return (
-    <tr>
+    <tr className={nested ? 'nested' : 'single'}>
       <td className="path">
         <EntryIcon path={entry.path} folder={entry.folder} />
         <span className="mono" title={entry.path}>
@@ -68,40 +143,176 @@ function EntryRow(props: { entry: IgnoredEntry; patterns: SetupPatterns; checked
           {entry.folder ? '/' : ''}
         </span>
       </td>
-      <td className="size muted">{filesText(entry)}</td>
+      <td className="size muted">{filesText([entry])}</td>
       <td>
-        <div className="choices" role="radiogroup" aria-label={`What new worktrees get of ${entry.path}`}>
-          {CHOICES.map(({ choice, label, icon, title }) => {
-            const on = status?.choice === choice && !status.partly;
-            const disabled = choice === 'link' && !entry.folder;
-            return (
-              <button
-                key={choice}
-                role="radio"
-                aria-checked={on}
-                aria-label={label}
-                className={`choice${on ? ' on' : ''}${entry.suggestion === choice ? ' suggested' : ''}`}
-                disabled={disabled}
-                title={disabled ? 'Only folders are linked' : `${title}${entry.suggestion === choice ? ' (proposed)' : ''}`}
-                onClick={() => onChoose(choice)}
-              >
-                <Icon name={icon} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <ChoiceButtons
+          label={entry.path}
+          folder={entry.folder}
+          suggestion={entry.suggestion}
+          chosen={status && !status.partly ? status.choice : null}
+          onChoose={onChoose}
+        />
       </td>
-      <td className="why">
-        <span className="muted">{entry.reason}</span>
-        {notes.map((note) => (
-          <span key={note as string} className="note">
-            <Icon name="warning" />
-            {note}
-          </span>
-        ))}
-      </td>
+      <Notes
+        notes={[
+          entry.link && 'A link already, in this checkout',
+          status?.partly && `Only part of it is ${status.choice === 'link' ? 'linked' : 'copied'}, by a pattern below`,
+          status?.choice === 'copy' && !status.partly && entry.bytes > LARGE_COPY && 'Large to copy into each worktree: better linked, or made again',
+        ]}
+      />
     </tr>
+  );
+}
+
+/**
+ * What has one name in several places, on one line whose buttons choose for all of them by the pattern of the name,
+ * and, unfolded, each place on its own.
+ */
+function GroupRows(props: {
+  group: SetupGroup;
+  patterns: SetupPatterns;
+  checked: Checked | null;
+  unfolded: boolean;
+  whole: boolean;
+  onUnfold(): void;
+  onWhole(): void;
+  onChange(patterns: SetupPatterns): void;
+}) {
+  const { group, patterns, checked, unfolded, whole, onUnfold, onWhole, onChange } = props;
+  const { entries, folder } = group;
+  const name = `${group.name}${folder ? '/' : ''}`;
+  const status = statusOfAll(entries, patterns, checked);
+  const chosen = status && !status.partly ? status.choice : null;
+  const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+  const listed = whole ? entries : entries.slice(0, LISTED);
+  return (
+    <>
+      <tr className="places-of">
+        <td className="path">
+          <button className="unfold" aria-expanded={unfolded} title={unfolded ? 'Hide each place' : 'Show each place'} onClick={onUnfold}>
+            <Icon name={unfolded ? 'chevron-down' : 'chevron-right'} />
+            <EntryIcon path={entries[0].path} folder={folder} />
+            <span className="mono">{name}</span>
+            <span className="places">{entries.length} places</span>
+          </button>
+        </td>
+        <td className="size muted">{filesText(entries)}</td>
+        <td>
+          <ChoiceButtons
+            label={`every ${name}`}
+            folder={folder}
+            suggestion={entries[0].suggestion}
+            chosen={chosen}
+            scope={`every ${name}, wherever it is`}
+            onChoose={(choice) => onChange(chooseAll(patterns, entries, choice))}
+          />
+        </td>
+        <Notes
+          said={status?.choice === 'mixed' && 'Not the same in each place'}
+          notes={[
+            status?.partly && `Only part of them is ${status.choice === 'link' ? 'linked' : 'copied'}, by a pattern below`,
+            chosen === 'copy' && bytes > LARGE_COPY && 'Large to copy into each worktree: better linked, or made again',
+          ]}
+        />
+      </tr>
+      {unfolded &&
+        listed.map((entry) => (
+          <EntryRow key={entry.path} entry={entry} patterns={patterns} checked={checked} nested onChoose={(choice) => onChange(chooseOne(patterns, entries, entry, choice))} />
+        ))}
+      {unfolded && listed.length < entries.length && (
+        <tr className="nested">
+          <td colSpan={4}>
+            <button className="link" onClick={onWhole}>
+              Show the other {entries.length - listed.length}
+            </button>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** What new worktrees get of the entries of one section, said in short. */
+function sectionText(entries: IgnoredEntry[], patterns: SetupPatterns, checked: Checked | null): string {
+  const statuses = entries.map((entry) => statusNow(entry, patterns, checked));
+  if (statuses.some((status) => !status)) return '';
+  const linked = statuses.filter((status) => status!.choice === 'link').length;
+  const copied = statuses.filter((status) => status!.choice === 'copy').length;
+  const all = entries.length;
+  const said = [linked && (linked === all ? 'all linked' : `${linked} linked`), copied && (copied === all ? 'all copied' : `${copied} copied`)].filter(Boolean);
+  return said.length ? said.join(' · ') : 'nothing';
+}
+
+/** One kind of what git ignores: a line that opens and closes it, and what it has, the same names together. */
+function Section(props: {
+  kind: SetupKind;
+  groups: SetupGroup[];
+  patterns: SetupPatterns;
+  checked: Checked | null;
+  open: boolean;
+  onOpen(open: boolean): void;
+  onChange(patterns: SetupPatterns): void;
+}) {
+  const { kind, groups, patterns, checked, open, onOpen, onChange } = props;
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  const [whole, setWhole] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (set: ReadonlySet<string>, key: string) => {
+    const next = new Set(set);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  };
+  const { title, icon, why } = SECTIONS[kind];
+  const entries = groups.flatMap((group) => group.entries);
+  const bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+  const more = entries.some((entry) => entry.more);
+  const listed = whole.has(kind) ? groups : groups.slice(0, LISTED);
+  return (
+    <tbody className="kind">
+      <tr className="kind-head">
+        <td colSpan={4}>
+          <button aria-expanded={open} onClick={() => onOpen(!open)}>
+            <Icon name={open ? 'chevron-down' : 'chevron-right'} />
+            <Icon name={icon} />
+            <span className="title">{title}</span>
+            <span className="count">{entries.length}</span>
+            <span className="muted grow">{why}</span>
+            <span className="muted">
+              {more ? 'over ' : ''}
+              {sizeText(bytes)}
+            </span>
+            <span className="said">{sectionText(entries, patterns, checked)}</span>
+          </button>
+        </td>
+      </tr>
+      {open &&
+        listed.map((group) => {
+          const key = groupKey(group);
+          return group.entries.length === 1 ? (
+            <EntryRow key={key} entry={group.entries[0]} patterns={patterns} checked={checked} onChoose={(choice) => onChange(choose(patterns, group.entries[0], choice))} />
+          ) : (
+            <GroupRows
+              key={key}
+              group={group}
+              patterns={patterns}
+              checked={checked}
+              unfolded={unfolded.has(key)}
+              whole={whole.has(key)}
+              onUnfold={() => setUnfolded(toggle(unfolded, key))}
+              onWhole={() => setWhole(toggle(whole, key))}
+              onChange={onChange}
+            />
+          );
+        })}
+      {open && listed.length < groups.length && (
+        <tr>
+          <td colSpan={4}>
+            <button className="link" onClick={() => setWhole(toggle(whole, kind))}>
+              Show the other {groups.length - listed.length}
+            </button>
+          </td>
+        </tr>
+      )}
+    </tbody>
   );
 }
 
@@ -184,7 +395,8 @@ export function WorktreeSetupApp() {
   const [checked, setChecked] = useState<Checked | null>(null);
   const [checkError, setCheckError] = useState<string>();
   const [scanning, setScanning] = useState(false);
-  const [all, setAll] = useState(false);
+  // The sections opened or closed by hand; the others are open when they have something to choose or chosen.
+  const [opened, setOpened] = useState(() => loadUiState({ setupOpened: {} as Partial<Record<SetupKind, boolean>> }).setupOpened);
   // The patterns git was last asked about, whose answer is awaited.
   const wanted = useRef('');
   // Git is asked what the patterns take once what it ignores is read: on opening, and when asked to look again.
@@ -213,6 +425,7 @@ export function WorktreeSetupApp() {
   }, []);
 
   const effective = useMemo<SetupPatterns>(() => ({ link: info?.effective.link ?? [], copy: info?.effective.copy ?? [] }), [info]);
+  const sections = useMemo(() => groupEntries(info?.entries ?? []), [info]);
   const patterns = draft ?? effective;
   const key = keyOf(patterns);
 
@@ -236,8 +449,21 @@ export function WorktreeSetupApp() {
   const changed = draft !== null && keyOf(draft) !== keyOf(effective);
   const counts = (kind: 'link' | 'copy') =>
     checked && Object.fromEntries(patterns[kind].filter((pattern) => pattern in checked.preview.counts[kind]).map((pattern) => [pattern, checked.preview.counts[kind][pattern]]));
-  const listed = all ? info.entries : info.entries.slice(0, LISTED);
   const update = (next: SetupPatterns) => setDraft(keyOf(next) === keyOf(effective) ? null : next);
+  // Each name gets what is proposed for it: by the pattern of the name where it is in several places.
+  const propose = () =>
+    update(
+      sections
+        .flatMap((section) => section.groups)
+        .reduce((next, { entries }) => (entries.length > 1 ? chooseAll(next, entries, entries[0].suggestion) : choose(next, entries[0], entries[0].suggestion)), patterns),
+    );
+  const isOpen = (kind: SetupKind, entries: IgnoredEntry[]) =>
+    opened[kind] ?? (OPEN.includes(kind) || entries.some((entry) => (statusNow(entry, patterns, checked)?.choice ?? 'none') !== 'none'));
+  const open = (kind: SetupKind, now: boolean) => {
+    const next = { ...opened, [kind]: now };
+    setOpened(next);
+    saveUiState({ setupOpened: next });
+  };
   const save = (saved: SetupPatterns | null) => {
     saving.current = true;
     post({ type: 'saveWorktreeSetup', target: where, patterns: saved, alsoVSCode: saved !== null && alsoVSCode });
@@ -276,7 +502,7 @@ export function WorktreeSetupApp() {
             disabled={!info.entries.length}
             title="Each one gets what is proposed for it"
             aria-label="Use what is proposed"
-            onClick={() => update(info.entries.reduce((next, entry) => choose(next, entry, entry.suggestion), patterns))}
+            onClick={propose}
           >
             <Icon name="sparkle" />
             Use what is proposed
@@ -310,20 +536,22 @@ export function WorktreeSetupApp() {
                 <th>Path</th>
                 <th>Size</th>
                 <th>New worktrees get</th>
-                <th>Why</th>
+                <th />
               </tr>
             </thead>
-            <tbody>
-              {listed.map((entry) => (
-                <EntryRow key={entry.path} entry={entry} patterns={patterns} checked={checked} onChoose={(choice) => update(choose(patterns, entry, choice))} />
-              ))}
-            </tbody>
+            {sections.map(({ kind, groups }) => (
+              <Section
+                key={kind}
+                kind={kind}
+                groups={groups}
+                patterns={patterns}
+                checked={checked}
+                open={isOpen(kind, groups.flatMap((group) => group.entries))}
+                onOpen={(now) => open(kind, now)}
+                onChange={update}
+              />
+            ))}
           </table>
-        )}
-        {listed.length < info.entries.length && (
-          <button className="link more" onClick={() => setAll(true)}>
-            Show the other {info.entries.length - listed.length}
-          </button>
         )}
         {checkError && (
           <p className="note">

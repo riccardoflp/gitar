@@ -6,6 +6,12 @@
 /** What a new worktree gets of something git ignores. */
 export type SetupChoice = 'link' | 'copy' | 'none';
 
+/** What something git ignores is, which says what is proposed for it. */
+export type SetupKind = 'unknown' | 'dependencies' | 'local' | 'editor' | 'build' | 'worktrees' | 'noise';
+
+/** The kinds in the order the page shows them: what needs a choice first, what is left out last. */
+export const KINDS: SetupKind[] = ['unknown', 'dependencies', 'local', 'editor', 'build', 'worktrees', 'noise'];
+
 /** Something git ignores in the checkout, as git lists it: a folder all of whose content it ignores, or a file. */
 export interface IgnoredEntry {
   /** Relative to the checkout, with forward slashes and no slash at the end. */
@@ -17,9 +23,9 @@ export interface IgnoredEntry {
   bytes: number;
   /** Counted in part: it has more files than are counted. */
   more: boolean;
-  /** What is proposed for it, and why. */
+  /** What it is, and what is proposed for it. */
+  kind: SetupKind;
   suggestion: SetupChoice;
-  reason: string;
 }
 
 /** The patterns of the two settings, in `.gitignore` syntax. */
@@ -120,18 +126,26 @@ export const LARGE_COPY = 100 * 1024 * 1024;
 
 const base = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
-/** What to propose for something git ignores, and why. */
-export function suggest(entry: Pick<IgnoredEntry, 'path' | 'folder' | 'bytes'>): { suggestion: SetupChoice; reason: string } {
+/** What something git ignores is, and what to propose for it. */
+export function suggest(entry: Pick<IgnoredEntry, 'path' | 'folder' | 'bytes'>): { kind: SetupKind; suggestion: SetupChoice } {
   const name = base(entry.path);
-  if (entry.folder && (LINKED.has(name) || LINKED.has(entry.path))) {
-    return { suggestion: 'link', reason: 'Dependencies: the same in every worktree, as long as the branches agree on them' };
-  }
-  if (entry.folder && BUILT.has(name)) return { suggestion: 'none', reason: 'Build output: each worktree makes its own' };
-  if (entry.folder && /^\.?worktrees$/.test(name)) return { suggestion: 'none', reason: 'Other worktrees, which are not to be inside one' };
-  if (NOISE.test(entry.path)) return { suggestion: 'none', reason: 'Logs and files the system leaves' };
-  if (!entry.folder && LOCAL.test(entry.path)) return { suggestion: 'copy', reason: 'Settings or secrets of this machine' };
-  if (entry.folder && EDITOR.test(entry.path)) return { suggestion: 'copy', reason: 'Settings of the editor' };
-  return { suggestion: 'none', reason: 'Not one Gitardo knows' };
+  if (entry.folder && (LINKED.has(name) || LINKED.has(entry.path))) return { kind: 'dependencies', suggestion: 'link' };
+  if (entry.folder && BUILT.has(name)) return { kind: 'build', suggestion: 'none' };
+  if (entry.folder && /^\.?worktrees$/.test(name)) return { kind: 'worktrees', suggestion: 'none' };
+  if (NOISE.test(entry.path)) return { kind: 'noise', suggestion: 'none' };
+  if (!entry.folder && LOCAL.test(entry.path)) return { kind: 'local', suggestion: 'copy' };
+  if (entry.folder && EDITOR.test(entry.path)) return { kind: 'editor', suggestion: 'copy' };
+  return { kind: 'unknown', suggestion: 'none' };
+}
+
+/** The pattern that takes everything of the name of `entry`, wherever it is: `node_modules/`, `.env.local`. */
+export function namePattern(entry: Pick<IgnoredEntry, 'path' | 'folder'>): string {
+  return `${base(entry.path)}${entry.folder ? '/' : ''}`;
+}
+
+/** The pattern that takes `entry` alone, by its path from the top of the checkout. */
+export function pathPattern(entry: Pick<IgnoredEntry, 'path' | 'folder'>): string {
+  return `/${entry.path}${entry.folder ? '/' : ''}`;
 }
 
 /**
@@ -139,8 +153,32 @@ export function suggest(entry: Pick<IgnoredEntry, 'path' | 'folder' | 'bytes'>):
  * repository can have one; anything else by its path from the top of the checkout.
  */
 export function patternFor(entry: Pick<IgnoredEntry, 'path' | 'folder'>): string {
-  if (entry.folder && LINKED.has(base(entry.path))) return `${base(entry.path)}/`;
-  return `/${entry.path}${entry.folder ? '/' : ''}`;
+  return entry.folder && LINKED.has(base(entry.path)) ? namePattern(entry) : pathPattern(entry);
+}
+
+/** The patterns that name `entry` itself: by its path, and by its name. */
+const ownPatterns = (entry: Pick<IgnoredEntry, 'path' | 'folder'>) => [pathPattern(entry), namePattern(entry)];
+
+/** What git ignores of one kind and one name: in several places, or in one. */
+export interface SetupGroup {
+  kind: SetupKind;
+  name: string;
+  folder: boolean;
+  entries: IgnoredEntry[];
+}
+
+/** What git ignores, by kind in the order of `KINDS`, with what has the same name in several places together. */
+export function groupEntries(entries: IgnoredEntry[]): { kind: SetupKind; groups: SetupGroup[] }[] {
+  const byKind = new Map<SetupKind, Map<string, SetupGroup>>();
+  for (const entry of entries) {
+    let groups = byKind.get(entry.kind);
+    if (!groups) byKind.set(entry.kind, (groups = new Map()));
+    const key = namePattern(entry);
+    const group = groups.get(key);
+    if (group) group.entries.push(entry);
+    else groups.set(key, { kind: entry.kind, name: base(entry.path), folder: entry.folder, entries: [entry] });
+  }
+  return KINDS.filter((kind) => byKind.has(kind)).map((kind) => ({ kind, groups: [...byKind.get(kind)!.values()] }));
 }
 
 /** What `entry` gets under the patterns, and whether only some of what is inside it gets that. */
@@ -154,32 +192,76 @@ export function statusOf(entry: Pick<IgnoredEntry, 'path'>, preview: SetupPatter
   return { choice: 'none', partly: false };
 }
 
+type Checked = { patterns: SetupPatterns; preview: SetupPatterns } | null;
+
 /**
- * What `entry` gets under `patterns`, without asking git: by its own pattern where they have it, as chosen on the page;
- * otherwise as git said when `checked` was looked at. Its own pattern taken out since leaves it nothing. Null when
- * nothing was looked at yet.
+ * What `entry` gets under `patterns`, without asking git: by a pattern of its own path or name where they have one, as
+ * chosen on the page; otherwise as git said when `checked` was looked at. A pattern of its own taken out since leaves it
+ * nothing. Null when nothing was looked at yet.
  */
-export function statusNow(
-  entry: Pick<IgnoredEntry, 'path' | 'folder'>,
-  patterns: SetupPatterns,
-  checked: { patterns: SetupPatterns; preview: SetupPatterns } | null,
-): { choice: SetupChoice; partly: boolean } | null {
-  const own = patternFor(entry);
-  if (patterns.link.includes(own)) return { choice: 'link', partly: false };
-  if (patterns.copy.includes(own)) return { choice: 'copy', partly: false };
+export function statusNow(entry: Pick<IgnoredEntry, 'path' | 'folder'>, patterns: SetupPatterns, checked: Checked): { choice: SetupChoice; partly: boolean } | null {
+  const own = ownPatterns(entry);
+  if (patterns.link.some((pattern) => own.includes(pattern))) return { choice: 'link', partly: false };
+  if (patterns.copy.some((pattern) => own.includes(pattern))) return { choice: 'copy', partly: false };
   if (!checked) return null;
-  if (checked.patterns.link.includes(own) || checked.patterns.copy.includes(own)) return { choice: 'none', partly: false };
+  if ([...checked.patterns.link, ...checked.patterns.copy].some((pattern) => own.includes(pattern))) return { choice: 'none', partly: false };
   return statusOf(entry, checked.preview);
 }
 
-/** The patterns with what `entry` gets set to `choice`, by its own pattern. Other patterns that take it are left. */
-export function choose(patterns: SetupPatterns, entry: Pick<IgnoredEntry, 'path' | 'folder'>, choice: SetupChoice): SetupPatterns {
-  const pattern = patternFor(entry);
-  const link = patterns.link.filter((each) => each !== pattern);
-  const copy = patterns.copy.filter((each) => each !== pattern);
+/** What all of `entries` get under `patterns`: what they all get, when it is the same, or `mixed`. */
+export function statusOfAll(
+  entries: Pick<IgnoredEntry, 'path' | 'folder'>[],
+  patterns: SetupPatterns,
+  checked: Checked,
+): { choice: SetupChoice | 'mixed'; partly: boolean } | null {
+  const statuses = entries.map((entry) => statusNow(entry, patterns, checked));
+  if (statuses.some((status) => status === null)) return null;
+  const first = statuses[0]!;
+  return statuses.every((status) => status!.choice === first.choice && status!.partly === first.partly) ? first : { choice: 'mixed', partly: false };
+}
+
+/** The patterns without those of `own`, and with `pattern` among those of `choice`. */
+function put(patterns: SetupPatterns, own: string[], pattern: string, choice: SetupChoice): SetupPatterns {
+  const link = patterns.link.filter((each) => !own.includes(each));
+  const copy = patterns.copy.filter((each) => !own.includes(each));
   if (choice === 'link') link.push(pattern);
   if (choice === 'copy') copy.push(pattern);
   return { link, copy };
+}
+
+/**
+ * The patterns with what `entry` gets set to `choice`, by its own pattern; the others of its path or name go. Patterns
+ * that take more than it are left.
+ */
+export function choose(patterns: SetupPatterns, entry: Pick<IgnoredEntry, 'path' | 'folder'>, choice: SetupChoice): SetupPatterns {
+  return put(patterns, ownPatterns(entry), patternFor(entry), choice);
+}
+
+/**
+ * The patterns with what `entries`, all of one name, get set to `choice`, by the pattern of that name: it takes them
+ * wherever they are, and what of that name comes later. The patterns of their paths go.
+ */
+export function chooseAll(patterns: SetupPatterns, entries: Pick<IgnoredEntry, 'path' | 'folder'>[], choice: SetupChoice): SetupPatterns {
+  return put(patterns, entries.flatMap(ownPatterns), namePattern(entries[0]), choice);
+}
+
+/**
+ * The patterns with `entry`, one of `entries` of its name, set to `choice` by the pattern of its path. When the pattern
+ * of their name took them all, it gives way to one for each of the others, so that they keep what they got.
+ */
+export function chooseOne(
+  patterns: SetupPatterns,
+  entries: Pick<IgnoredEntry, 'path' | 'folder'>[],
+  entry: Pick<IgnoredEntry, 'path' | 'folder'>,
+  choice: SetupChoice,
+): SetupPatterns {
+  const name = namePattern(entry);
+  const held = patterns.link.includes(name) ? 'link' : patterns.copy.includes(name) ? 'copy' : null;
+  // What their name gives them: the pattern of its path is not needed.
+  if (held === choice) return put(patterns, [pathPattern(entry)], '', 'none');
+  let next = patterns;
+  if (held) for (const other of entries) if (other !== entry) next = put(next, ownPatterns(other), pathPattern(other), held);
+  return put(next, ownPatterns(entry), pathPattern(entry), choice);
 }
 
 /** The patterns of a setting as they are kept: trimmed, without empty ones, line breaks or the same one twice. */

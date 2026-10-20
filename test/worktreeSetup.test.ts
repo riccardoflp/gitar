@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choose, cleanPatterns, patternFor, sizeText, statusNow, statusOf, suggest } from '../src/shared/worktreeSetup';
+import { choose, chooseAll, chooseOne, cleanPatterns, groupEntries, patternFor, sizeText, statusNow, statusOf, statusOfAll, suggest } from '../src/shared/worktreeSetup';
 
 const folder = (path: string, bytes = 1000) => ({ path, folder: true, bytes });
 const file = (path: string, bytes = 100) => ({ path, folder: false, bytes });
@@ -23,7 +23,36 @@ describe('what new worktrees get of what git ignores', () => {
     expect(suggest(file('.DS_Store')).suggestion).toBe('none');
     // A file named like a folder of dependencies is not one.
     expect(suggest(file('vendor')).suggestion).toBe('none');
-    expect(suggest(folder('secrets')).reason).toBe('Not one Gitardo knows');
+    expect(suggest(folder('secrets'))).toEqual({ kind: 'unknown', suggestion: 'none' });
+    expect([folder('dist'), file('debug.log'), file('.env'), folder('.vscode'), folder('.claude/worktrees')].map((entry) => suggest(entry).kind)).toEqual([
+      'build',
+      'noise',
+      'local',
+      'editor',
+      'worktrees',
+    ]);
+  });
+
+  it('puts what git ignores in sections by kind, with what has the same name in several places together', () => {
+    const entry = (path: string, isFolder: boolean) => ({ path, folder: isFolder, link: false, files: 1, bytes: 1, more: false, ...suggest({ path, folder: isFolder, bytes: 1 }) });
+    const entries = [
+      entry('.env', false),
+      entry('apps/web/.env.local', false),
+      entry('apps/web/dist', true),
+      entry('apps/web/node_modules', true),
+      entry('notes.txt', false),
+      entry('packages/ui/.env.local', false),
+      entry('packages/ui/node_modules', true),
+      entry('node_modules', false),
+    ];
+    const sections = groupEntries(entries).map(({ kind, groups }) => [kind, groups.map((group) => `${group.name}×${group.entries.length}`)]);
+    expect(sections).toEqual([
+      // A file named node_modules is not a folder of dependencies.
+      ['unknown', ['notes.txt×1', 'node_modules×1']],
+      ['dependencies', ['node_modules×2']],
+      ['local', ['.env×1', '.env.local×2']],
+      ['build', ['dist×1']],
+    ]);
   });
 
   it('names dependencies wherever they are, and anything else by its path from the top', () => {
@@ -63,6 +92,34 @@ describe('what new worktrees get of what git ignores', () => {
     expect(choose(start, folder('node_modules'), 'link')).toEqual({ link: ['vendor/', 'node_modules/'], copy: ['/.env'] });
     expect(choose(start, file('.env'), 'none')).toEqual({ link: ['vendor/'], copy: ['node_modules/'] });
     expect(choose(start, file('.env'), 'copy')).toEqual(start);
+    // A pattern of its name, typed by hand, goes too: it would still take it.
+    expect(choose({ link: [], copy: ['.env', '*.local'] }, file('.env'), 'none')).toEqual({ link: [], copy: ['*.local'] });
+  });
+
+  it('says what something gets by a pattern of its name, wherever it is', () => {
+    const now = { link: ['node_modules/'], copy: ['.env.local'] };
+    expect(statusNow(folder('apps/web/node_modules'), now, null)).toEqual({ choice: 'link', partly: false });
+    expect(statusNow(file('apps/web/.env.local'), now, null)).toEqual({ choice: 'copy', partly: false });
+    expect(statusNow(file('apps/web/.env'), now, null)).toBeNull();
+  });
+
+  it('chooses for all the places of a name by the pattern of the name, and for one by its path', () => {
+    const places = [file('apps/web/.env.local'), file('packages/ui/.env.local'), file('.env.local')];
+    const all = chooseAll({ link: [], copy: ['/apps/web/.env.local', '*.local'] }, places, 'copy');
+    expect(all).toEqual({ link: [], copy: ['*.local', '.env.local'] });
+    expect(statusOfAll(places, all, null)).toEqual({ choice: 'copy', partly: false });
+    expect(chooseAll(all, places, 'none')).toEqual({ link: [], copy: ['*.local'] });
+
+    // One of them left out: the others keep what the name gave them, each by its path.
+    const one = chooseOne(all, places, places[1], 'none');
+    expect(one).toEqual({ link: [], copy: ['*.local', '/apps/web/.env.local', '/.env.local'] });
+    expect(statusOfAll(places, one, null)).toBeNull();
+    const checked = { patterns: one, preview: { link: [], copy: ['apps/web/.env.local', '.env.local'] } };
+    expect(statusOfAll(places, one, checked)).toEqual({ choice: 'mixed', partly: false });
+    // Chosen as the name gives it: only the pattern of its path goes.
+    expect(chooseOne({ link: [], copy: ['.env.local', '/.env.local'] }, places, places[2], 'copy')).toEqual({ link: [], copy: ['.env.local'] });
+    // Without the pattern of the name, only its own changes.
+    expect(chooseOne({ link: [], copy: [] }, places, places[0], 'copy')).toEqual({ link: [], copy: ['/apps/web/.env.local'] });
   });
 
   it('keeps patterns trimmed, once each, without empty ones or line breaks', () => {

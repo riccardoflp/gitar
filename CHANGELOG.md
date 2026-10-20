@@ -18,6 +18,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Changed
 
+- The tab that chooses what new worktrees get lists what git ignores in sections by kind: what Gitardo does not know first, then dependencies, settings and secrets, the editor's settings, build output, other worktrees and logs. Each section says what it is, how big and what its files get, and those where nothing is proposed or chosen start closed. What has the same name in several places, such as the `node_modules` of each package, is one line that chooses for all of them by the pattern of the name, and unfolds into each place.
 - In the tab of a commit and of a comparison, a click on a file opens it in the diff editor, as it does everywhere else, rather than going to its changes in the page.
 - The diffs of the files are in those tabs only once **Show the changes** is pressed, and **Hide the changes** takes them away. The eye on the row of a file shows them and goes to that file.
 
