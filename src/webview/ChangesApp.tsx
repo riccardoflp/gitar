@@ -19,8 +19,14 @@ const pathsOf = (file: FileChange) => (file.oldPath ? [file.path, file.oldPath] 
 /** A diff as VS Code's list of changes opens it: what is not staged yet, or what is, when all of the file is. */
 const SOURCE = { kind: 'change' } as const;
 
+/**
+ * A file of the list: a change git sees, or one only an editor has, not saved yet (`staged` null), which git sees
+ * nothing of until it is saved.
+ */
+type Listed = WorkingChange | { file: FileChange; staged: null };
+
 /** Where a file of the list is, for the tree. Stable, so that the tree is not made again at every render. */
-const changePath = (change: WorkingChange) => change.file.path;
+const changePath = (change: Listed) => change.file.path;
 
 const PICK_TITLES: Record<WorkingChange['staged'], string> = {
   all: 'Staged: click to unstage',
@@ -137,6 +143,8 @@ export function ChangesApp() {
   const [busy, setBusy] = useState(false);
   const [layout, setLayout] = useState(() => loadUiState({ changesFiles: 'list' as FilesLayout }).changesFiles);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  /** The files with edits not saved in an editor, by their paths. */
+  const [unsaved, setUnsaved] = useState<string[]>([]);
 
   useEffect(() => {
     const stop = onMessage((incoming) => {
@@ -145,6 +153,8 @@ export function ChangesApp() {
         setLoaded(true);
       } else if (incoming.type === 'busy') {
         setBusy(incoming.title !== null);
+      } else if (incoming.type === 'unsaved') {
+        setUnsaved(incoming.paths);
       }
     });
     post({ type: 'ready' });
@@ -153,6 +163,14 @@ export function ChangesApp() {
 
   const working = state?.working;
   const changes = useMemo(() => (working ? workingChanges(working) : []), [working]);
+  const isUnsaved = useMemo(() => new Set(unsaved), [unsaved]);
+  // The files not saved that git sees no change in join the list, in the order of the paths.
+  const listed = useMemo(() => {
+    const known = new Set([...(working?.conflicts ?? []), ...changes.map((change) => change.file)].map((file) => file.path));
+    const others = unsaved.filter((path) => !known.has(path)).map((path): Listed => ({ file: { status: '', path }, staged: null }));
+    if (!others.length) return changes;
+    return [...changes, ...others].sort((one, other) => (one.file.path < other.file.path ? -1 : one.file.path > other.file.path ? 1 : 0));
+  }, [unsaved, changes, working]);
 
   if (!loaded) return <div className="empty">Loading repository…</div>;
   if (!state) {
@@ -172,7 +190,8 @@ export function ChangesApp() {
     setLayout(wanted);
     saveUiState({ changesFiles: wanted });
   };
-  const allStaged = changes.every((change) => change.staged === 'all');
+  // Files changed only in their editors have nothing to stage: with no others, the box of the list cannot be ticked.
+  const allStaged = changes.length > 0 && changes.every((change) => change.staged === 'all');
   const noneStaged = changes.every((change) => change.staged === 'none');
   // With files in conflict, `git add --all` would take them as resolved and `git reset` would forget their conflicts:
   // the other files are named one by one instead.
@@ -208,6 +227,7 @@ export function ChangesApp() {
               <FileRow
                 key={file.path}
                 file={file}
+                unsaved={isUnsaved.has(file.path)}
                 onOpen={() => post({ type: 'openDiff', source: { kind: 'conflict' }, file })}
                 actions={[
                   ...(resolvable
@@ -223,11 +243,12 @@ export function ChangesApp() {
         />
         <Group
           title="Changes"
-          items={changes}
+          items={listed}
           lead={
             <Check
               checked={allStaged}
               mixed={!allStaged && !noneStaged}
+              disabled={!changes.length}
               label={allStaged ? 'Unstage all changes' : 'Stage all changes'}
               title={allStaged ? 'All staged: click to unstage all changes' : 'Click to stage all changes'}
               onChange={(checked) => (checked ? stageAll() : unstageAll())}
@@ -245,6 +266,7 @@ export function ChangesApp() {
             },
             ...(staged.length ? [{ icon: 'git-stash', title: 'Stash only the staged changes…', run: () => act({ kind: 'stashPush', staged: true }) }] : []),
             { icon: 'git-stash', title: 'Stash all changes…', run: () => act({ kind: 'stashPush' }) },
+            ...(unsaved.length ? [{ icon: 'save-all', title: 'Save all', run: () => post({ type: 'save', paths: unsaved }) }] : []),
             {
               icon: 'discard',
               title: 'Discard all changes',
@@ -253,34 +275,59 @@ export function ChangesApp() {
                 act(staged.length ? { kind: 'discardChanges', paths: changes.flatMap((change) => pathsOf(change.file)) } : { kind: 'discardAll' }),
             },
           ]}
-          row={({ file, staged: done }, depth) => (
-            <FileRow
-              key={file.path}
-              file={file}
-              depth={depth}
-              // The file, or its diff: as the settings say.
-              onOpen={() => post({ type: 'openChange', file })}
-              // A half ticked box is ticked by the click: all of the file is staged.
-              onPick={(checked) => act(checked ? { kind: 'stage', paths: [file.path] } : { kind: 'unstage', paths: pathsOf(file) })}
-              picked={done === 'all'}
-              mixed={done === 'some'}
-              pickVerb={done === 'all' ? 'Unstage' : 'Stage'}
-              pickTitle={PICK_TITLES[done]}
-              actions={[
-                ...(file.status === 'D' ? [] : [{ icon: 'go-to-file', title: 'Open File', run: () => post({ type: 'openFile', file }) }]),
-                { icon: 'git-compare', title: 'Open Changes', run: () => post({ type: 'openDiff', source: SOURCE, file }) },
-                { icon: 'git-stash', title: 'Stash this file…', run: () => act({ kind: 'stashPush', paths: pathsOf(file) }) },
-                {
-                  icon: 'discard',
-                  title: 'Discard changes',
-                  // With some of it staged, all of it goes back to HEAD.
-                  run: () => act(done === 'none' ? { kind: 'discard', paths: [file.path] } : { kind: 'discardChanges', paths: pathsOf(file) }),
-                },
-              ]}
-            />
-          )}
+          row={({ file, staged: done }, depth) => {
+            const save = { icon: 'save', title: 'Save', run: () => post({ type: 'save', paths: [file.path] }) };
+            // Only its editor has changed it: there is nothing for git to stage, stash or discard until it is saved.
+            if (done === null) {
+              return (
+                <FileRow
+                  key={file.path}
+                  file={file}
+                  depth={depth}
+                  unsaved
+                  onOpen={() => post({ type: 'openFile', file })}
+                  onPick={() => undefined}
+                  pickDisabled
+                  pickVerb="Stage"
+                  pickTitle="Not saved: save it to stage it"
+                  actions={[
+                    { icon: 'git-compare', title: 'Compare with the saved file', run: () => post({ type: 'compareWithSaved', path: file.path }) },
+                    save,
+                  ]}
+                />
+              );
+            }
+            return (
+              <FileRow
+                key={file.path}
+                file={file}
+                depth={depth}
+                unsaved={isUnsaved.has(file.path)}
+                // The file, or its diff: as the settings say.
+                onOpen={() => post({ type: 'openChange', file })}
+                // A half ticked box is ticked by the click: all of the file is staged.
+                onPick={(checked) => act(checked ? { kind: 'stage', paths: [file.path] } : { kind: 'unstage', paths: pathsOf(file) })}
+                picked={done === 'all'}
+                mixed={done === 'some'}
+                pickVerb={done === 'all' ? 'Unstage' : 'Stage'}
+                pickTitle={PICK_TITLES[done]}
+                actions={[
+                  ...(file.status === 'D' ? [] : [{ icon: 'go-to-file', title: 'Open File', run: () => post({ type: 'openFile', file }) }]),
+                  { icon: 'git-compare', title: 'Open Changes', run: () => post({ type: 'openDiff', source: SOURCE, file }) },
+                  ...(isUnsaved.has(file.path) ? [save] : []),
+                  { icon: 'git-stash', title: 'Stash this file…', run: () => act({ kind: 'stashPush', paths: pathsOf(file) }) },
+                  {
+                    icon: 'discard',
+                    title: 'Discard changes',
+                    // With some of it staged, all of it goes back to HEAD.
+                    run: () => act(done === 'none' ? { kind: 'discard', paths: [file.path] } : { kind: 'discardChanges', paths: pathsOf(file) }),
+                  },
+                ]}
+              />
+            );
+          }}
         />
-        {state.changes === 0 && <p className="muted none">No changes</p>}
+        {state.changes === 0 && !unsaved.length && <p className="muted none">No changes</p>}
       </div>
     </div>
   );

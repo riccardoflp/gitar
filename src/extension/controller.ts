@@ -225,6 +225,10 @@ export class Controller implements vscode.Disposable {
   private readonly focused = new Set<vscode.Webview>();
   /** What identifies the commits each view that lists them was last sent. */
   private readonly sentRows = new WeakMap<vscode.Webview, string>();
+  /** The files of the repository shown that have edits not saved in an editor, by their paths from its root. */
+  private unsaved: string[] = [];
+  /** What `unsaved` was last worked out from: the state, and the files of the editors with edits not saved. */
+  private unsavedFrom?: { state: RepoState | null; files: string };
   private readonly stateEmitter = new vscode.EventEmitter<RepoState | null>();
   private readonly subscriptions: vscode.Disposable[];
 
@@ -238,6 +242,7 @@ export class Controller implements vscode.Disposable {
     private readonly memento: vscode.Memento,
   ) {
     const schedule = () => this.scheduleRefresh();
+    const unsaved = () => void this.checkUnsaved();
     this.fileIcons = new FileIcons(log);
     this.roots = this.resourceRoots();
     this.subscriptions = [
@@ -245,7 +250,13 @@ export class Controller implements vscode.Disposable {
       this.fileIcons,
       this.fileIcons.onDidChange(() => this.sendFileIcons()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.locate()),
-      vscode.workspace.onDidSaveTextDocument(schedule),
+      vscode.workspace.onDidSaveTextDocument(() => {
+        unsaved();
+        schedule();
+      }),
+      // An edit, or one undone back to what is saved, and an editor closed without saving.
+      vscode.workspace.onDidChangeTextDocument(unsaved),
+      vscode.workspace.onDidCloseTextDocument(unsaved),
       vscode.workspace.onDidCreateFiles(schedule),
       vscode.workspace.onDidDeleteFiles(schedule),
       vscode.workspace.onDidRenameFiles(schedule),
@@ -1363,6 +1374,53 @@ export class Controller implements vscode.Disposable {
     this.state = state;
     this.post({ type: 'state', state });
     this.stateEmitter.fire(state);
+    void this.checkUnsaved();
+  }
+
+  /** Tells the Changes views which files of the repository have edits not saved in an editor, when that changed. */
+  private async checkUnsaved(): Promise<void> {
+    const { state, repo } = this;
+    const documents = vscode.workspace.textDocuments.filter((document) => document.isDirty && document.uri.scheme === 'file');
+    const files = documents.map((document) => document.uri.fsPath);
+    const from = { state, files: JSON.stringify(files) };
+    // It runs at every key typed in an editor: most of the time nothing it looks at has changed.
+    if (this.unsavedFrom?.state === from.state && this.unsavedFrom.files === from.files) return;
+    this.unsavedFrom = from;
+    const paths = state && repo ? await this.unsavedIn(repo, state, files) : [];
+    if (this.unsavedFrom !== from || JSON.stringify(paths) === JSON.stringify(this.unsaved)) return;
+    this.unsaved = paths;
+    for (const [view, kind] of this.views) if (kind === 'changes') this.post({ type: 'unsaved', paths }, view);
+  }
+
+  /**
+   * Those of these files that are of the repository, by their paths from its root, in order. The files of its
+   * submodules and of the worktrees inside it are of other repositories, and the ones git ignores are no change to it.
+   */
+  private async unsavedIn(repo: Repo, state: RepoState, files: string[]): Promise<string[]> {
+    const inside = (folder: string) => {
+      const relative = path.relative(repo.root, folder);
+      return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? relative.replace(/\\/g, '/') : null;
+    };
+    const others = [
+      ...state.submodules.map((submodule) => submodule.path),
+      ...state.worktrees.filter((worktree) => !worktree.current).flatMap((worktree) => inside(worktree.path) ?? []),
+    ];
+    const paths = files
+      .flatMap((file) => inside(file) ?? [])
+      .filter((file) => !others.some((other) => file === other || file.startsWith(`${other}/`)))
+      .sort();
+    const ignored = await repo.ignored(paths).catch(() => new Set<string>());
+    return paths.filter((file) => !ignored.has(file));
+  }
+
+  /** Saves the editors of these files, by their paths from the root of the repository. */
+  private async save(paths: string[], repo = this.repo): Promise<void> {
+    if (!repo || !Array.isArray(paths)) return;
+    const wanted = paths.map((file) => path.join(repo.root, file));
+    const documents = vscode.workspace.textDocuments.filter(
+      (document) => document.isDirty && document.uri.scheme === 'file' && wanted.some((file) => samePath(file, document.uri.fsPath)),
+    );
+    await Promise.all(documents.map((document) => document.save()));
   }
 
   private async locate(): Promise<void> {
@@ -1666,6 +1724,7 @@ export class Controller implements vscode.Disposable {
         this.sentRows.delete(webview);
         if (this.located && !this.loading) this.post({ type: 'state', state: this.state }, webview);
         if (this.waiting) this.post({ type: 'loading', what: this.waiting.what }, webview);
+        if (this.views.get(webview) === 'changes' && this.unsaved.length) this.post({ type: 'unsaved', paths: this.unsaved }, webview);
         await this.refresh();
         return this.flushPending();
       case 'setFilter':
@@ -1786,6 +1845,11 @@ export class Controller implements vscode.Disposable {
           : this.openFile(message.file, repo);
       case 'openChanges':
         return this.openChanges(message.title, message.source, message.files, repo);
+      case 'save':
+        return this.save(message.paths, repo);
+      case 'compareWithSaved':
+        if (!repo || typeof message.path !== 'string') return;
+        return void vscode.commands.executeCommand('workbench.files.action.compareWithSaved', vscode.Uri.file(path.join(repo.root, message.path)));
       case 'sync':
         return this.sync(message.action);
       case 'action':

@@ -145,6 +145,18 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect(after.changes).toBe(0);
   });
 
+  it('says which files git ignores, never a tracked one', async () => {
+    write('.gitignore', '*.log\n');
+    write('kept.log', 'tracked\n');
+    await run(stageAllOp());
+    await git(root, ['add', '--force', 'kept.log']);
+    await run(commitOp('First commit', false, false));
+    write('notes.log', 'ignored\n');
+    expect(await repo.ignored([])).toEqual(new Set());
+    expect(await repo.ignored(['a.txt'])).toEqual(new Set());
+    expect(await repo.ignored(['a.txt', 'kept.log', 'notes.log', 'deep/other.log'])).toEqual(new Set(['notes.log', 'deep/other.log']));
+  });
+
   it('shows uncommitted changes as the first row and discards them', async () => {
     write('a.txt', 'one\n');
     await commitAll('First commit');

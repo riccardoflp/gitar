@@ -222,6 +222,20 @@ export class Repo {
     return parseStatus(await this.read(['status', '--porcelain=v1', '-z', '--untracked-files=all']));
   }
 
+  /** Those of these files, by their paths from the root, that git ignores. A tracked file is never ignored. */
+  async ignored(paths: string[]): Promise<Set<string>> {
+    if (!paths.length) return new Set();
+    const args = ['check-ignore', '-z', '--stdin'];
+    this.onCommand(formatCommand(args));
+    try {
+      const { stdout } = await git(this.root, args, { readOnly: true, input: paths.map((file) => `${file}\0`).join('') });
+      return new Set(stdout.split('\0').filter(Boolean));
+    } catch {
+      // Git ends with an error when none of them is ignored.
+      return new Set();
+    }
+  }
+
   /** Whether git left a marker file of that name in this worktree's git directory. */
   private async hasMarker(...names: string[]): Promise<boolean> {
     this.gitDir ??= (await this.read(['rev-parse', '--absolute-git-dir'])).trim();

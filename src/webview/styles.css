@@ -1203,6 +1203,17 @@ input:focus-visible,
   text-overflow: ellipsis;
 }
 
+/* A file with edits not saved in an editor, as the tab of the editor shows it. */
+.file .unsaved {
+  flex: none;
+  display: inline-flex;
+  margin-left: -2px;
+}
+
+.file .unsaved .codicon {
+  font-size: 10px;
+}
+
 /* Short of room, a directory loses its start, which is what the others share, and keeps its end. */
 .file .dir {
   min-width: 0;

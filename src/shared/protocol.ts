@@ -536,6 +536,8 @@ export type HostMessage =
    */
   | { type: 'loading'; what: Loading | null }
   | { type: 'committed' }
+  /** The files of the repository shown that have edits not saved in an editor, by their paths from its root. */
+  | { type: 'unsaved'; paths: string[] }
   /** Select a commit and scroll to it. */
   | { type: 'reveal'; hash: string }
   /**
@@ -611,6 +613,10 @@ export type WebviewMessage =
   | { type: 'openChange'; file: FileChange }
   /** Opens the diffs of all these files in one editor. */
   | { type: 'openChanges'; source: DiffSource; files: FileChange[]; title: string }
+  /** Saves the edits of these files, by their paths from the root of the repository, that are not saved in an editor. */
+  | { type: 'save'; paths: string[] }
+  /** Opens what an editor has of the file, not saved yet, against the file on disk. */
+  | { type: 'compareWithSaved'; path: string }
   | { type: 'sync'; action: SyncAction }
   | { type: 'action'; action: Action }
   | { type: 'setFilter'; filter: Filter | null }

@@ -2584,6 +2584,57 @@ export async function run(): Promise<void> {
     }
   });
 
+  await step('tells the Changes view which files are not saved in an editor, and saves them', async () => {
+    const exclude = path.join(app, '.git', 'info', 'exclude');
+    const excluded = fs.readFileSync(exclude, 'utf8');
+    fs.writeFileSync(exclude, `${excluded}\n*.log\n`);
+    write('notes.log', 'ignored\n');
+    const from = posted.length;
+    const changes = view('changes');
+    const told = (what: string, paths: string[]) =>
+      until(what, () =>
+        posted
+          .slice(from)
+          .some(
+            (message, index) => message.type === 'unsaved' && JSON.stringify(message.paths) === JSON.stringify(paths) && addressed[from + index] === changes,
+          ),
+      );
+    const edit = async (file: string) => {
+      const editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(app, file)));
+      await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), 'edited\n'));
+    };
+    try {
+      // A file git sees no change in, one that git ignores, and another.
+      await edit('first.txt');
+      await told('first.txt not saved', ['first.txt']);
+      await edit('notes.log');
+      await edit('second.txt');
+      await told('both not saved, and not the ignored one', ['first.txt', 'second.txt']);
+
+      await fromWebview({ type: 'save', paths: ['first.txt'] });
+      await told('first.txt saved', ['second.txt']);
+      assert.equal(fs.readFileSync(path.join(app, 'first.txt'), 'utf8'), 'edited\n1\n');
+      await until('first.txt changed on disk', () => state().working.unstaged.some((file) => file.path === 'first.txt'));
+
+      for (const file of ['second.txt', 'notes.log']) {
+        await vscode.window.showTextDocument(vscode.Uri.file(path.join(app, file)));
+        await vscode.commands.executeCommand('workbench.action.files.revert');
+      }
+      await told('nothing left unsaved', []);
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await git(app, ['checkout', '--', 'first.txt']);
+      fs.rmSync(path.join(app, 'notes.log'), { force: true });
+      fs.writeFileSync(exclude, excluded);
+      // The reads that the files put back ask for, also once VS Code's Git extension has looked at them, happen here and
+      // not in the next step: it goes on when the views have been told nothing for two seconds.
+      for (let seen = -1; seen !== posted.length; ) {
+        seen = posted.length;
+        await sleep(2000);
+      }
+    }
+  });
+
   await step('tells the views the graph is loading while a filter, a scope or the next page is read', async () => {
     const graph = view('graph');
     /** What the views were told from then on: the loading, and which filter each state was for. */

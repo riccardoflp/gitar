@@ -26,6 +26,10 @@ interface Props {
   pickVerb?: string;
   /** What the box does, under the pointer. */
   pickTitle?: string;
+  /** The box is there, but cannot be ticked. */
+  pickDisabled?: boolean;
+  /** An editor has edits of the file that are not saved: a dot after its name says so, as on the tab of the editor. */
+  unsaved?: boolean;
 }
 
 const STATUS_TITLES: Record<string, string> = {
@@ -52,6 +56,8 @@ export function ActionButtons({ actions }: { actions?: FileAction[] }) {
 
 /** The letter git has for what happened to a file, in the color VS Code gives it. */
 export function Status({ file }: { file: FileChange }) {
+  // A file git sees no change in, listed for another reason: the room of the letter stays, for the names to line up.
+  if (!file.status) return <span className="status" />;
   return (
     <span className={`status status-${file.status === '?' ? 'untracked' : file.status}`} title={STATUS_TITLES[file.status]}>
       {file.status}
@@ -67,11 +73,12 @@ interface CheckProps {
   mixed?: boolean;
   label: string;
   title?: string;
+  disabled?: boolean;
   onChange(checked: boolean): void;
 }
 
 /** A box to tick, which can also be half ticked. */
-export function Check({ checked, mixed = false, label, title, onChange }: CheckProps) {
+export function Check({ checked, mixed = false, label, title, disabled, onChange }: CheckProps) {
   return (
     <input
       // Half ticked is not an attribute: it is set on the element, at every render so that it follows.
@@ -83,6 +90,7 @@ export function Check({ checked, mixed = false, label, title, onChange }: CheckP
       checked={checked}
       aria-label={label}
       title={title}
+      disabled={disabled}
       onChange={(event) => {
         onChange(event.target.checked);
         // React puts back `checked` until the new state comes, but not the half tick that the click took away.
@@ -92,15 +100,22 @@ export function Check({ checked, mixed = false, label, title, onChange }: CheckP
   );
 }
 
-export function FileRow({ file, onOpen, actions, extra, depth, onPick, picked, mixed, pickVerb = 'Select', pickTitle }: Props) {
+export function FileRow({ file, onOpen, actions, extra, depth, onPick, picked, mixed, pickVerb = 'Select', pickTitle, pickDisabled, unsaved }: Props) {
   const slash = file.path.lastIndexOf('/');
   return (
     <div className="file" style={depth === undefined ? undefined : { paddingLeft: 12 + depth * INDENT }}>
-      {onPick && <Check checked={!!picked} mixed={mixed} label={`${pickVerb} ${file.path}`} title={pickTitle} onChange={onPick} />}
+      {onPick && (
+        <Check checked={!!picked} mixed={mixed} label={`${pickVerb} ${file.path}`} title={pickTitle} disabled={pickDisabled} onChange={onPick} />
+      )}
       <button className="file-open" title={fileTitle(file)} onClick={onOpen}>
         <Status file={file} />
         <FileIcon path={file.path} />
         <span className="name">{file.path.slice(slash + 1)}</span>
+        {unsaved && (
+          <span className="unsaved" title="Not saved" aria-label="Not saved">
+            <Icon name="circle-filled" />
+          </span>
+        )}
         {depth === undefined && slash > 0 && (
           <span className="dir">
             {/* Read from the left as it is written, whichever end the line is cut at. */}

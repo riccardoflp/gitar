@@ -279,6 +279,10 @@ async function main() {
         return state();
       case 'focus':
         return [];
+      // No editors here: nothing is ever unsaved.
+      case 'save':
+      case 'compareWithSaved':
+        return [];
       case 'ready':
         return [...(await state()), ...(await comparison())];
       case 'refresh':
