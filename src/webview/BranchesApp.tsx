@@ -58,7 +58,7 @@ export function BranchesApp() {
   return (
     <div className="side">
       <WorktreeBanner state={state} busy={false} />
-      <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} sections={SECTIONS} startClosed />
+      <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} sections={SECTIONS} />
       {comparing && (
         <Compare
           comparing={comparing}

@@ -33,8 +33,6 @@ interface Props {
   onCompare(comparing: Comparing): void;
   /** The sections to list, when not all of them. */
   sections?: SectionId[];
-  /** The sections are closed each time VS Code starts, and the ones opened or closed since are remembered until it is closed. */
-  startClosed?: boolean;
 }
 
 /** Where a submodule stands against the commit recorded for it, as an icon with the number of commits beside it. */
@@ -113,13 +111,12 @@ function submoduleBadge(submodule: Submodule): Badge {
   }
 }
 
-export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, sections, startClosed = false }: Props) {
-  // A section missing here is as it starts. What was saved in an earlier start of VS Code counts only where it is not to start afresh.
-  const [collapsed, setCollapsed] = useState(() => {
-    const saved = loadUiState({ collapsed: {} as Record<string, boolean>, collapsedIn: '' });
-    return startClosed && saved.collapsedIn !== SESSION ? {} : saved.collapsed;
+export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, sections }: Props) {
+  // The sections are all closed each time VS Code starts; the ones opened since are remembered until it is closed.
+  const [opened, setOpened] = useState(() => {
+    const saved = loadUiState({ opened: {} as Record<string, boolean>, openedIn: '' });
+    return saved.openedIn === SESSION ? saved.opened : {};
   });
-  const isCollapsed = (id: string) => collapsed[id] ?? startClosed;
   // Sections listed in full. Not remembered: the next time the short list is the better start again.
   const [full, setFull] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState('');
@@ -130,9 +127,12 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
   const within = (ref: string) => !scoped || scoped.has(ref);
 
   const toggle = (id: string) => {
-    const next = { ...collapsed, [id]: !isCollapsed(id) };
-    setCollapsed(next);
-    saveUiState({ collapsed: next, collapsedIn: SESSION });
+    // From what is open now, not from the last render: two sections opened before it are both kept.
+    setOpened((now) => {
+      const next = { ...now, [id]: !now[id] };
+      saveUiState({ opened: next, openedIn: SESSION });
+      return next;
+    });
   };
 
   /** `optional` is a section that is not there at all while it has nothing to list. */
@@ -141,7 +141,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
     if (optional && !all.length) return null;
     const items = needle ? all.filter((item) => item.label.toLowerCase().includes(needle)) : all;
     // A filter is there to find something: what it finds shows, whether the section was closed or not.
-    const open = needle ? items.length > 0 : !isCollapsed(id);
+    const open = needle ? items.length > 0 : !!opened[id];
     const listed = full[id] ? items : items.slice(0, SECTION_LIMIT);
     const menu = actions.find((action) => action.menu);
     // The checked out branch is listed even when it comes after the others.

@@ -21,6 +21,9 @@ const { workspace, app, lib } = createWorkspace(temp);
 const window = await startWindow({ workspace, temp, out, codePath, width: WIDTH, height: HEIGHT });
 const { shot, setting, mouse, drag, clickText, key, type, prompt, command, webview, problems } = window;
 
+/** Opens the sections of the references that are closed: they all are when VS Code starts, and new ones start closed. */
+const unfold = (view) => view.evaluate(`document.querySelectorAll('.refs .section[aria-expanded="false"]').forEach((section) => section.click())`);
+
 /** The widths of the columns of a Flow page and of their labels, and where to take one of its gutters, in the window. */
 const columnWidths = async (view, gutter) => {
   const seen = await view.evaluate(`(() => {
@@ -118,6 +121,11 @@ try {
     await command('Gitardo: Show Graph');
     const graph = await webview('graph');
     await until('the commits', () => graph.evaluate(`document.querySelectorAll('.row').length >= 4`));
+    // VS Code has just started: the sections of the references are all closed, and stay open once opened.
+    const closed = await graph.evaluate(`[...document.querySelectorAll('.refs .section')].map((section) => section.getAttribute('aria-expanded'))`);
+    assert(closed.length >= 3 && closed.every((expanded) => expanded === 'false') && !(await graph.evaluate(`document.querySelectorAll('.refs .ref').length`)), `expanded: ${closed}`);
+    await unfold(graph);
+    await until('the references', () => graph.evaluate(`document.querySelectorAll('.refs .ref').length >= 4`));
     await shot('graph');
     assert((await subjects(graph)).join() === 'Add feature,Change a,Add b,Add a', `commits: ${await subjects(graph)}`);
     const look = await graph.evaluate(`({
@@ -1502,11 +1510,14 @@ try {
 
   await step('the branches list the favorites and the ones checked out last first, only the ones the graph is narrowed to, and can be put away; the status bar opens the graph', async () => {
     const graph = await webview('graph');
-    const sections = (view) =>
-      view.evaluate(`Object.fromEntries([...document.querySelectorAll('.refs section')].map((section) => [
+    // The sections that come here, as the favorites, start closed: they are opened to read them.
+    const sections = async (view) => {
+      await unfold(view);
+      return view.evaluate(`Object.fromEntries([...document.querySelectorAll('.refs section')].map((section) => [
         section.dataset.section,
         [...section.querySelectorAll('.ref')].map((ref) => ref.querySelector('.grow').textContent + (ref.querySelector('.codicon-star-full') ? '*' : '')),
       ]))`);
+    };
     const menuOf = async (branch) => {
       const at = await graph.locate('.refs section[data-section="branches"] .ref', branch);
       await mouse(at.x, at.y, 'right');
@@ -1536,8 +1547,6 @@ try {
     await shot('branches-groups');
     // The Branches view of the side bar lists them the same way.
     const side = await webview('branches');
-    // A section that was not there before starts closed as the others did.
-    await side.click('.refs .section', 'Favorites');
     await until('the favorites in the side bar', async () => (await sections(side)).favorites?.join() === 'merged');
 
     // Narrowed to a branch, the graph leaves only that one here too, and says so with the way back.
@@ -1973,8 +1982,10 @@ try {
     await command('View: Close All Editors');
     await command('Gitardo: Show Graph');
     const graph = await webview('graph');
-    const rows = () =>
-      graph.evaluate(`(() => {
+    // The section comes with the first submodule, closed as a new section starts.
+    const rows = async () => {
+      await unfold(graph);
+      return graph.evaluate(`(() => {
         const section = document.querySelector('.refs section[data-section="submodules"]');
         section?.scrollIntoView();
         return section ? [...section.querySelectorAll('.ref')].map((row) => ({
@@ -1985,6 +1996,7 @@ try {
           title: row.title,
         })) : null;
       })()`);
+    };
     assert((await rows()) === null, 'no section without submodules');
 
     await command('Gitardo: Add Submodule…');
