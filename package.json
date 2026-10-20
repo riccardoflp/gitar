@@ -368,6 +368,26 @@
         "category": "Gitardo"
       },
       {
+        "command": "gitardo.linkIntoWorktrees",
+        "title": "Link into New Worktrees",
+        "category": "Gitardo"
+      },
+      {
+        "command": "gitardo.copyIntoWorktrees",
+        "title": "Copy into New Worktrees",
+        "category": "Gitardo"
+      },
+      {
+        "command": "gitardo.stopLinkingIntoWorktrees",
+        "title": "Stop Linking into New Worktrees",
+        "category": "Gitardo"
+      },
+      {
+        "command": "gitardo.stopCopyingIntoWorktrees",
+        "title": "Stop Copying into New Worktrees",
+        "category": "Gitardo"
+      },
+      {
         "command": "gitardo.openCommits",
         "title": "Show Commits in the Side Bar",
         "category": "Gitardo"
@@ -468,6 +488,22 @@
     ],
     "menus": {
       "commandPalette": [
+        {
+          "command": "gitardo.linkIntoWorktrees",
+          "when": "false"
+        },
+        {
+          "command": "gitardo.copyIntoWorktrees",
+          "when": "false"
+        },
+        {
+          "command": "gitardo.stopLinkingIntoWorktrees",
+          "when": "false"
+        },
+        {
+          "command": "gitardo.stopCopyingIntoWorktrees",
+          "when": "false"
+        },
         {
           "command": "gitardo.revealCommit",
           "when": "false"
@@ -575,6 +611,26 @@
           "command": "gitardo.compareWith",
           "when": "resourceScheme == file",
           "group": "4_search@91"
+        },
+        {
+          "command": "gitardo.linkIntoWorktrees",
+          "when": "resourceScheme == file && gitardo.hasRepository && explorerResourceIsFolder && resourcePath not in gitardo.linkedIntoWorktrees",
+          "group": "z_gitardo_worktrees@1"
+        },
+        {
+          "command": "gitardo.stopLinkingIntoWorktrees",
+          "when": "resourceScheme == file && gitardo.hasRepository && resourcePath in gitardo.linkedIntoWorktrees",
+          "group": "z_gitardo_worktrees@1"
+        },
+        {
+          "command": "gitardo.copyIntoWorktrees",
+          "when": "resourceScheme == file && gitardo.hasRepository && resourcePath not in gitardo.copiedIntoWorktrees",
+          "group": "z_gitardo_worktrees@2"
+        },
+        {
+          "command": "gitardo.stopCopyingIntoWorktrees",
+          "when": "resourceScheme == file && gitardo.hasRepository && resourcePath in gitardo.copiedIntoWorktrees",
+          "group": "z_gitardo_worktrees@2"
         }
       ],
       "editor/context": [

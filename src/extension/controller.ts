@@ -27,10 +27,10 @@ import {
 } from '../git/ops';
 import { allChanges, samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
-import { previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSetup';
+import { changeSetup, previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSetup';
 import { WORKTREE, showsGraph } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
-import { cleanPatterns, type IgnoredEntry } from '../shared/worktreeSetup';
+import { cleanPatterns, type IgnoredEntry, type SetupChoice, type SetupPatterns, type SetupTarget } from '../shared/worktreeSetup';
 import { submoduleFolder } from '../shared/submodules';
 import { FileIcons } from './fileIcons';
 import type {
@@ -60,7 +60,7 @@ import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHel
 import { draftCommitMessage } from './ai';
 import { INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
-import { editSetupJson, saveSetup, worktreeSetupInfo } from './worktreeSettings';
+import { editSetupJson, savePatterns, saveSetup, setupChangeText, setupPatterns, worktreeSetupInfo } from './worktreeSettings';
 
 const PAGE_SIZE = 1000;
 /** The most commits a search is told about, to highlight them in the graph. */
@@ -733,6 +733,60 @@ export class Controller implements vscode.Disposable {
     } catch (error) {
       void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
     }
+  }
+
+  /**
+   * Has new worktrees get the files and folders chosen in the Explorer linked, copied, or nothing by a pattern of their
+   * own path, in the settings that apply to the repository each one is in, and says what became of each.
+   */
+  async setUpFromExplorer(choice: SetupChoice, chosen: vscode.Uri[]): Promise<void> {
+    if (!this.located) await this.locate();
+    const owner = (uri: vscode.Uri) => {
+      const inside = this.repos.filter((repo) => {
+        const relative = path.relative(repo.root, uri.fsPath);
+        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+      });
+      return inside.sort((a, b) => b.root.length - a.root.length)[0];
+    };
+    const said: string[] = [];
+    let changed = 0;
+    let saved: SetupTarget | undefined;
+    const byRepo = new Map<string, vscode.Uri[]>();
+    for (const uri of chosen.filter((each) => each.scheme === 'file')) {
+      const repo = owner(uri);
+      if (!repo) said.push(`${path.basename(uri.fsPath)} is in no repository of the workspace.`);
+      else byRepo.set(repo.root, [...(byRepo.get(repo.root) ?? []), uri]);
+    }
+    try {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Gitardo: looking at what git ignores' }, async () => {
+        for (const [root, uris] of byRepo) {
+          const { linkFrom, copyFrom, ...before } = setupPatterns(root);
+          let patterns: SetupPatterns = before;
+          for (const uri of uris) {
+            const entry = { path: path.relative(root, uri.fsPath).split(path.sep).join('/'), folder: ((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) !== 0 };
+            const result = await changeSetup(root, entry, choice, patterns);
+            patterns = result.patterns;
+            if (result.change.kind === 'done' || result.change.kind === 'still') changed++;
+            said.push(setupChangeText(entry.path, entry.folder, choice, result.change));
+          }
+          for (const [kind, from] of [['link', linkFrom], ['copy', copyFrom]] as const) {
+            const same = patterns[kind].length === before[kind].length && patterns[kind].every((pattern, index) => pattern === before[kind][index]);
+            if (!same) saved = await savePatterns(root, kind, patterns[kind], from);
+          }
+        }
+      });
+    } catch (error) {
+      said.push(errorText(error));
+    }
+    if (!said.length) return;
+    const where = saved && ` Saved in the settings of ${saved === 'user' ? 'the user' : 'the workspace folder'}.`;
+    const text = `Gitardo: ${said.join(' ')}${where ?? ''}`;
+    const open = 'Choose What New Worktrees Get…';
+    const show = changed ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
+    if ((await show(text, open)) !== open) return;
+    const [first] = byRepo.values();
+    if (first) await this.showRepoOf(first[0]);
+    await this.openWorktreeSetup();
   }
 
   /** Opens a comparison opened before, its branches where they are now. */

@@ -2194,6 +2194,79 @@ try {
     // The new commit is the one selected.
     await until('the new commit in the details', () => graph.evaluate(`document.querySelector('.detail h2')?.textContent === ${JSON.stringify(`${older}, edited`)}`));
   });
+
+  await step('the context menu of the Explorer links a folder git ignores into new worktrees, stops it, and says why a file git tracks is not copied', async () => {
+    const exclude = path.join(app, '.git', 'info', 'exclude');
+    const excluded = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : null;
+    const settingsFile = path.join(workspace, '.vscode', 'settings.json');
+    const settingsBefore = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, 'utf8') : null;
+    const linked = () => (fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8'))['gitardo.worktrees.linkFolders'] : undefined);
+    const row = (name) =>
+      until(`${name} in the Explorer`, () =>
+        page.evaluate(`(() => {
+          const row = [...document.querySelectorAll('.explorer-folders-view .monaco-list-row')].find((each) => each.querySelector('.label-name')?.textContent === ${JSON.stringify(name)});
+          if (!row) return null;
+          const rect = row.getBoundingClientRect();
+          return { x: rect.x + 60, y: rect.y + rect.height / 2, expanded: row.getAttribute('aria-expanded') === 'true' };
+        })()`),
+      );
+    const menu = async (name) => {
+      const at = await row(name);
+      await mouse(at.x, at.y, 'right');
+      return until('the context menu', () =>
+        page.evaluate(`(() => { const items = [...document.querySelectorAll('.context-view .monaco-menu .action-label')].map((item) => item.textContent).filter(Boolean); return items.length ? items : null; })()`),
+      );
+    };
+    // The menus of the workbench take the item under the mouse with Enter, when the click alone does not reach them.
+    const pick = async (item) => {
+      await clickText('.context-view .monaco-menu .action-label', item);
+      if (await page.evaluate(`!!document.querySelector('.context-view .monaco-menu')`)) await key('Enter');
+    };
+    fs.mkdirSync(path.dirname(exclude), { recursive: true });
+    fs.writeFileSync(exclude, `${excluded ?? ''}\nnode_modules/\n`);
+    fs.mkdirSync(path.join(app, 'node_modules', 'pkg'), { recursive: true });
+    fs.writeFileSync(path.join(app, 'node_modules', 'pkg', 'index.js'), 'module\n');
+    try {
+      await command('View: Close All Editors');
+      await command('View: Show Explorer');
+      const folder = await row('app');
+      if (!folder.expanded) await mouse(folder.x, folder.y);
+
+      let items = await menu('node_modules');
+      await shot('explorer-link');
+      assert(items.includes('Link into New Worktrees') && items.includes('Copy into New Worktrees'), `menu: ${items}`);
+      await pick('Link into New Worktrees');
+      await until('the folder in the setting of the workspace folder', () => linked()?.join() === '/node_modules/');
+
+      // Linked by the pattern of its path: the menu offers to stop it.
+      items = await until('the menu that stops it', async () => {
+        const shown = await menu('node_modules');
+        if (shown.includes('Stop Linking into New Worktrees')) return shown;
+        await key('Escape');
+        return null;
+      });
+      await shot('explorer-stop-linking');
+      assert(!items.includes('Link into New Worktrees'), `menu: ${items}`);
+      await pick('Stop Linking into New Worktrees');
+      await until('the setting without it', () => linked()?.length === 0);
+
+      // A file git tracks: each worktree has it from its commit, and nothing is saved.
+      items = await menu('a.txt');
+      assert(!items.includes('Link into New Worktrees') && items.includes('Copy into New Worktrees'), `menu: ${items}`);
+      await pick('Copy into New Worktrees');
+      await until('why it is not copied', () =>
+        page.evaluate(`[...document.querySelectorAll('.notification-list-item-message')].some((message) => message.textContent.includes('Git tracks a.txt'))`),
+      );
+      await shot('explorer-tracked');
+      assert(JSON.parse(fs.readFileSync(settingsFile, 'utf8'))['gitardo.worktrees.copyFiles'] === undefined, 'nothing is saved to copy');
+    } finally {
+      if (excluded === null) fs.rmSync(exclude, { force: true });
+      else fs.writeFileSync(exclude, excluded);
+      fs.rmSync(path.join(app, 'node_modules'), { recursive: true, force: true });
+      if (settingsBefore === null) fs.rmSync(settingsFile, { force: true });
+      else fs.writeFileSync(settingsFile, settingsBefore);
+    }
+  });
 } catch (error) {
   await finish(error);
 }

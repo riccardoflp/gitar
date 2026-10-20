@@ -6,6 +6,7 @@ import { BlameAnnotator, BlameSource } from './blame';
 import { GitContentProvider, SCHEME } from './content';
 import { Controller } from './controller';
 import { FileBlame } from './fileBlame';
+import { showSetupInMenus } from './worktreeSettings';
 
 const GRAPH_VIEW = 'gitardo.graph';
 const CHANGES_VIEW = 'gitardo.changes';
@@ -82,13 +83,19 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     else status.hide();
     void vscode.commands.executeCommand('setContext', 'gitardo.hasRepository', has);
   };
+  // The context menu of the Explorer offers to stop giving new worktrees what a pattern of its own path gives them.
+  let roots: string[] = [];
   const lookForRepos = async () => {
     const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
-    hasRepository((await discoverRepos(folders).catch(() => [])).length > 0);
+    roots = await discoverRepos(folders).catch(() => []);
+    hasRepository(roots.length > 0);
+    showSetupInMenus(roots);
   };
   void lookForRepos();
+  const setupSettings = ['gitardo.worktrees.linkFolders', 'gitardo.worktrees.copyFiles', 'git.worktreeSymlinkFolders', 'git.worktreeIncludeFiles'];
   const shown = vscode.Disposable.from(
     vscode.workspace.onDidChangeWorkspaceFolders(lookForRepos),
+    vscode.workspace.onDidChangeConfiguration((event) => setupSettings.some((setting) => event.affectsConfiguration(setting)) && showSetupInMenus(roots)),
     controller.onDidChangeState((state) => {
       if (!state) return;
       hasRepository(true);
@@ -106,6 +113,11 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
       if (item?.resourceUri instanceof vscode.Uri) return [item.resourceUri];
       return Array.isArray(item?.resourceStates) ? scmFiles(item.resourceStates) : [];
     });
+  /** What the Explorer hands to a command of its context menu: the files and folders selected, or the one clicked. */
+  const explorerUris = (clicked: unknown, selected: unknown): vscode.Uri[] => {
+    const uris = Array.isArray(selected) ? selected.filter((each): each is vscode.Uri => each instanceof vscode.Uri) : [];
+    return uris.length ? uris : clicked instanceof vscode.Uri ? [clicked] : [];
+  };
   const syncActions: SyncAction[] = [
     'fetch',
     'pull',
@@ -162,6 +174,14 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     command('gitardo.createWorktree', () => controller.action({ kind: 'worktreeAdd' })),
     command('gitardo.switchWorktree', () => controller.command('switchWorktree')),
     command('gitardo.worktreeSetup', () => controller.command('worktreeSetup')),
+    ...(
+      [
+        ['gitardo.linkIntoWorktrees', 'link'],
+        ['gitardo.copyIntoWorktrees', 'copy'],
+        ['gitardo.stopLinkingIntoWorktrees', 'none'],
+        ['gitardo.stopCopyingIntoWorktrees', 'none'],
+      ] as const
+    ).map(([id, choice]) => command(id, (uri, uris) => controller.setUpFromExplorer(choice, explorerUris(uri, uris)))),
     command('gitardo.addSubmodule', () => controller.action({ kind: 'submoduleAdd' })),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new GitContentProvider()),
     vscode.window.registerWebviewViewProvider(GRAPH_VIEW, graphProvider, webviewOptions),

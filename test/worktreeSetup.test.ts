@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choose, chooseAll, chooseOne, cleanPatterns, groupEntries, patternFor, sizeText, statusNow, statusOf, statusOfAll, suggest } from '../src/shared/worktreeSetup';
+import { choose, chooseAll, chooseByPath, chooseOne, cleanPatterns, groupEntries, namedPaths, patternFor, sizeText, statusNow, statusOf, statusOfAll, suggest } from '../src/shared/worktreeSetup';
 
 const folder = (path: string, bytes = 1000) => ({ path, folder: true, bytes });
 const file = (path: string, bytes = 100) => ({ path, folder: false, bytes });
@@ -120,6 +120,17 @@ describe('what new worktrees get of what git ignores', () => {
     expect(chooseOne({ link: [], copy: ['.env.local', '/.env.local'] }, places, places[2], 'copy')).toEqual({ link: [], copy: ['.env.local'] });
     // Without the pattern of the name, only its own changes.
     expect(chooseOne({ link: [], copy: [] }, places, places[0], 'copy')).toEqual({ link: [], copy: ['/apps/web/.env.local'] });
+  });
+
+  it('chooses from the Explorer by the pattern of the path, leaving the patterns of names alone', () => {
+    const patterns = { link: ['node_modules/', '/packages/api/vendor/'], copy: ['/.env', '.env.local'] };
+    // From copied to linked, as the pattern of its path moves.
+    expect(chooseByPath({ link: [], copy: ['/.vscode/', '/.vscode'] }, folder('.vscode'), 'link')).toEqual({ link: ['/.vscode/'], copy: [] });
+    expect(chooseByPath(patterns, folder('apps/web/node_modules'), 'copy')).toEqual({ ...patterns, copy: [...patterns.copy, '/apps/web/node_modules/'] });
+    expect(chooseByPath(patterns, folder('packages/api/vendor'), 'none')).toEqual({ link: ['node_modules/'], copy: patterns.copy });
+    expect(chooseByPath(patterns, file('.env'), 'none')).toEqual({ link: patterns.link, copy: ['.env.local'] });
+    // Only the patterns that name one path each, as the context menu offers to stop them.
+    expect(namedPaths(['/.env', '/packages/api/vendor/', 'node_modules/', 'apps/*/.env', '/build/**', '!/keep', '/a[b]'])).toEqual(['.env', 'packages/api/vendor']);
   });
 
   it('keeps patterns trimmed, once each, without empty ones or line breaks', () => {

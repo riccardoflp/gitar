@@ -16,6 +16,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - Once the tab of a commit or of a comparison is scrolled down, a round button in its corner takes it back to the top.
 - Files have the icon your file icon theme gives them in the Explorer: in the Changes view, the details of a commit, the Commits and Stashes views, the tabs of a commit and of a comparison with the headers of their diffs, the files a merge would conflict in, and the page of what new worktrees get. The directories of a tree have theirs too when the theme has icons for folders, without the arrow beside them when the theme hides it. With the theme set to **None**, files are listed as before.
 - The Changes view shows the files with edits not saved in an editor, with a dot after their names as on their tabs, and buttons to save one or all of them. The ones git sees no change in yet are in the list too, until they are saved, with a button to compare one with the file on disk.
+- In the context menu of the Explorer, **Link into New Worktrees** on a folder and **Copy into New Worktrees** on a file or a folder add the pattern of its path to what new worktrees get, after asking git whether that gives it anything, and say why not when it does not: git tracks it, does not ignore it, or a pattern gives it that already. **Stop Linking into New Worktrees** and **Stop Copying into New Worktrees** take that pattern out again.
 
 ### Changed
 

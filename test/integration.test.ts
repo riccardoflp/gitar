@@ -61,7 +61,7 @@ import {
 } from '../src/git/ops';
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
-import { foldersToLink, previewSetup, scanIgnored, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
+import { changeSetup, foldersToLink, previewSetup, scanIgnored, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
 import { WORKTREE, type CompareCommit, type Filter, type Scope } from '../src/shared/protocol';
 import { canFastForward } from '../src/shared/refs';
 
@@ -679,6 +679,51 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect(fs.existsSync(dir)).toBe(false);
     expect(fs.readFileSync(path.join(root, 'node_modules/pkg/index.js'), 'utf8')).toBe('module\n');
     expect(fs.readFileSync(path.join(root, 'packages/a/node_modules/x.js'), 'utf8')).toBe('nested\n');
+  });
+
+  it('links and copies from the Explorer only what git ignores, and says why not', async () => {
+    write('.gitignore', 'node_modules/\n.env\n.vscode/*\n!.vscode/settings.json\n');
+    write('a.txt', 'one\n');
+    fs.mkdirSync(path.join(root, '.vscode'));
+    write('.vscode/settings.json', '{}\n');
+    await commitAll('First commit');
+    for (const file of ['node_modules/pkg/index.js', 'packages/a/node_modules/x.js', '.env', '.vscode/launch.json', 'notes.txt']) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      write(file, 'content\n');
+    }
+    const none = { link: [], copy: [] };
+    const folder = (at: string) => ({ path: at, folder: true });
+    const file = (at: string) => ({ path: at, folder: false });
+
+    expect(await changeSetup(root, folder('node_modules'), 'link', none)).toEqual({
+      patterns: { link: ['/node_modules/'], copy: [] },
+      change: { kind: 'done', partly: false },
+    });
+    expect(await changeSetup(root, file('.env'), 'copy', none)).toEqual({ patterns: { link: [], copy: ['/.env'] }, change: { kind: 'done', partly: false } });
+    // Of a folder git tracks part of, only what it ignores is copied, and nothing can be linked.
+    expect((await changeSetup(root, folder('.vscode'), 'copy', none)).change).toEqual({ kind: 'done', partly: true });
+    expect(await changeSetup(root, folder('.vscode'), 'link', none)).toEqual({ patterns: none, change: { kind: 'tracked' } });
+    expect((await changeSetup(root, file('a.txt'), 'copy', none)).change).toEqual({ kind: 'tracked' });
+    expect((await changeSetup(root, file('notes.txt'), 'copy', none)).change).toEqual({ kind: 'notIgnored', partly: false });
+    expect((await changeSetup(root, folder('packages'), 'link', none)).change).toEqual({ kind: 'notIgnored', partly: true });
+
+    // What a pattern of a name gives it already, or keeps giving it, and what a linked folder holds.
+    const byName = { link: ['node_modules/'], copy: [] };
+    expect(await changeSetup(root, folder('packages/a/node_modules'), 'link', byName)).toEqual({ patterns: byName, change: { kind: 'already', by: 'node_modules/' } });
+    expect((await changeSetup(root, file('packages/a/node_modules/x.js'), 'copy', byName)).change).toEqual({
+      kind: 'linked',
+      folder: 'packages/a/node_modules',
+      by: 'node_modules/',
+    });
+    expect(await changeSetup(root, folder('node_modules'), 'none', { link: ['node_modules/', '/node_modules/'], copy: [] })).toEqual({
+      patterns: byName,
+      change: { kind: 'still', choice: 'link', by: 'node_modules/' },
+    });
+    // A folder linked by its path is copied instead.
+    expect(await changeSetup(root, folder('node_modules'), 'copy', { link: ['/node_modules/'], copy: [] })).toEqual({
+      patterns: { link: [], copy: ['/node_modules/'] },
+      change: { kind: 'done', partly: false },
+    });
   });
 
   it('reads commit details and file contents at a commit and in the index', async () => {

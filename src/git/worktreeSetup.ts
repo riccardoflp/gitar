@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { git, GitError } from './exec';
-import { suggest, type IgnoredEntry, type SetupPatterns, type SetupPreview } from '../shared/worktreeSetup';
+import { chooseByPath, statusOf, suggest, type IgnoredEntry, type SetupChoice, type SetupPatterns, type SetupPreview } from '../shared/worktreeSetup';
 import type { OpLog } from './ops';
 
 /*
@@ -369,4 +369,76 @@ export async function previewSetup(root: string, patterns: SetupPatterns): Promi
     }),
   ]);
   return { link, copy, counts };
+}
+
+/** What became of a file or folder of the checkout, given to new worktrees, or taken from them, from the Explorer. */
+export type SetupChange =
+  /** The patterns now give it what was chosen; `partly`, only what git ignores in it. */
+  | { kind: 'done'; partly: boolean }
+  /** Taken out of the patterns, though another pattern, `by`, still gives it something. */
+  | { kind: 'still'; choice: 'link' | 'copy'; by: string }
+  /** Another pattern, `by`, gives it what was chosen already. */
+  | { kind: 'already'; by: string }
+  /** Git tracks it, or files in it: each worktree has it from its commit. */
+  | { kind: 'tracked' }
+  /** Git does not ignore it, or not all of it. */
+  | { kind: 'notIgnored'; partly: boolean }
+  /** It is the folder `folder`, or inside it, which the pattern `by` links: nothing in a linked folder is copied. */
+  | { kind: 'linked'; folder: string; by: string };
+
+/** What the patterns take from the checkout in `root`: the folders linked and the paths copied. */
+async function taken(root: string, patterns: SetupPatterns): Promise<SetupPatterns> {
+  const link = await foldersToLink(root, patterns.link);
+  return { link, copy: await pathsToCopy(root, root, patterns.copy, link) };
+}
+
+const covers = (taken: string[], entry: string) => taken.some((each) => entry === each || entry.startsWith(`${each}/`));
+
+/** The first of the patterns of `choice` that gives `entry` something by itself, that is, takes it or a folder it is in. */
+async function takenBy(root: string, entry: string, choice: 'link' | 'copy', patterns: SetupPatterns, linked: string[]): Promise<string> {
+  const found = await Promise.all(
+    patterns[choice].map(async (pattern) =>
+      covers(choice === 'link' ? await foldersToLink(root, [pattern]) : await pathsToCopy(root, root, [pattern], linked), entry),
+    ),
+  );
+  return patterns[choice][found.indexOf(true)] ?? '';
+}
+
+/**
+ * Sets what new worktrees get of the file or folder `entry` of the checkout in `root` by the pattern of its path, as
+ * the context menu of the Explorer does: linked, copied, or nothing by a pattern of its own. Returns the patterns to
+ * save, the same ones when nothing is to change, and what became of it, as git works the patterns out.
+ */
+export async function changeSetup(
+  root: string,
+  entry: Pick<IgnoredEntry, 'path' | 'folder'>,
+  choice: SetupChoice,
+  patterns: SetupPatterns,
+): Promise<{ patterns: SetupPatterns; change: SetupChange }> {
+  const next = chooseByPath(patterns, entry, choice);
+  if (choice === 'none') {
+    const after = await taken(root, next);
+    const still = statusOf(entry, after);
+    if (still.choice === 'none' || still.partly) return { patterns: next, change: { kind: 'done', partly: false } };
+    return { patterns: next, change: { kind: 'still', choice: still.choice, by: await takenBy(root, entry.path, still.choice, next, after.link) } };
+  }
+
+  const before = await taken(root, patterns);
+  const was = statusOf(entry, before);
+  if (was.choice === choice && !was.partly) return { patterns, change: { kind: 'already', by: await takenBy(root, entry.path, choice, patterns, before.link) } };
+
+  const after = await taken(root, next);
+  const now = statusOf(entry, after);
+  if (now.choice === choice && (!now.partly || choice === 'copy')) return { patterns: next, change: { kind: 'done', partly: now.partly } };
+  if (choice === 'copy' && now.choice === 'link' && !now.partly) {
+    const folder = after.link.find((each) => covers([each], entry.path))!;
+    return { patterns, change: { kind: 'linked', folder, by: await takenBy(root, entry.path, 'link', next, after.link) } };
+  }
+  const literal = `:(literal)${entry.path}`;
+  const [tracked, ignored] = await Promise.all([
+    read(root, ['ls-files', '-z', '--', literal]),
+    read(root, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', literal]),
+  ]);
+  if (tracked && (!entry.folder || choice === 'link' || !ignored)) return { patterns, change: { kind: 'tracked' } };
+  return { patterns, change: { kind: 'notIgnored', partly: Boolean(ignored) } };
 }

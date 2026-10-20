@@ -1,7 +1,10 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import type { SetupChange } from '../git/worktreeSetup';
 import {
   cleanPatterns,
+  namedPaths,
+  type SetupChoice,
   type SetupLayer,
   type SetupPatterns,
   type SetupSource,
@@ -81,6 +84,18 @@ export async function saveSetup(root: string, target: SetupTarget, patterns: Set
   }
 }
 
+/**
+ * Saves the patterns of the folders to link, or of the files to copy, where what applies now comes from: the settings
+ * of the user or of the workspace folder that has the repository. Where VS Code's setting applies, or none, Gitardo's
+ * goes in the workspace folder, or in the user's settings when the repository is in no folder of the workspace. Returns
+ * where it went.
+ */
+export async function savePatterns(root: string, kind: Kind, patterns: string[], from: SetupSource): Promise<SetupTarget> {
+  const target = from === 'user' || !vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root)) ? 'user' : 'workspace';
+  await config('gitardo', root).update(OURS[kind], cleanPatterns(patterns), targetOf(target));
+  return target;
+}
+
 /** Opens the file of the settings of the user or of the workspace folder, at Gitardo's setting of the folders to link. */
 export async function editSetupJson(root: string, target: SetupTarget): Promise<void> {
   const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root));
@@ -96,4 +111,42 @@ export async function editSetupJson(root: string, target: SetupTarget): Promise<
     // Not there yet: VS Code makes it, as it does from its own Settings editor.
     await vscode.commands.executeCommand('workbench.action.openFolderSettingsFile', folder.uri);
   }
+}
+
+/** What became of `name`, a file or a folder of the checkout, given to new worktrees or taken from them, said for the user. */
+export function setupChangeText(name: string, folder: boolean, choice: SetupChoice, change: SetupChange): string {
+  const done = (taken: 'link' | 'copy') => (taken === 'link' ? 'linked' : 'copied');
+  switch (change.kind) {
+    case 'done':
+      if (choice === 'none') return `New worktrees will no longer get ${name}.`;
+      return change.partly ? `What git ignores in ${name} will be copied into new worktrees.` : `${name} will be ${done(choice)} into new worktrees.`;
+    case 'still':
+      return `${name} is still ${done(change.choice)} into new worktrees, by the pattern ${change.by}.`;
+    case 'already':
+      return `${name} is ${choice === 'copy' ? 'copied' : 'linked'} into new worktrees already, by the pattern ${change.by}.`;
+    case 'tracked':
+      return folder ? `Git tracks files in ${name}: each worktree has them from its commit.` : `Git tracks ${name}: each worktree has it from its commit.`;
+    case 'notIgnored':
+      return `Git ${change.partly ? 'ignores only part of' : 'does not ignore'} ${name}: only what it ignores is linked or copied into new worktrees.`;
+    case 'linked':
+      return change.folder === name
+        ? `${name} is linked into new worktrees by the pattern ${change.by}, which comes before copying.`
+        : `${name} is in ${change.folder}, which the pattern ${change.by} links into new worktrees: nothing in it is copied.`;
+  }
+}
+
+/**
+ * Tells the context menu of the Explorer which files and folders of the repositories in `roots` new worktrees get by a
+ * pattern of their own path, for it to offer to stop it.
+ */
+export function showSetupInMenus(roots: string[]): void {
+  const named = { link: {} as Record<string, true>, copy: {} as Record<string, true> };
+  for (const root of roots) {
+    const patterns = setupPatterns(root);
+    for (const kind of ['link', 'copy'] as const) {
+      for (const relative of namedPaths(patterns[kind])) named[kind][vscode.Uri.file(path.join(root, relative)).fsPath] = true;
+    }
+  }
+  void vscode.commands.executeCommand('setContext', 'gitardo.linkedIntoWorktrees', named.link);
+  void vscode.commands.executeCommand('setContext', 'gitardo.copiedIntoWorktrees', named.copy);
 }

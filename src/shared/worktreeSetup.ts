@@ -264,6 +264,22 @@ export function chooseOne(
   return put(next, ownPatterns(entry), pathPattern(entry), choice);
 }
 
+/** The patterns that name the file or folder at `path` by its path, with a slash at the end and without. */
+const pathPatterns = (path: string) => [`/${path}`, `/${path}/`];
+
+/**
+ * The patterns with what `entry` gets set to `choice` by the pattern of its path, as the context menu of the Explorer
+ * sets it: the patterns of its path go, and those of its name, which take others as well, are left.
+ */
+export function chooseByPath(patterns: SetupPatterns, entry: Pick<IgnoredEntry, 'path' | 'folder'>, choice: SetupChoice): SetupPatterns {
+  return put(patterns, pathPatterns(entry.path), pathPattern(entry), choice);
+}
+
+/** The paths that `patterns` name one by one, from the top of the checkout, as `/.env` or `/packages/api/node_modules/`. */
+export function namedPaths(patterns: string[]): string[] {
+  return patterns.filter((pattern) => /^\/[^*?[\\!]+$/.test(pattern)).map((pattern) => pattern.slice(1).replace(/\/$/, ''));
+}
+
 /** The patterns of a setting as they are kept: trimmed, without empty ones, line breaks or the same one twice. */
 export function cleanPatterns(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
