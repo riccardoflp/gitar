@@ -18,6 +18,7 @@ import {
 import { initHighlighting } from './highlight';
 import { Navigation } from './navigation';
 import { type Layout, createLayout, setHeaderLabels, sideText } from './render';
+import { Columns } from './columns';
 import { ScrollSync, sideExtent } from './scrollSync';
 import './styles.css';
 
@@ -99,6 +100,20 @@ async function onInit(
   }
   toolbar.collapse.classList.toggle('toggled', collapser.isEnabled);
   layout = createLayout(root);
+  // The widths the two sides were left with, kept by VS Code with the page.
+  const kept = (vscodeApi.getState() ?? {}) as { widths?: unknown };
+  new Columns(
+    [
+      { host: layout.leftHost, label: layout.leftLabel },
+      { host: layout.rightHost, label: layout.rightLabel },
+    ],
+    [layout.gutter],
+    kept.widths,
+    (widths, done) => {
+      connectors.schedule();
+      if (done) vscodeApi.setState({ ...((vscodeApi.getState() ?? {}) as object), widths });
+    },
+  );
   editors = createEditors(layout.leftHost, layout.rightHost, s.editorOptions ?? {});
   const { monacoLanguage } = await initHighlighting(monaco, theme, m.languageId);
 

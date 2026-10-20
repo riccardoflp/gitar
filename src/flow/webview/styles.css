@@ -73,6 +73,42 @@ body {
   overflow: hidden;
 }
 
+/* A gutter is also the sash between its two columns: dragged, it moves the line between them. */
+.column-sash {
+  cursor: col-resize;
+}
+
+.column-sash::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder, #007fd4));
+  opacity: 0;
+  transition: opacity 0.1s;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.column-sash:hover::after {
+  opacity: 0.6;
+  transition-delay: 0.4s;
+}
+
+.column-sash.dragging::after {
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+.columns-resizing,
+.columns-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
 /* ── Diff decorations inside Monaco ──────────────────────────────────── */
 
 .bd-line-added {

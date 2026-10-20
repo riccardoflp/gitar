@@ -19,7 +19,32 @@ const HEIGHT = 950;
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-ui-'));
 const { workspace, app, lib } = createWorkspace(temp);
 const window = await startWindow({ workspace, temp, out, codePath, width: WIDTH, height: HEIGHT });
-const { shot, setting, mouse, clickText, key, type, prompt, command, webview, problems } = window;
+const { shot, setting, mouse, drag, clickText, key, type, prompt, command, webview, problems } = window;
+
+/** The widths of the columns of a Flow page and of their labels, and where to take one of its gutters, in the window. */
+const columnWidths = async (view, gutter) => {
+  const seen = await view.evaluate(`(() => {
+    const widths = (selector) => [...document.querySelectorAll(selector)].map((element) => Math.round(element.getBoundingClientRect().width));
+    const rect = document.querySelector(${JSON.stringify(gutter)}).getBoundingClientRect();
+    return { hosts: widths('.diff-body > .editor-host'), labels: widths('.header > .pane-label'), x: rect.x + rect.width / 2, y: rect.bottom - 40 };
+  })()`);
+  return { ...seen, sash: { x: view.frame.x + seen.x, y: view.frame.y + seen.y } };
+};
+/** Drags a gutter of a Flow page by some pixels, and gives the widths once the first column moved. */
+const dragGutter = async (view, gutter, by, column) => {
+  const before = await columnWidths(view, gutter);
+  await drag(before.sash, { x: before.sash.x + by, y: before.sash.y }, 8);
+  return until('the columns dragged', async () => {
+    const now = await columnWidths(view, gutter);
+    return Math.abs(now.hosts[column] - (before.hosts[column] + by)) <= 3 ? { before, now } : null;
+  });
+};
+/** A double click on a gutter of a Flow page, as a hand makes it. */
+const doubleClick = async ({ x, y }) => {
+  await mouse(x, y);
+  await mouse(x, y, 'left', 2);
+};
+const near = (one, two) => one.length === two.length && one.every((width, index) => Math.abs(width - two[index]) <= 2);
 
 const results = [];
 const timer = setTimeout(() => finish(new Error(`Timed out after ${TIMEOUT / 1000}s.`)), TIMEOUT);
@@ -1715,6 +1740,14 @@ try {
       await until('the code in colors', () => flow.evaluate(`document.querySelectorAll('.monaco-editor .view-line span[class*="mtk"]:not(.mtk1)').length > 0`));
       await shot('flow-diff');
 
+      // The gutter is also the line between the two sides: dragged, it moves it and the labels with it, and a double click puts it back.
+      const diffDrag = await dragGutter(flow, '.diff-body > .gutter', -150, 0);
+      assert(Math.abs(diffDrag.now.hosts[1] - (diffDrag.before.hosts[1] + 150)) <= 3, `widths: ${JSON.stringify(diffDrag)}`);
+      assert(near(diffDrag.now.labels, diffDrag.now.hosts), `labels: ${diffDrag.now.labels} columns: ${diffDrag.now.hosts}`);
+      await shot('flow-diff-resized');
+      await doubleClick(diffDrag.now.sash);
+      await until('the two sides even again', async () => near((await columnWidths(flow, '.diff-body > .gutter')).hosts, diffDrag.before.hosts));
+
       const bands = () => flow.evaluate(`document.querySelectorAll('path.connector').length`);
       const before = await bands();
       await flow.click('.chunk-btn.stageChunk');
@@ -1792,14 +1825,14 @@ try {
       await mouse(open.x, open.y);
 
       const flow = await webview('flowMerge');
-      await until('three editors and the bands between them', () =>
-        flow.evaluate(`document.querySelectorAll('.monaco-editor').length === 3 && document.querySelectorAll('path.connector').length >= 3`),
+      await until('the editors and the bands between them', () =>
+        flow.evaluate(`document.querySelectorAll('.monaco-editor').length === 4 && document.querySelectorAll('path.connector').length >= 3`),
       );
       assert(!(await mergeEditor()), 'the Flow Merge takes the place of the merge editor');
       await until('the code in colors', () => flow.evaluate(`document.querySelectorAll('.monaco-editor .view-line span[class*="mtk"]:not(.mtk1)').length > 0`));
       const look = await flow.evaluate(`({
-        labels: [...document.querySelectorAll('.pane-label')].map((label) => label.textContent),
-        bands: [...document.querySelectorAll('path.connector')].map((band) => [...band.classList].filter((name) => name.startsWith('fm-')).join(' ')),
+        labels: [...document.querySelectorAll('.pane-label:not(.fm-base)')].map((label) => label.textContent),
+        bands: [...document.querySelectorAll('.gutter:not(.fm-base) path.connector')].map((band) => [...band.classList].filter((name) => name.startsWith('fm-')).join(' ')),
         conflicts: document.querySelector('.fm-conflicts')?.textContent,
         markers: document.querySelectorAll('.fm-marker').length,
       })`);
@@ -1821,7 +1854,7 @@ try {
       // Monaco reuses the elements of its lines: their order on screen is that of their top, not that of the page.
       const result = async () =>
         (
-          await flow.evaluate(`[...document.querySelectorAll('.diff-body > .editor-host:nth-child(3) .view-line')]
+          await flow.evaluate(`[...document.querySelectorAll('.editor-host.fm-result-host .view-line')]
             .sort((one, two) => parseFloat(one.style.top) - parseFloat(two.style.top))
             .map((line) => line.textContent)
             .join('\\n')`)
@@ -1840,7 +1873,7 @@ try {
       await sleep(600);
       assert(fs.readFileSync(file, 'utf8').includes('<<<<<<<'), 'a choice is not saved');
       await shot('flow-merge-accepted');
-      await flow.click('.diff-body > .editor-host:nth-child(3) .view-line');
+      await flow.click('.editor-host.fm-result-host .view-line');
       await sleep(300);
       await key('Z', CTRL);
       await until('the conflict back', () => flow.evaluate(`document.querySelector('.fm-conflicts')?.textContent === '1 conflict left'`));
@@ -1855,7 +1888,7 @@ try {
       const withBase = await until('the column of the base', () =>
         flow.evaluate(`(() => {
           const host = document.querySelector('.editor-host.fm-base');
-          if (!host || host.getBoundingClientRect().width < 50) return null;
+          if (!host || host.getBoundingClientRect().width < 50 || host.querySelectorAll('.view-line').length < 9) return null;
           return {
             label: document.querySelector('.fm-label-base').textContent,
             lines: [...host.querySelectorAll('.view-line')].length,
@@ -1867,6 +1900,15 @@ try {
       await shot('flow-merge-base');
       await flow.click('.fm-toggle-base');
       await until('the base hidden', () => flow.evaluate(`document.querySelector('.editor-host.fm-base').getBoundingClientRect().width === 0`));
+
+      // Each gutter is also the line between its two columns: the current side narrower gives the result its width, not the incoming side.
+      const mergeDrag = await dragGutter(flow, '.diff-body > .gutter:not(.fm-base)', -120, 1);
+      const [, ours, middle, theirs] = mergeDrag.now.hosts;
+      assert(Math.abs(middle - (mergeDrag.before.hosts[2] + 120)) <= 3 && Math.abs(theirs - mergeDrag.before.hosts[3]) <= 2, `widths: ${JSON.stringify(mergeDrag)} (${ours})`);
+      assert(near(mergeDrag.now.labels.slice(1), mergeDrag.now.hosts.slice(1)), `labels: ${mergeDrag.now.labels} columns: ${mergeDrag.now.hosts}`);
+      await shot('flow-merge-resized');
+      await doubleClick(mergeDrag.now.sash);
+      await until('the columns even again', async () => near((await columnWidths(flow, '.diff-body > .gutter')).hosts, mergeDrag.before.hosts));
 
       // Mark as Resolved with the markers still in asks first; Escape leaves the file in conflict.
       await flow.click('.fm-resolve');
@@ -1886,6 +1928,10 @@ try {
       await shot('flow-merge-back');
     } finally {
       await command('View: Revert and Close Editor').catch(() => {});
+      // Closed with a choice not saved, the Flow Merge leaves the file in an editor: not to be asked about later.
+      await sleep(500);
+      const left = await page.evaluate(`document.querySelector('.tab.active')?.textContent ?? ''`);
+      if (left.includes('shapes.ts') && !left.includes('Merging') && !left.includes('Incoming')) await command('View: Revert and Close Editor').catch(() => {});
       git(app, 'merge', '--abort');
     }
   });

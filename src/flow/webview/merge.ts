@@ -18,6 +18,7 @@ import {
 import type { MergeHostMessage, MergeSettings, MergeWebviewMessage } from '../diff/mergeProtocol';
 import type { SyntaxTheme } from '../diff/protocol';
 import { minimalReplace, offsetToPosition } from '../diff/textEdit';
+import { Columns } from './columns';
 import { type ChunkActionsConfig, Connectors } from './connectors';
 import { applyPaneOptions, createPane, setupMonacoEnvironment } from './editors';
 import { initHighlighting } from './highlight';
@@ -37,6 +38,8 @@ type Pane = 'base' | 'ours' | 'result' | 'theirs';
 /** What the page keeps of itself while it is hidden or reloaded. */
 interface PageState {
   showBase?: boolean;
+  /** The widths of the columns, as they were dragged. */
+  widths?: number[];
 }
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): PageState | undefined; setState(state: PageState): void };
@@ -54,6 +57,10 @@ interface Layout {
 
 const BASE_LABEL = 'Base — What the two sides started from';
 let showBase = vscodeApi.getState()?.showBase ?? false;
+
+function keep(state: PageState): void {
+  vscodeApi.setState({ ...vscodeApi.getState(), ...state });
+}
 
 let model: MergeModel | undefined;
 let layout: Layout | undefined;
@@ -133,6 +140,16 @@ window.addEventListener('message', (event: MessageEvent) => {
 
 async function onInit(m: MergeModel, settings: MergeSettings, theme: SyntaxTheme | undefined): Promise<void> {
   layout = createLayout(root);
+  const { labels, hosts, gutters } = layout;
+  new Columns(
+    (['base', 'ours', 'result', 'theirs'] as const).map((pane) => ({ host: hosts[pane], label: labels[pane] })),
+    [gutters.base, gutters.left, gutters.right],
+    vscodeApi.getState()?.widths,
+    (widths, done) => {
+      redraw();
+      if (done) keep({ widths });
+    },
+  );
   const user = settings.editorOptions ?? {};
   root.classList.toggle('fm-with-base', showBase);
   editors = {
@@ -508,7 +525,7 @@ function iconButton(icon: string, className: string): HTMLButtonElement {
 /** Shows or hides the column of the base, at the left of the current side. */
 function toggleBase(button: HTMLButtonElement): void {
   showBase = !showBase;
-  vscodeApi.setState({ showBase });
+  keep({ showBase });
   root.classList.toggle('fm-with-base', showBase);
   button.classList.toggle('toggled', showBase);
   button.title = showBase ? 'Hide the Base' : 'Show the Base';
@@ -516,7 +533,10 @@ function toggleBase(button: HTMLButtonElement): void {
   // Once it has its size, the base comes to where the current side is.
   if (showBase && editors) {
     const eds = editors;
-    requestAnimationFrame(() => baseSync.alignTo(eds.ours));
+    requestAnimationFrame(() => {
+      eds.base.layout();
+      baseSync.alignTo(eds.ours);
+    });
   }
   redraw();
 }
