@@ -28,6 +28,18 @@ function themeKind(): ThemeKind {
 /** The file icon theme the user chose, or none: null is what the setting holds when the user chose None. */
 const chosenTheme = () => vscode.workspace.getConfiguration('workbench').get<string | null>('iconTheme') || null;
 
+/** The theme VS Code starts with, and shows when the one chosen is not installed: Seti. */
+const DEFAULT_THEME = 'vs-seti';
+
+/** The file of the file icon theme of that id, in the extension that has it. */
+function themeFile(id: string): string | undefined {
+  for (const extension of vscode.extensions.all) {
+    const entry = contributed<IconThemeContribution>(extension, 'iconThemes').find((theme) => theme.id === id);
+    if (entry?.path) return path.join(extension.extensionPath, entry.path);
+  }
+  return undefined;
+}
+
 /** The file icon theme the user chose in VS Code, read once for each theme and kind of colors, for the pages that show files. */
 export class FileIcons implements vscode.Disposable {
   private read?: { key: string; theme: Promise<ReadTheme | null> };
@@ -93,19 +105,16 @@ export class FileIcons implements vscode.Disposable {
   private async load(): Promise<ReadTheme | null> {
     const id = chosenTheme();
     if (!id) return null;
-    for (const extension of vscode.extensions.all) {
-      const entry = contributed<IconThemeContribution>(extension, 'iconThemes').find((theme) => theme.id === id);
-      if (!entry?.path) continue;
-      try {
-        return await readFileIconTheme(path.join(extension.extensionPath, entry.path), themeKind());
-      } catch (error) {
-        this.log.warn(`Files are shown with no icons: the file icon theme ${id} could not be read. ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      }
+    const file = themeFile(id);
+    if (!file) this.log.info(`No extension has the file icon theme ${id}: files are shown with the icons of Seti, as VS Code shows them.`);
+    const shown = file ?? themeFile(DEFAULT_THEME);
+    if (!shown) return null;
+    try {
+      return await readFileIconTheme(shown, themeKind());
+    } catch (error) {
+      this.log.warn(`Files are shown with no icons: the file icon theme ${file ? id : DEFAULT_THEME} could not be read. ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
-    // VS Code shows no icons either then.
-    this.log.info(`Files are shown with no icons: no extension has the file icon theme ${id}.`);
-    return null;
   }
 
   /** The languages of VS Code by the names and extensions of their files, with those of `files.associations` first. */

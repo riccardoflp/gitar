@@ -277,6 +277,11 @@ try {
     await shot('file-icons-minimal');
     setting('workbench.iconTheme', null);
     await until('no icons', () => changes.evaluate(`!document.querySelector('.file-icon') && document.querySelectorAll('.group .file').length === 2`));
+    // A theme whose extension is not installed is shown as Seti, as VS Code shows it.
+    setting('workbench.iconTheme', 'a-theme-not-installed');
+    await until('the icons of Seti for a theme not installed', () =>
+      changes.evaluate(`[...document.querySelectorAll('.group .file .file-icon')].filter((icon) => icon.dataset.character).length === 2`),
+    );
     setting('workbench.iconTheme', undefined);
     await until('the icons of Seti again', () => changes.evaluate(`document.querySelectorAll('.group .file .file-icon').length === 2`));
   });
