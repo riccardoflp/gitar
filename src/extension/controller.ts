@@ -57,7 +57,7 @@ import type {
 } from '../shared/protocol';
 import { openMergeEditor } from '../flow/merge';
 import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHeldWorktree, refreshVSCodeGit, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
-import { draftCommitMessage } from './ai';
+import { chooseConflictModel, draftCommitMessage } from './ai';
 import { ConflictReviewTab } from './conflictReview';
 import { INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
@@ -1910,6 +1910,8 @@ export class Controller implements vscode.Disposable {
         return review?.ask(Array.isArray(message.conflicts) ? message.conflicts : undefined);
       case 'stopAsking':
         return review?.stop();
+      case 'chooseConflictModel':
+        return chooseConflictModel();
       case 'openConflict':
         return repo && this.openConflict(repo, message.path, message.line, message.editor);
       case 'refresh':

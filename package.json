@@ -354,6 +354,12 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "gitardo.chooseConflictModel",
+        "title": "Choose the Model That Resolves Conflicts",
+        "category": "Gitardo",
+        "icon": "$(hubot)"
+      },
+      {
         "command": "gitardo.createBranch",
         "title": "Create Branch…",
         "category": "Gitardo",
@@ -530,6 +536,10 @@
         },
         {
           "command": "gitardo.resolveConflictsWithAI",
+          "when": "config.gitardo.conflicts.ai"
+        },
+        {
+          "command": "gitardo.chooseConflictModel",
           "when": "config.gitardo.conflicts.ai"
         },
         {
@@ -1241,6 +1251,32 @@
             "experimental"
           ],
           "markdownDescription": "Offer to ask the language model you use in VS Code, such as GitHub Copilot, how to resolve the conflicts that `#gitardo.conflicts.autoResolve#` leaves. Gitardo sends each conflict and the lines around it to the model, and shows what it proposes in the tab of the review, where nothing is written until you accept it. A model can write lines that neither side has: look at each resolution before you accept it."
+        },
+        "gitardo.conflicts.aiModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The id of the language model that `#gitardo.conflicts.ai#` asks, as **Gitardo: Choose the Model That Resolves Conflicts** writes it. Empty for the first model VS Code has."
+        },
+        "gitardo.conflicts.aiEffort": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "enumItemLabels": [
+            "As the model is set up",
+            "Low",
+            "Medium",
+            "High",
+            "Extra high",
+            "Max"
+          ],
+          "markdownDescription": "How much the model of `#gitardo.conflicts.aiModel#` thinks before it answers. Empty leaves it as the model is set up in VS Code; a model without such a setting ignores it."
         },
         "gitardo.flowDiff.collapseUnchanged": {
           "type": "boolean",

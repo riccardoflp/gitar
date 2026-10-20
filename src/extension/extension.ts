@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { FlowDiff } from '../flow/flowDiff';
 import { discoverRepos } from '../git/discover';
 import type { RepoState, SyncAction, ViewKind } from '../shared/protocol';
+import { chooseConflictModel } from './ai';
 import { BlameAnnotator, BlameSource } from './blame';
 import { GitContentProvider, SCHEME } from './content';
 import { Controller } from './controller';
@@ -169,6 +170,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     command('gitardo.resolveConflicts', () => controller.action({ kind: 'resolveConflicts' })),
     command('gitardo.reviewConflicts', () => controller.reviewConflicts()),
     command('gitardo.resolveConflictsWithAI', () => controller.reviewConflicts(undefined, true)),
+    command('gitardo.chooseConflictModel', () => chooseConflictModel()),
     // The views that list commits put the cursor in their search box at Ctrl+F by themselves. While one of them has the
     // keyboard the key is bound to this, for VS Code to run something other than the search of the editor behind them.
     command('gitardo.find', () => {}),

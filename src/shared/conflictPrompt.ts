@@ -25,6 +25,8 @@ export interface ConflictAnswer {
   text: string;
   reason: string;
   confidence: Confidence;
+  /** The name of the model that answered. */
+  model?: string;
 }
 
 const cut = (text: string, fromEnd = false) =>

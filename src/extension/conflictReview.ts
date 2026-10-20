@@ -8,7 +8,7 @@ import { fingerprint, questionParts, reviewFiles } from '../git/review';
 import { partialResolution } from '../shared/conflictPrompt';
 import type { HostMessage, Operation, ViewKind } from '../shared/protocol';
 import type { Asking, ConflictRef, ConflictReview, Proposal, ReviewReport } from '../shared/resolution';
-import { askResolution } from './ai';
+import { askResolution, conflictModelName } from './ai';
 import { proposalUri } from './content';
 import { answers } from './answers';
 
@@ -44,6 +44,8 @@ export class ConflictReviewTab implements vscode.Disposable {
   /** How many files of the repository are in conflict, in the review or not. */
   private conflicted = 0;
   private error: string | undefined;
+  /** The model the questions go to, as the tab names it, read with the files. */
+  private model: string | null = null;
   /** Where each question to the language model is, by file and fingerprint of the conflict. */
   private readonly asking = new Map<string, Asking>();
   private readonly queue: { path: string; print: string }[] = [];
@@ -67,6 +69,7 @@ export class ConflictReviewTab implements vscode.Disposable {
     this.disposables.push(
       host.attach(this.webview, 'conflicts', { root: repo.root }),
       answers.onDidChange((root) => samePath(root, repo.root) && this.schedule()),
+      vscode.lm.onDidChangeChatModels(() => void this.reload()),
     );
     this.panel.onDidDispose(() => {
       this.stop();
@@ -105,6 +108,7 @@ export class ConflictReviewTab implements vscode.Disposable {
       this.others = files.filter((file) => !this.plans.some((plan) => plan.path === file));
       this.operation = await this.repo.operation().catch(() => null);
       this.conflicted = conflicted.length;
+      this.model = this.host.settings().ai ? await conflictModelName() : null;
       this.error = undefined;
     } catch (error) {
       this.error = errorText(error);
@@ -130,6 +134,7 @@ export class ConflictReviewTab implements vscode.Disposable {
       rules,
       ai,
       asking: this.running > 0 || this.queue.length > 0,
+      model: this.model,
       report: this.report,
       conflicted: this.conflicted,
     };

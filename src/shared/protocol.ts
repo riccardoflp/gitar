@@ -654,6 +654,8 @@ export type WebviewMessage =
   /** Asks the language model about these conflicts, or about all the ones with nothing proposed. */
   | { type: 'askAI'; conflicts?: ConflictRef[] }
   | { type: 'stopAsking' }
+  /** Asks which language model resolves conflicts, and how much it thinks. */
+  | { type: 'chooseConflictModel' }
   /** Opens a file in conflict in the Flow Merge, or in the merge editor, at the line of a conflict. */
   | { type: 'openConflict'; path: string; line: number; editor: 'flowMerge' | 'mergeEditor' | 'text' }
   | { type: 'copy'; text: string };

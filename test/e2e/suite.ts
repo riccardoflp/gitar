@@ -2445,8 +2445,24 @@ export async function run(): Promise<void> {
     const select = lm.selectChatModels;
     const prompts: string[] = [];
     const reply = ['<resolution>\n', 'nine, ours', ' and theirs\n', '</resolution>\n<reason>Both sides renamed line nine.</reason>\n', '<confidence>high</confidence>'];
+    // Two models: the one chosen in the settings is asked, with how much it thinks.
+    const requests: { configuration?: Record<string, unknown> }[] = [];
+    const first = {
+      id: 'test-first',
+      name: 'First model',
+      vendor: 'test',
+      family: 'first',
+      sendRequest: async () => {
+        throw new Error('The first model was asked.');
+      },
+    };
     const model = {
-      sendRequest: async (messages: vscode.LanguageModelChatMessage[]) => {
+      id: 'test-chosen',
+      name: 'Chosen model',
+      vendor: 'test',
+      family: 'chosen',
+      sendRequest: async (messages: vscode.LanguageModelChatMessage[], options: { configuration?: Record<string, unknown> }) => {
+        requests.push(options);
         prompts.push(messages.map((each) => each.content.map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : '')).join('')).join('\n'));
         return {
           text: (async function* () {
@@ -2458,14 +2474,28 @@ export async function run(): Promise<void> {
         };
       },
     };
-    let models: unknown[] = [model];
+    let models: unknown[] = [first, model];
     lm.selectChatModels = async () => models;
-    const settings = vscode.workspace.getConfiguration('gitardo');
-    const set = (key: string, value: boolean | undefined) => settings.update(key, value, vscode.ConfigurationTarget.Global);
+    const settings = () => vscode.workspace.getConfiguration('gitardo');
+    const set = (key: string, value: boolean | string | undefined) => settings().update(key, value, vscode.ConfigurationTarget.Global);
     await set('conflicts.autoResolve', true);
     await set('conflicts.ai', true);
     try {
       await until('the setting of the AI in the state', () => state().resolveWithAI);
+
+      // The model is chosen among those VS Code has, then how much it thinks.
+      const offered: string[][] = [];
+      choose = (items, options) => {
+        offered.push(items.map((item) => item.label));
+        return options.title === 'The model that resolves conflicts' ? byLabel('Chosen model')(items) : byLabel('High')(items);
+      };
+      await vscode.commands.executeCommand('gitardo.chooseConflictModel');
+      assert.deepEqual(offered, [
+        ['$(check) The first model of VS Code', 'First model', 'Chosen model'],
+        ['$(check) As the model is set up in VS Code', 'Low', 'Medium', 'High', 'Extra high', 'Max'],
+      ]);
+      assert.equal(settings().get('conflicts.aiModel'), 'test-chosen');
+      assert.equal(settings().get('conflicts.aiEffort'), 'high');
       asked.length = 0;
       answer = run;
       await controller.action({ kind: 'merge', ref: 'aside' });
@@ -2490,7 +2520,18 @@ export async function run(): Promise<void> {
       assert.match(prompts[0], /<current>\nnine, ours\n<\/current>\n<incoming>\nnine, theirs\n<\/incoming>/);
       const [rules, ai] = answered.files[0].conflicts;
       assert.equal(rules.proposal?.source, 'rules');
-      assert.deepEqual(ai.proposal, { source: 'ai', from: 14, to: 19, text: 'nine, ours and theirs\n', reason: 'Both sides renamed line nine.', confidence: 'high', newLines: 1 });
+      assert.deepEqual(ai.proposal, {
+        source: 'ai',
+        from: 14,
+        to: 19,
+        text: 'nine, ours and theirs\n',
+        reason: 'Both sides renamed line nine.',
+        confidence: 'high',
+        newLines: 1,
+        model: 'Chosen model',
+      });
+      assert.equal(answered.model, 'Chosen model · high effort');
+      assert.deepEqual(requests[0].configuration, { reasoningEffort: 'high' });
       assert.equal(answered.asking, false);
       assert.equal(read('e.txt'), marked);
 
@@ -2532,7 +2573,16 @@ export async function run(): Promise<void> {
       assert.equal(unnamed(read('e.txt')), unnamed(marked));
       assert.equal(state().working.conflicts.length, 1);
 
-      // Without a model, asking says why it could not.
+      // Without the model chosen, or without any, asking says why it could not.
+      models = [first];
+      posted.length = 0;
+      addressed.length = 0;
+      await internals.onMessage(tab, { type: 'askAI', conflicts: [{ path: 'e.txt', key: ai.key }] });
+      const gone = await until('the failure without the model chosen', () => {
+        const asking = lastReview()?.files[0]?.conflicts[1]?.asking;
+        return asking?.state === 'failed' && asking;
+      });
+      assert.match(gone.state === 'failed' ? gone.error : '', /The model chosen to resolve conflicts, test-chosen, is not available in VS Code/);
       models = [];
       posted.length = 0;
       addressed.length = 0;
@@ -2544,6 +2594,9 @@ export async function run(): Promise<void> {
       assert.match(failed.state === 'failed' ? failed.error : '', /No language model is available in VS Code/);
     } finally {
       lm.selectChatModels = select;
+      choose = () => undefined;
+      await set('conflicts.aiModel', undefined);
+      await set('conflicts.aiEffort', undefined);
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
       await set('conflicts.autoResolve', undefined);
       await set('conflicts.ai', undefined);

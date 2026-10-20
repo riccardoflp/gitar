@@ -102,6 +102,8 @@ const VIEWS: ViewKind[] = ['graph', 'changes', 'commits', 'sideGraph', 'branches
 /** How long the language model the preview pretends to ask waits for its turn, and then writes. */
 const PRETEND_WAIT = 1500;
 const PRETEND_WRITE = 6000;
+/** What the preview calls the language model it pretends. */
+const PRETEND_MODEL = 'A pretended model';
 
 /** `data` is what the extension would write on the page: the view it is, and for a commit which one. */
 function page(theme: keyof typeof THEMES, data: Record<string, string>): string {
@@ -232,7 +234,7 @@ async function main() {
         const at = pretended.get(id);
         const text = pretend(id);
         if (at === undefined || text === undefined || now - at < PRETEND_WAIT + PRETEND_WRITE) return undefined;
-        return { text, reason: 'The preview has no language model: it puts the two sides one after the other.', confidence: 'low' };
+        return { text, reason: 'The preview has no language model: it puts the two sides one after the other.', confidence: 'low', model: PRETEND_MODEL };
       },
       asking: (file: string, print: string): Asking | undefined => {
         const id = `${file}\0${print}`;
@@ -246,7 +248,7 @@ async function main() {
     const files = reviewFiles(plans, true, asked);
     const busy = files.some((file) => file.conflicts.some((conflict) => conflict.asking && conflict.asking.state !== 'failed'));
     const others = conflicted.filter((file) => !plans.some((plan) => plan.path === file));
-    const shown = { root: repo.root, operation, oursLabel, theirsLabel, files, others, rules: true, ai: true, asking: busy, report: null, conflicted: conflicted.length };
+    const shown = { root: repo.root, operation, oursLabel, theirsLabel, files, others, rules: true, ai: true, asking: busy, model: PRETEND_MODEL, report: null, conflicted: conflicted.length };
     return [{ type: 'review', review: shown }];
   }
 
@@ -352,6 +354,9 @@ async function main() {
       case 'stopAsking':
         pretended.clear();
         return review();
+      case 'chooseConflictModel':
+        // The preview has no language model to choose.
+        return [];
       case 'refresh':
         return state();
       case 'swapCompare':

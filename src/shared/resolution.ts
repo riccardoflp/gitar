@@ -29,6 +29,8 @@ export interface Proposal {
   confidence: Confidence | null;
   /** How many lines of `text` neither side nor the base has: the rules never write any. */
   newLines: number;
+  /** The name of the model that wrote it, for the AI. */
+  model?: string;
 }
 
 /** Where the question to the language model about a conflict is: waiting for its turn, answered in part, or failed. */
@@ -82,6 +84,8 @@ export interface ConflictReview {
   ai: boolean;
   /** Whether questions to the language model are under way. */
   asking: boolean;
+  /** The model the questions go to, and how much it thinks, in words; null when VS Code has none. */
+  model: string | null;
   report: ReviewReport | null;
   /** How many files are still in conflict in the repository, here or not. */
   conflicted: number;

@@ -2701,6 +2701,17 @@ input:focus-visible,
   color: var(--ai);
 }
 
+/* The name of a model can be long: the button keeps to a width, and its title says the rest. */
+.conflicts-page .button.model {
+  max-width: 260px;
+}
+
+.conflicts-page .button.model .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .conflict-file h2 {
   display: flex;
   align-items: center;

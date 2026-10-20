@@ -50,6 +50,7 @@ export function answerProposal(text: string, conflict: Conflict, answer: Answer)
     reason: answer.reason,
     confidence: answer.confidence,
     newLines: newLineCount(resolved, conflict.ours, conflict.theirs, conflict.stretch?.base ?? null),
+    ...(answer.model ? { model: answer.model } : {}),
   };
 }
 

@@ -310,7 +310,7 @@ function bandActions(side: 'ours' | 'theirs'): ChunkActionsConfig<MergeAction> {
     titleFor: (action, chunk) => {
       const proposal = action === 'acceptProposal' ? proposalOf(chunk.id) : undefined;
       if (!proposal) return undefined;
-      const from = proposal.source === 'ai' ? `of the AI${proposal.confidence ? `, with ${proposal.confidence} confidence` : ''}` : 'of the Rules';
+      const from = proposal.source === 'ai' ? `of ${proposal.model ?? 'the AI'}${proposal.confidence ? `, with ${proposal.confidence} confidence` : ''}` : 'of the Rules';
       const count = proposal.newLines;
       const fresh = count ? ` ${count === 1 ? 'One line is new: neither side has it.' : `${count} lines are new: neither side has them.`}` : '';
       return `Accept the Proposal ${from} — ${proposal.reason}${fresh}`;

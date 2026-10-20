@@ -49,7 +49,8 @@ function Source({ proposal }: { proposal: Proposal }) {
   return (
     <span className={`source ai ${proposal.confidence ?? ''}`} title="Written by the language model: look at it before you accept it">
       <Icon name="sparkle" />
-      AI{proposal.confidence ? ` · ${proposal.confidence} confidence` : ''}
+      AI{proposal.model ? ` · ${proposal.model}` : ''}
+      {proposal.confidence ? ` · ${proposal.confidence} confidence` : ''}
     </span>
   );
 }
@@ -376,6 +377,16 @@ export function ConflictsApp() {
             >
               <Icon name="sparkle" />
               Ask the AI about the rest{askable ? ` (${askable})` : ''}
+            </button>
+          )}
+          {review.ai && (
+            <button
+              className="button model"
+              title="Choose the language model that resolves the conflicts, and how much it thinks"
+              onClick={() => post({ type: 'chooseConflictModel' })}
+            >
+              <Icon name="hubot" />
+              <span className="name">{review.model ?? 'No language model'}</span>
             </button>
           )}
           <span className="grow" />
