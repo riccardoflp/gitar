@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { Repo } from '../git/repo';
 import { buildPrompt, cleanMessage } from '../shared/commitPrompt';
-import { buildConflictPrompt, parseConflictAnswer, type ConflictAnswer, type ConflictQuestion } from '../shared/conflictPrompt';
+import { buildConflictPrompt, fitResolution, parseConflictAnswer, type ConflictAnswer, type ConflictQuestion } from '../shared/conflictPrompt';
 import type { RepoState } from '../shared/protocol';
 
 /**
@@ -47,5 +47,5 @@ export async function askResolution(question: ConflictQuestion, token: vscode.Ca
     text += chunk;
     onText(text);
   }
-  return parseConflictAnswer(text);
+  return fitResolution(parseConflictAnswer(text), question);
 }

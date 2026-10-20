@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { answerProposal, fingerprint } from '../src/git/review';
 import { resolveConflicts } from '../src/git/conflicts';
-import { buildConflictPrompt, parseConflictAnswer, partialResolution } from '../src/shared/conflictPrompt';
+import { buildConflictPrompt, fitResolution, parseConflictAnswer, partialResolution } from '../src/shared/conflictPrompt';
 import { newLineCount } from '../src/shared/resolution';
 
 const question = {
@@ -41,6 +41,95 @@ describe('the question to the language model about a conflict', () => {
     expect(partialResolution('<resolution>\n  sum += item')).toBe('  sum += item');
     expect(partialResolution('<resolution>\n  sum;\n</reso')).toBe('  sum;\n');
     expect(partialResolution('<resolution>\n  sum;\n</resolution>\n<reason>')).toBe('  sum;\n');
+  });
+
+  it('tells the model that the other conflicts around are not its own', () => {
+    expect(buildConflictPrompt(question)).toContain('The lines before and after it can hold other conflicts, with their markers: those are resolved');
+  });
+});
+
+describe('an answer that writes again the lines around its conflict', () => {
+  // The middle conflict of a file with three, as a small model was asked about it and answered.
+  const lines = (...each: string[]) => each.map((line) => `${line}\n`).join('');
+  const around = {
+    before: lines(
+      'export interface Item {',
+      '  id: string;',
+      '  price: number;',
+      '<<<<<<< HEAD',
+      '  discount?: number;',
+      '=======',
+      '  quantity: number;',
+      '>>>>>>> beside',
+      '}',
+      '',
+      'export function total(items: Item[]): number {',
+      '  let sum = 0;',
+      '  for (const item of items) {',
+    ),
+    after: lines(
+      '  }',
+      '  return sum;',
+      '}',
+      '',
+      'export function label(items: Item[]): string {',
+      '<<<<<<< HEAD',
+      '  return `${items.length} items in the cart`;',
+      '=======',
+      '  return `${items.length} articles`;',
+      '>>>>>>> beside',
+      '}',
+    ),
+    ours: '    sum += item.price - (item.discount ?? 0);\n',
+    theirs: '    sum += item.price * item.quantity;\n',
+  };
+  const answer = (text: string) => ({ text, reason: 'Kept both.', confidence: 'high' as const });
+
+  it('keeps only what stands in place of the conflict', () => {
+    const echoed = lines(
+      'export interface Item {',
+      '  id: string;',
+      '  price: number;',
+      '  discount?: number;',
+      '}',
+      '',
+      'export function total(items: Item[]): number {',
+      '  let sum = 0;',
+      '  for (const item of items) {',
+      '    sum += item.price * item.quantity - (item.discount ?? 0);',
+      '  }',
+      '  return sum;',
+      '}',
+      '',
+      'export function label(items: Item[]): string {',
+      '  return `${items.length} items in the cart`;',
+      '}',
+    );
+    expect(fitResolution(answer(echoed), around).text).toBe('    sum += item.price * item.quantity - (item.discount ?? 0);\n');
+    // Only the lines after it, or only the ones before.
+    const after = answer(lines('    sum += 1;', '  }', '  return sum;', '}', '', 'export function label(items: Item[]): string {'));
+    expect(fitResolution(after, around).text).toBe('    sum += 1;\n');
+    expect(fitResolution(answer(lines('  let sum = 0;', '  for (const item of items) {', '    sum += 1;')), around).text).toBe('    sum += 1;\n');
+  });
+
+  it('takes away the closing brace that ends the file, once the lines before the conflict were written again', () => {
+    const last = { ...around, before: lines('  return sum;', '}', '', 'export function label(items: Item[]): string {'), after: lines('}') };
+    const echoed = answer(lines('  return sum;', '}', '', 'export function label(items: Item[]): string {', '  return `${items.length} items`;', '}', ''));
+    expect(fitResolution(echoed, last).text).toBe('  return `${items.length} items`;\n');
+  });
+
+  it('leaves alone an answer that is only the conflict, or that has lines of its own beside the ones it repeats', () => {
+    const own = answer('    sum += item.price * item.quantity;\n');
+    expect(fitResolution(own, around)).toBe(own);
+    // The two lines that come before the conflict, after lines the model made up: they are part of what it wrote.
+    const made = answer(lines('  const rate = 2;', '  let sum = 0;', '  for (const item of items) {', '    sum += rate;'));
+    expect(fitResolution(made, around)).toBe(made);
+  });
+
+  it('is refused when nothing is left in place of the conflict', () => {
+    const nothing = lines('export function label(items: Item[]): string {', '  return `${items.length} articles`;', '}');
+    const after = lines('', 'export function label(items: Item[]): string {', '  return `${items.length} articles`;', '}');
+    expect(() => fitResolution(answer(nothing), { ...around, after })).toThrow('wrote the lines around the conflict again');
   });
 });
 
