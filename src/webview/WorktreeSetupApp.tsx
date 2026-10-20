@@ -13,6 +13,7 @@ import {
   type SetupTarget,
   type WorktreeSetupInfo,
 } from '../shared/worktreeSetup';
+import { EntryIcon } from './FileIcon';
 import { Icon } from './Icon';
 import { onMessage, post } from './vscode';
 
@@ -61,7 +62,7 @@ function EntryRow(props: { entry: IgnoredEntry; patterns: SetupPatterns; checked
   return (
     <tr>
       <td className="path">
-        <Icon name={entry.folder ? 'folder' : 'file'} />
+        <EntryIcon path={entry.path} folder={entry.folder} />
         <span className="mono" title={entry.path}>
           {entry.path}
           {entry.folder ? '/' : ''}

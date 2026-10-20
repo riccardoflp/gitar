@@ -2,6 +2,7 @@ import { memo, useMemo, useState, type CSSProperties, type ReactNode } from 'rea
 import type { DiffSource, FileChange, FilePatch, FilesLayout, Hunk } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
+import { FileIcon } from './FileIcon';
 import { ActionButtons, FileRow, Status, fileTitle, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
 import { Icon } from './Icon';
@@ -138,6 +139,7 @@ function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
           <Icon name={open ? 'chevron-down' : 'chevron-right'} />
         </button>
         <Status file={file} />
+        <FileIcon path={file.path} />
         <button className="path grow mono" title={fileTitle(file)} onClick={onToggle}>
           {fileTitle(file)}
         </button>

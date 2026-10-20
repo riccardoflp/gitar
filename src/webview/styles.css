@@ -2106,6 +2106,18 @@ input:focus-visible,
   padding-left: 22px;
 }
 
+/* With the icons of the file icon theme, the files need no bullets. */
+.compare-merge ul:has(.file-icon) {
+  padding-left: 4px;
+  list-style: none;
+}
+
+.compare-merge li .file-icon {
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
+}
+
 /* The file or the folder the comparison is narrowed to. */
 .compare-path {
   display: flex;
@@ -2381,6 +2393,12 @@ input:focus-visible,
 .setup-page .ignored .path .codicon {
   margin-right: 6px;
   vertical-align: -2px;
+}
+
+.setup-page .ignored .path .file-icon {
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
 }
 
 .setup-page .ignored .path .mono {

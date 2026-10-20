@@ -3,6 +3,7 @@ import { WORKTREE, type CompareMode, type CompareSide, type CompareView, type Di
 import { BackToTop } from './BackToTop';
 import { CompareCommits } from './CompareCommits';
 import { FileChanges } from './FileChanges';
+import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
 import { Progress } from './Progress';
 import { shortHash } from './util';
@@ -156,6 +157,7 @@ function MergePreview({ view }: { view: CompareView }) {
       <ul>
         {conflicts.slice(0, CONFLICTS_SHOWN).map((file) => (
           <li key={file} className="mono">
+            <FileIcon path={file} />
             {file}
           </li>
         ))}
