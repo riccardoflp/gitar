@@ -1242,7 +1242,7 @@ export class Controller implements vscode.Disposable {
     const short = hash.slice(0, 7);
     const choice = await vscode.window.showQuickPick(
       [
-        { label: 'Show in graph', run: () => this.reveal(hash) },
+        { label: 'Show in the graph', run: () => this.reveal(hash) },
         { label: 'Create branch here…', run: () => this.action({ kind: 'createBranch', at: hash }) },
         { label: `Reset ${state.branch ?? 'HEAD'} to here…`, run: () => this.action({ kind: 'reset', hash }) },
         { label: 'Check out (detached)', run: () => this.action({ kind: 'checkout', target: 'detached', ref: hash }) },
@@ -1527,10 +1527,10 @@ export class Controller implements vscode.Disposable {
     if (!bad || bisect.suspects !== 1) return;
     const subject = this.state?.rows.find((row) => row.hash === bad)?.subject;
     void vscode.window
-      .showInformationMessage(`Bisect: the first bad commit is ${bad.slice(0, 7)}${subject ? ` "${subject}"` : ''}.`, 'Show in Graph', 'End Bisect')
+      .showInformationMessage(`Bisect: the first bad commit is ${bad.slice(0, 7)}${subject ? ` "${subject}"` : ''}.`, 'Show in the graph', 'End bisect')
       .then((choice) => {
-        if (choice === 'Show in Graph') void this.reveal(bad);
-        if (choice === 'End Bisect') void this.action({ kind: 'bisectReset' });
+        if (choice === 'Show in the graph') void this.reveal(bad);
+        if (choice === 'End bisect') void this.action({ kind: 'bisectReset' });
       });
   }
 

@@ -1646,7 +1646,7 @@ export async function run(): Promise<void> {
         entries = items.length;
         return items[1];
       }
-      return byLabel('Show in graph')(items);
+      return byLabel('Show in the graph')(items);
     };
     posted.length = 0;
     await vscode.commands.executeCommand('gitardo.reflog');
