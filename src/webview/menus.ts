@@ -86,6 +86,14 @@ function scopeEntries(ref: string, state: RepoState): MenuEntry[] {
   ];
 }
 
+/**
+ * Goes to the commit in the graph, which loads it when it is further back than the history is loaded or left out of
+ * what the graph shows. Only where the reference is listed apart from its commit: on a label of the graph it is there.
+ */
+function revealEntry(hash: string, onReveal: ((hash: string) => void) | undefined): MenuEntry {
+  return onReveal ? { label: 'Show in the graph', run: () => onReveal(hash) } : null;
+}
+
 /** Marks a branch as a favorite, or no longer: the favorites are listed first among the references. */
 function favoriteEntry(ref: string, state: RepoState): MenuEntry {
   const favorite = state.favorites.includes(ref);
@@ -238,7 +246,7 @@ function pullEntry(name: string | null, state: RepoState, offerNew: boolean): Me
  * A branch that another worktree has checked out is worked on there: its menu opens that worktree first, and git
  * neither checks it out here nor deletes it while the worktree has it.
  */
-export function branchMenu(branch: Branch, state: RepoState, onCompare: (comparing: Comparing) => void): MenuEntry[] {
+export function branchMenu(branch: Branch, state: RepoState, onCompare: (comparing: Comparing) => void, onReveal?: (hash: string) => void): MenuEntry[] {
   const { name } = branch;
   const checkedOut = state.worktrees.some((worktree) => worktree.branch === name);
   const worktree = worktreeOf(name, state);
@@ -264,6 +272,7 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
     'separator',
     compareWithHead(name, branch.hash, state, onCompare),
     compareWith(name, branch.hash),
+    revealEntry(branch.hash, onReveal),
     ...scopeEntries(`refs/heads/${name}`, state),
     pullEntry(pushedName(branch, state), state, true),
     favoriteEntry(`refs/heads/${name}`, state),
@@ -309,7 +318,7 @@ export function openRemoteBranch(ref: NamedRef, state: RepoState): (() => void) 
   return () => act({ kind: 'checkout', target: 'remote', ref: refArg('remote', ref.name, state) });
 }
 
-export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (comparing: Comparing) => void): MenuEntry[] {
+export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (comparing: Comparing) => void, onReveal?: (hash: string) => void): MenuEntry[] {
   const { name } = ref;
   const remoteRef = refArg('remote', name, state);
   // The local branch of its name, which a check out goes to when there is one.
@@ -340,6 +349,7 @@ export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (co
     'separator',
     compareWithHead(name, ref.hash, state, onCompare),
     compareWith(name, ref.hash),
+    revealEntry(ref.hash, onReveal),
     ...scopeEntries(`refs/remotes/${name}`, state),
     pullEntry(state.github ? nameOnRemote(name, state) : null, state, false),
     favoriteEntry(`refs/remotes/${name}`, state),
@@ -350,7 +360,7 @@ export function remoteBranchMenu(ref: NamedRef, state: RepoState, onCompare: (co
   ];
 }
 
-export function tagMenu(tag: NamedRef, state: RepoState, onCompare: (comparing: Comparing) => void): MenuEntry[] {
+export function tagMenu(tag: NamedRef, state: RepoState, onCompare: (comparing: Comparing) => void, onReveal?: (hash: string) => void): MenuEntry[] {
   const { name } = tag;
   return [
     tag.hash !== state.head && {
@@ -361,6 +371,7 @@ export function tagMenu(tag: NamedRef, state: RepoState, onCompare: (comparing: 
     'separator',
     compareWithHead(name, tag.hash, state, onCompare),
     compareWith(name, tag.hash),
+    revealEntry(tag.hash, onReveal),
     ...scopeEntries(`refs/tags/${name}`, state),
     'separator',
     state.remotes.length > 0 && { label: 'Push tag', run: () => act({ kind: 'pushTag', name }) },
@@ -406,12 +417,14 @@ function worktreeOpenEntries(worktree: Worktree, state: RepoState, ofBranch = fa
   ];
 }
 
-export function worktreeMenu(worktree: Worktree, state: RepoState): MenuEntry[] {
+export function worktreeMenu(worktree: Worktree, state: RepoState, onReveal?: (hash: string) => void): MenuEntry[] {
   const { path } = worktree;
   // The folder of this window, while the views show another worktree.
   const home = isHome(path, state);
   return [
     ...worktreeOpenEntries(worktree, state),
+    // What it has checked out. A missing worktree may have had a commit that is no longer there.
+    !worktree.prunable && revealEntry(worktree.hash, onReveal),
     'separator',
     !worktree.prunable && !worktree.main && !worktree.current && !home && { label: 'Rename…', run: () => act({ kind: 'worktreeRename', path }) },
     { label: 'Copy path', run: () => copy(path) },

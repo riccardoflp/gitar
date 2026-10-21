@@ -32,6 +32,12 @@ export function BranchesApp() {
     post({ type: 'show', hash });
   }, []);
 
+  /** Opens the graph at the commit, loading it when the graph does not show it yet. */
+  const reveal = useCallback((hash: string) => {
+    setSelected(hash);
+    post({ type: 'reveal', hash });
+  }, []);
+
   useEffect(() => {
     const stop = onMessage((message) => {
       if (message.type === 'state') {
@@ -58,7 +64,7 @@ export function BranchesApp() {
   return (
     <div className="side">
       <WorktreeBanner state={state} busy={false} />
-      <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} sections={SECTIONS} />
+      <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} onReveal={reveal} sections={SECTIONS} />
       {comparing && (
         <Compare
           comparing={comparing}

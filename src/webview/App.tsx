@@ -217,7 +217,10 @@ export function App({ compact = false }: { compact?: boolean }) {
     [select],
   );
 
-  /** A commit a search found can be further back than the history is loaded: then it is asked for. */
+  /**
+   * A commit a search found, or the one of a branch, tag or worktree, can be further back than the history is loaded,
+   * or left out of what the graph shows: then it is asked for.
+   */
   const goTo = useCallback(
     (hash: string) => {
       if (rowsRef.current.some((row) => row.hash === hash)) jump(hash);
@@ -396,7 +399,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           } as CSSProperties
         }
       >
-        {!compact && !refsHidden && <RefsTree state={state} selected={selected} onSelect={jump} onCompare={compare} />}
+        {!compact && !refsHidden && <RefsTree state={state} selected={selected} onSelect={goTo} onCompare={compare} onReveal={goTo} />}
         {!compact && !refsHidden && (
           <Sash pane="refs" width={refsWidth} onResize={(width) => resize({ refsWidth: width })} onReset={() => resize({ refsWidth: WIDTHS.refsWidth })} />
         )}

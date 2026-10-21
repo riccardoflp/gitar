@@ -7,9 +7,11 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 ### Added
 
 - **Gitardo** with a spinning icon in the status bar while Gitardo reads a repository, runs an operation, compares two sides or asks GitHub for its pull requests. Its tooltip, a click on it and **Gitardo: Show What Is Running** say what each of those is, for how long it has run, what asked for a read, and how many times in a row the repository was read because something changed during each read.
+- **Show in the graph** in the context menu of a branch, remote branch, tag or worktree, in the references tree and in the Branches view: it opens the graph at the commit, loading it when it is further back than the history is loaded, and showing all the branches again when the ones shown leave it out.
 
 ### Fixed
 
+- A click on a branch or tag in the references tree of the graph did nothing when its commit was further back than the history was loaded. It now loads it and goes to it.
 - In a large repository whose files keep changing, such as while it builds, the bar of the graph ran and the commits stayed dimmed for minutes after they were read. The wait is over as soon as the commits asked for are read; the reads that follow update the graph without it.
 - With `core.fsmonitor` on and another worktree, Gitardo read the repository again and again: each read left a file of fsmonitor in the folder of git of that worktree, which it took for a change. Those files, and the locks git takes and lets go of, no longer ask for a read.
 

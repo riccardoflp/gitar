@@ -31,6 +31,8 @@ interface Props {
   selected: string | null;
   onSelect(hash: string): void;
   onCompare(comparing: Comparing): void;
+  /** Goes to the commit of a branch, tag or worktree in the graph, from their menus. */
+  onReveal(hash: string): void;
   /** The sections to list, when not all of them. */
   sections?: SectionId[];
 }
@@ -111,7 +113,7 @@ function submoduleBadge(submodule: Submodule): Badge {
   }
 }
 
-export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, sections }: Props) {
+export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, onReveal, sections }: Props) {
   // The sections are all closed each time VS Code starts; the ones opened since are remembered until it is closed.
   const [opened, setOpened] = useState(() => {
     const saved = loadUiState({ opened: {} as Record<string, boolean>, openedIn: '' });
@@ -241,7 +243,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         changes: worktree?.changes || undefined,
         current: branch.current,
         favorite: favorites.has(`refs/heads/${branch.name}`),
-        menu: () => branchMenu(branch, state, onCompare),
+        menu: () => branchMenu(branch, state, onCompare, onReveal),
         open: openBranch(branch, state),
         drag: { kind: 'branch', name: branch.name, hash: branch.hash, local: true, current: branch.current },
       };
@@ -254,7 +256,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         hash: ref.hash,
         label: ref.name,
         favorite: favorites.has(`refs/remotes/${ref.name}`),
-        menu: () => remoteBranchMenu(ref, state, onCompare),
+        menu: () => remoteBranchMenu(ref, state, onCompare, onReveal),
         open: openRemoteBranch(ref, state),
         drag: { kind: 'branch', name: ref.name, hash: ref.hash, local: false, current: false },
       }),
@@ -325,7 +327,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         'tag',
         state.tags
           .filter((ref) => within(`refs/tags/${ref.name}`))
-          .map((ref) => ({ key: ref.name, hash: ref.hash, label: ref.name, menu: () => tagMenu(ref, state, onCompare) })),
+          .map((ref) => ({ key: ref.name, hash: ref.hash, label: ref.name, menu: () => tagMenu(ref, state, onCompare, onReveal) })),
       )}
       {section(
         'stashes',
@@ -356,7 +358,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
             changes: worktree.changes || undefined,
             pull,
             current: worktree.current,
-            menu: () => worktreeMenu(worktree, state),
+            menu: () => worktreeMenu(worktree, state, onReveal),
             open: worktree.current || worktree.prunable ? undefined : () => act({ kind: 'worktreeOpen', path: worktree.path }),
           };
         }),
