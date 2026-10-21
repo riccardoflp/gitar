@@ -32,6 +32,7 @@ import { WORKTREE, showsGraph } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { cleanPatterns, type IgnoredEntry, type SetupChoice, type SetupPatterns, type SetupTarget } from '../shared/worktreeSetup';
 import { submoduleFolder } from '../shared/submodules';
+import { Activity } from './activity';
 import { FileIcons } from './fileIcons';
 import type {
   Action,
@@ -153,6 +154,13 @@ const cleanPath = (path: unknown): string | null => {
 
 const hasCommand = async (id: string) => (await vscode.commands.getCommands(true)).includes(id);
 
+/** What the status bar says of a read of the repository: what asked for it, and how many came one after another. */
+function readDetail(reads: number, cause: string | undefined): string | undefined {
+  const why = cause ? `Because ${cause}.` : '';
+  if (reads === 1) return why || undefined;
+  return `Read ${reads} times in a row: something changed during each read. ${why}`.trim();
+}
+
 /**
  * Identifies the rows of a state: two states with the same key have the same rows.
  * A commit never changes, so its hash stands for all of it. The row of the uncommitted changes only counts for being
@@ -176,6 +184,8 @@ export class Controller implements vscode.Disposable {
   private loading?: Promise<void>;
   /** Who waits for a read that starts after they asked: each is let go once one is done, or when reading stops. */
   private waiters: (() => void)[] = [];
+  /** What changed last that the repository is read again for, as the status bar says it. */
+  private cause?: string;
   /** What the views were told the graph is read for, and how many of those reads are not done yet. */
   private waiting: { what: Loading; count: number } | null = null;
   /** How many operations were started, to tell a state that was read across one. */
@@ -236,6 +246,8 @@ export class Controller implements vscode.Disposable {
   private unsavedFrom?: { state: RepoState | null; files: string };
   private readonly stateEmitter = new vscode.EventEmitter<RepoState | null>();
   private readonly subscriptions: vscode.Disposable[];
+  /** What Gitardo is doing that takes time, in the status bar. */
+  readonly activity: Activity;
 
   /** Fires whenever the repository state has been reloaded. */
   readonly onDidChangeState = this.stateEmitter.event;
@@ -246,28 +258,32 @@ export class Controller implements vscode.Disposable {
     /** Remembers which repository of this workspace was chosen, and which branches of each are shown. */
     private readonly memento: vscode.Memento,
   ) {
-    const schedule = () => this.scheduleRefresh();
+    const schedule = (cause: string) => () => this.scheduleRefresh(cause);
     const unsaved = () => void this.checkUnsaved();
     this.fileIcons = new FileIcons(log);
     this.roots = this.resourceRoots();
+    this.activity = new Activity(log);
     this.subscriptions = [
       this.stateEmitter,
+      this.activity,
       this.fileIcons,
       this.fileIcons.onDidChange(() => this.sendFileIcons()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.locate()),
-      vscode.workspace.onDidSaveTextDocument(() => {
+      vscode.workspace.onDidSaveTextDocument((document) => {
         unsaved();
-        schedule();
+        this.scheduleRefresh(`${vscode.workspace.asRelativePath(document.uri)} was saved`);
       }),
       // An edit, or one undone back to what is saved, and an editor closed without saving.
       vscode.workspace.onDidChangeTextDocument(unsaved),
       vscode.workspace.onDidCloseTextDocument(unsaved),
-      vscode.workspace.onDidCreateFiles(schedule),
-      vscode.workspace.onDidDeleteFiles(schedule),
-      vscode.workspace.onDidRenameFiles(schedule),
-      vscode.window.onDidChangeWindowState((window) => window.focused && schedule()),
+      vscode.workspace.onDidCreateFiles(schedule('files were created')),
+      vscode.workspace.onDidDeleteFiles(schedule('files were deleted')),
+      vscode.workspace.onDidRenameFiles(schedule('files were renamed')),
+      vscode.window.onDidChangeWindowState((window) => window.focused && this.scheduleRefresh('VS Code got the focus')),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches'].some((section) => event.affectsConfiguration(section))) schedule();
+        if (['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches'].some((section) => event.affectsConfiguration(section))) {
+          this.scheduleRefresh('the settings changed');
+        }
         if (event.affectsConfiguration('gitardo.conflicts')) void this.reviewTab?.reload();
       }),
       // The branches a comparison is of may have moved, and the conflicts of the review may be resolved.
@@ -333,11 +349,15 @@ export class Controller implements vscode.Disposable {
   }
 
   private async load(first: Repo): Promise<void> {
+    const task = this.activity.start(this.readTitle(first));
     let waiting: (() => void)[] = [];
     try {
-      for (let repo: Repo | undefined = first; repo && this.dirty && !this.running; repo = this.repo) {
+      for (let repo: Repo | undefined = first, reads = 1; repo && this.dirty && !this.running; repo = this.repo, reads++) {
         this.dirty = false;
         waiting = this.waiters.splice(0);
+        const cause = this.cause;
+        this.cause = undefined;
+        task.describe(readDetail(reads, cause), this.readTitle(repo));
         const operations = this.operations;
         const scope = this.scope;
         const state = await this.readState(repo);
@@ -373,8 +393,16 @@ export class Controller implements vscode.Disposable {
       this.dirty = false;
       this.loading = undefined;
       for (const resolve of [...waiting, ...this.waiters.splice(0)]) resolve();
+      task.end();
     }
     void this.refreshPulls(false);
+  }
+
+  /** What the status bar says the repository is read for, by the name the list of repositories gives it. */
+  private readTitle(repo: Repo): string {
+    const name = this.repos.find((each) => samePath(each.root, repo.root))?.name ?? path.basename(repo.root);
+    const searching = this.filter?.kind === 'pickaxe' || this.filter?.kind === 'regex';
+    return `${searching ? 'Searching' : 'Reading'} ${name}`;
   }
 
   /** Resolving conflicts without choosing a side is experimental: nothing of it is offered, or run, until it is switched on. */
@@ -967,7 +995,7 @@ export class Controller implements vscode.Disposable {
       panel.title = compareTitle(from, to, path);
       // What the user changed shows a wait until it is compared; the working tree compared again as it changes does not.
       if (again) this.post({ type: 'loading', what: 'filter' }, webview);
-      const found = await repo.compareSides(from.hash, to.hash, mode, path);
+      const found = await this.activity.track(`Comparing ${panel.title}`, () => repo.compareSides(from.hash, to.hash, mode, path));
       // The sides changed again meanwhile: the answer for them is the one to send, and the end of any wait.
       if (tab.shown !== key || !open()) return;
       this.post({ type: 'loading', what: null }, webview);
@@ -1299,7 +1327,7 @@ export class Controller implements vscode.Disposable {
       const session = await githubSession(prompt);
       if (!session) return;
       this.pullsAt = Date.now();
-      const pulls = await fetchPulls(github, session.accessToken);
+      const pulls = await this.activity.track('Reading the pull requests from GitHub', () => fetchPulls(github, session.accessToken));
       if (github !== this.github || JSON.stringify(pulls) === JSON.stringify(this.pulls)) return;
       this.pulls = pulls;
       if (this.state) this.setState({ ...this.state, pulls });
@@ -1778,11 +1806,13 @@ export class Controller implements vscode.Disposable {
       '{HEAD,FETCH_HEAD,ORIG_HEAD,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,index,config,packed-refs,refs/**,logs/refs/stash,worktrees/**,modules/**/HEAD,modules/**/refs/**}',
     );
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-    const schedule = () => this.scheduleRefresh();
+    const relative = (from: string, uri: vscode.Uri) => path.relative(from, uri.fsPath).replace(/\\/g, '/');
+    const schedule = (uri: vscode.Uri) => this.scheduleRefresh(`.git/${relative(gitDir, uri)} changed`);
     // Files written by something other than this editor, such as a command in the terminal. Git's own files have the watcher above.
     const files = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(root), '**'));
     const fileChanged = (uri: vscode.Uri) => {
-      if (!/(^|\/)\.git(\/|$)/.test(uri.path)) this.scheduleRefresh(WORKTREE_REFRESH_DELAY);
+      if (/(^|\/)\.git(\/|$)/.test(uri.path)) return;
+      this.scheduleRefresh(`${relative(root, uri)} changed`, WORKTREE_REFRESH_DELAY);
     };
     this.watcher = vscode.Disposable.from(
       watcher,
@@ -1796,9 +1826,10 @@ export class Controller implements vscode.Disposable {
     );
   }
 
-  /** Refreshes once, `delay` after the first of a burst of events, however long the burst lasts. */
-  private scheduleRefresh(delay = REFRESH_DELAY): void {
+  /** Refreshes once, `delay` after the first of a burst of events, however long the burst lasts. `cause` is the last of them. */
+  private scheduleRefresh(cause: string, delay = REFRESH_DELAY): void {
     if (!this.views.size || this.running) return;
+    this.cause = cause;
     const due = Date.now() + delay;
     if (this.timer && this.due <= due) return;
     clearTimeout(this.timer);
@@ -2031,6 +2062,7 @@ export class Controller implements vscode.Disposable {
     this.running = true;
     this.operations++;
     this.post({ type: 'busy', title: op.title });
+    const task = this.activity.start(op.title);
     try {
       // A read under way is let finish first, for the git it runs in the worktrees; what it read is dropped.
       await this.loading;
@@ -2064,6 +2096,7 @@ export class Controller implements vscode.Disposable {
       this.log.error(error);
     } finally {
       this.running = false;
+      task.end();
       this.post({ type: 'busy', title: null });
       await this.refresh();
     }

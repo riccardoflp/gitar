@@ -4,6 +4,10 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ## Unreleased
 
+### Added
+
+- **Gitardo** with a spinning icon in the status bar while Gitardo reads a repository, runs an operation, compares two sides or asks GitHub for its pull requests. Its tooltip, a click on it and **Gitardo: Show What Is Running** say what each of those is, for how long it has run, what asked for a read, and how many times in a row the repository was read because something changed during each read.
+
 ### Fixed
 
 - In a large repository whose files keep changing, such as while it builds, the bar of the graph ran and the commits stayed dimmed for minutes after they were read. The wait is over as soon as the commits asked for are read; the reads that follow update the graph without it.

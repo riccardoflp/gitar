@@ -3,6 +3,7 @@ import { FlowDiff } from '../flow/flowDiff';
 import { discoverRepos } from '../git/discover';
 import type { RepoState, SyncAction, ViewKind } from '../shared/protocol';
 import { chooseConflictModel } from './ai';
+import { SHOW_ACTIVITY } from './activity';
 import { BlameAnnotator, BlameSource } from './blame';
 import { GitContentProvider, SCHEME } from './content';
 import { Controller } from './controller';
@@ -224,6 +225,7 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     command('gitardo.openStashes', () => vscode.commands.executeCommand(`${STASHES_VIEW}.focus`)),
     command('gitardo.openInEditor', openInEditor),
     command('gitardo.refresh', () => controller.refresh()),
+    command(SHOW_ACTIVITY, () => controller.activity.show()),
     command('gitardo.showLog', () => log.show()),
     command('gitardo.stash', () => controller.action({ kind: 'stashPush' })),
     // The buttons Gitardo adds to the list of changes of VS Code, in the repository of what they are on.

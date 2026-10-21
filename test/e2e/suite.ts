@@ -2878,12 +2878,17 @@ export async function run(): Promise<void> {
       assert.ok(changing, 'the wait went on for as long as the repository changed');
       const over = searched.indexOf('loading null');
       assert.ok(over > searched.indexOf('state path') && searched.indexOf('state path') >= 0, searched.join(', '));
+      assert.ok(
+        controller.activity.running.some((task) => task.detail?.startsWith('Read ')),
+        'the status bar says the repository is read again and again',
+      );
     } finally {
       changing = false;
       clearTimeout(stop);
       await changes;
       await controller.setFilter(null);
     }
+    await until('the status bar shows nothing running', () => !controller.activity.running.length);
   });
 
   await step('updates the submodules after a checkout, cloning from a folder on disk once allowed, unless the settings say not to', async () => {
