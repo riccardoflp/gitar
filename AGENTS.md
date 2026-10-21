@@ -39,7 +39,7 @@ When this checkout has worktrees of its own under `.claude/worktrees`, a bare `n
 | --- | --- |
 | `src/git` | Git itself, with no VS Code in it: running it (`exec.ts`), reading a repository (`repo.ts`), parsing what git prints (`parse.ts`), the commands of each operation (`ops.ts`), the conflicts that need no choice (`conflicts.ts`), what is proposed for each conflict (`review.ts`), what new worktrees get (`worktreeSetup.ts`), GitHub URLs. |
 | `src/shared` | What the extension and the webviews both use: the messages between them (`protocol.ts`), the lanes of the graph, the tree of files, how references and messages are named and shown. |
-| `src/extension` | VS Code: activation and commands (`extension.ts`), the `Controller` that owns the state and every webview (`controller.ts`), what an action asks the user and which operation it becomes (`actions.ts`), blame, the content of the diffs (`content.ts`), GitHub sign-in, the language model. |
+| `src/extension` | VS Code: activation and commands (`extension.ts`), the `Controller` that owns the state and every webview (`controller.ts`), what an action asks the user and which operation it becomes (`actions.ts`), blame, the content of the diffs (`content.ts`), what is running in the status bar (`activity.ts`), GitHub sign-in, the language model. |
 | `src/webview` | The React UI of every view and tab, in one bundle. `main.tsx` picks the component from the `data-view` the host writes on the page. |
 | `src/webview/highlight` | The colors of the code in the changes of a commit or a comparison, with shiki: a bundle of its own, imported only when changes are shown. |
 | `src/flow` | The Flow Diff, a side-by-side diff in Monaco that the diff editor switches to: host side, a worker that computes the diffs, and its own webview under `src/flow/webview`. |
@@ -65,6 +65,10 @@ Every new file the extension needs at run time must also be let into the package
 Anything that changes the repository is a `GitOp`, also what Gitardo does itself rather than git (`writes`, `prepare`,
 `finish`): that is how it gets the preview, the log and Undo. The Flow Diff runs its index writes through
 `Controller.runIn` for the same reason. Reads go through `Repo` and never take locks (`exec.ts`).
+
+The reads of the repository and the operations show in the status bar while they run, through the `Activity` of the
+controller (`activity.ts`). Anything else the user may wait for, such as a comparison or a request to GitHub, goes
+through `activity.track` too, so that the status bar and **Gitardo: Show What Is Running** say what it is.
 
 ### Adding to the UI
 
