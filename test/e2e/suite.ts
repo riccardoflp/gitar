@@ -26,6 +26,7 @@ interface Internals {
   githubRemote: string | null;
   onMessage(webview: unknown, message: WebviewMessage): Promise<void>;
   post(message: HostMessage, to?: unknown): void;
+  scheduleRefresh(cause: string, delay?: number): void;
 }
 
 /** A comparison open in a tab, as the controller keeps it. */
@@ -2889,6 +2890,47 @@ export async function run(): Promise<void> {
       await controller.setFilter(null);
     }
     await until('the status bar shows nothing running', () => !controller.activity.running.length);
+  });
+
+  await step('reads nothing again for what git writes for itself, such as the files of fsmonitor in a worktree', async () => {
+    const home = path.join(workspace, 'app.worktrees').replace(/\\/g, '/');
+    const dir = `${home}/monitored`;
+    /** What each read that was asked for since the start was asked for. */
+    const causes: string[] = [];
+    const schedule = internals.scheduleRefresh;
+    internals.scheduleRefresh = (cause, delay) => {
+      causes.push(cause);
+      schedule.call(controller, cause, delay);
+    };
+    await git(app, ['config', 'core.fsmonitor', 'true']);
+    await git(app, ['worktree', 'add', '-b', 'monitored', dir, 'main']);
+    try {
+      // Each read runs git status in the other worktree, which has the daemon of fsmonitor leave a file in its folder
+      // of git: that is no change, and does not ask for another read, which would leave one again.
+      await vscode.commands.executeCommand('gitardo.refresh');
+      await vscode.commands.executeCommand('gitardo.refresh');
+      const cookies = path.join(app, '.git', 'worktrees', 'monitored', 'fsmonitor--daemon');
+      assert.ok(fs.existsSync(cookies), 'git status in the worktree started the daemon of fsmonitor');
+      // Reads asked for by what VS Code's Git extension does in the new worktree are over in a while; these never were.
+      const end = Date.now() + 20_000;
+      for (let before = -1; before !== causes.length; await sleep(2000)) {
+        assert.ok(Date.now() < end, `the reads went on: ${causes.slice(-3).join(', ')}`);
+        before = causes.length;
+      }
+      assert.deepEqual(
+        causes.filter((cause) => /fsmonitor--daemon|\.lock /.test(cause)),
+        [],
+      );
+    } finally {
+      internals.scheduleRefresh = schedule;
+      await git(app, ['config', '--unset', 'core.fsmonitor']).catch(() => undefined);
+      for (const cwd of [app, dir]) await git(cwd, ['fsmonitor--daemon', 'stop']).catch(() => undefined);
+      await git(app, ['worktree', 'remove', '--force', dir]).catch(() => undefined);
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+      await git(app, ['worktree', 'prune']);
+      await git(app, ['branch', '-D', 'monitored']).catch(() => undefined);
+      await vscode.commands.executeCommand('gitardo.refresh');
+    }
   });
 
   await step('updates the submodules after a checkout, cloning from a folder on disk once allowed, unless the settings say not to', async () => {

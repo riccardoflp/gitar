@@ -11,6 +11,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 ### Fixed
 
 - In a large repository whose files keep changing, such as while it builds, the bar of the graph ran and the commits stayed dimmed for minutes after they were read. The wait is over as soon as the commits asked for are read; the reads that follow update the graph without it.
+- With `core.fsmonitor` on and another worktree, Gitardo read the repository again and again: each read left a file of fsmonitor in the folder of git of that worktree, which it took for a change. Those files, and the locks git takes and lets go of, no longer ask for a read.
 
 ## 0.5.0 - 2026-10-21
 
