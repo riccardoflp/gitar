@@ -2,6 +2,12 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Fixed
+
+- In a large repository whose files keep changing, such as while it builds, the bar of the graph ran and the commits stayed dimmed for minutes after they were read. The wait is over as soon as the commits asked for are read; the reads that follow update the graph without it.
+
 ## 0.5.0 - 2026-10-21
 
 ### Added

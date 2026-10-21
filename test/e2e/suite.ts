@@ -2862,6 +2862,28 @@ export async function run(): Promise<void> {
     await Promise.all([internals.onMessage(graph, { type: 'loadMore' }), internals.onMessage(graph, { type: 'loadMore' })]);
     const loading = told(from).filter((line) => line.startsWith('loading'));
     assert.deepEqual(loading, ['loading more', 'loading null']);
+
+    // In a repository that keeps changing, as a large one does while it builds, the reads follow one another: the wait
+    // is over with the first that started after it, not with the last of them.
+    let changing = true;
+    const stop = setTimeout(() => (changing = false), 10_000);
+    const changes = (async () => {
+      while (changing) {
+        void controller.refresh();
+        await sleep(5);
+      }
+    })();
+    try {
+      const searched = await sequence({ type: 'setFilter', filter: { kind: 'path', path: 'b.txt' } });
+      assert.ok(changing, 'the wait went on for as long as the repository changed');
+      const over = searched.indexOf('loading null');
+      assert.ok(over > searched.indexOf('state path') && searched.indexOf('state path') >= 0, searched.join(', '));
+    } finally {
+      changing = false;
+      clearTimeout(stop);
+      await changes;
+      await controller.setFilter(null);
+    }
   });
 
   await step('updates the submodules after a checkout, cloning from a folder on disk once allowed, unless the settings say not to', async () => {

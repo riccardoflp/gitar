@@ -174,6 +174,8 @@ export class Controller implements vscode.Disposable {
   private limit = PAGE_SIZE;
   /** The read of the repository under way, if any. */
   private loading?: Promise<void>;
+  /** Who waits for a read that starts after they asked: each is let go once one is done, or when reading stops. */
+  private waiters: (() => void)[] = [];
   /** What the views were told the graph is read for, and how many of those reads are not done yet. */
   private waiting: { what: Loading; count: number } | null = null;
   /** How many operations were started, to tell a state that was read across one. */
@@ -323,22 +325,29 @@ export class Controller implements vscode.Disposable {
     // Nothing is read while an operation runs: it reads once it is done. Reading runs git in every worktree, and on
     // Windows a folder git runs in can be neither moved nor removed.
     if (this.running) return this.loading;
+    // Only for that one: while files keep changing, a large repository is read again and again, and what the caller
+    // waits for is already there after the first.
+    const read = new Promise<void>((resolve) => this.waiters.push(resolve));
     this.loading ??= this.load(this.repo);
-    return this.loading;
+    return read;
   }
 
   private async load(first: Repo): Promise<void> {
+    let waiting: (() => void)[] = [];
     try {
       for (let repo: Repo | undefined = first; repo && this.dirty && !this.running; repo = this.repo) {
         this.dirty = false;
+        waiting = this.waiters.splice(0);
         const operations = this.operations;
         const scope = this.scope;
         const state = await this.readState(repo);
         // Read while an operation ran, it can be half from before it and half from after, such as a new commit that
         // no branch points at yet. It is dropped: the operation is followed by a read of its own.
-        if (this.running || operations !== this.operations) continue;
-        // Unless the views were pointed at another repository in the meantime.
-        if (repo !== this.repo) continue;
+        // Unless the views were pointed at another repository in the meantime. Who waited for it waits for the next.
+        if (this.running || operations !== this.operations || repo !== this.repo) {
+          this.waiters.unshift(...waiting.splice(0));
+          continue;
+        }
         // Unless another was chosen while this one was read.
         if (scope === this.scope) this.settleScope(state.root, state.scope);
         this.setState({
@@ -354,6 +363,7 @@ export class Controller implements vscode.Disposable {
           resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
+        for (const resolve of waiting.splice(0)) resolve();
       }
     } catch (error) {
       this.log.error(errorText(error));
@@ -362,6 +372,7 @@ export class Controller implements vscode.Disposable {
       // In the same turn as the last look at `dirty`, so that no request can fall between the two.
       this.dirty = false;
       this.loading = undefined;
+      for (const resolve of [...waiting, ...this.waiters.splice(0)]) resolve();
     }
     void this.refreshPulls(false);
   }
