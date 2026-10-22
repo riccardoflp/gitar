@@ -6,6 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- The commits of a local branch that its upstream does not have yet have a ring around their dot in the graph and a cloud with an arrow before their message, as in the Commits view: what the next push of that branch sends.
 - The pointer on the label of a branch, remote branch or tag in the graph, on a branch, tag, stash or worktree in the references beside it, or on a branch, tag or worktree in the Branches view of the side bar, brings out its history in the graph: the commits it reaches and their lines stay as they are, and the rest fades.
 - **Show local branches**, **Show remote branches** and **Show tags** in the **…** menu of the toolbar switch each kind of reference on and off in the graph. The list of the branches shown has **Remotes** beside **Local**, for the remote branches alone. What is checked out stays in the graph either way.
 - The stashes in the graph, each above the commit it was made on while that commit is shown: a square with no fill, a dashed line down to the commit, and a label with a dotted border. Their context menu applies, pops, drops them or makes a branch of them. **Show stashes** in the **…** menu of the toolbar, or the setting `gitardo.graph.showStashes`, takes them out.

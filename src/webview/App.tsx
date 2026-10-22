@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { WORKTREE, type CommitDetail, type Comparison, type Loading, type RepoState, type Row, type Search } from '../shared/protocol';
+import { unpushedCommits, type Ahead } from '../shared/graph';
 import { worktreeOf } from '../shared/refs';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, useTrace, type Label, type SelectMode } from './CommitList';
@@ -66,6 +67,17 @@ export function buildLabels(state: RepoState): Map<string, Label[]> {
     for (const hash of skipped) add(hash, { kind: 'skipped', name: 'skipped' });
   }
   return labels;
+}
+
+/** The commits of each local branch that its upstream has not yet, by hash, with the upstream they would be pushed to. */
+export function unpushedOf(state: RepoState): Map<string, string> {
+  const ahead: Ahead[] = [];
+  for (const branch of state.branches) {
+    const upstream = branch.upstream;
+    const tip = upstream && !upstream.gone && upstream.ahead ? state.remoteBranches.find((ref) => ref.name === upstream.name) : undefined;
+    if (upstream && tip) ahead.push({ tip: branch.hash, upstream: upstream.name, upstreamTip: tip.hash, ahead: upstream.ahead });
+  }
+  return ahead.length ? unpushedCommits(state.rows, ahead) : new Map();
 }
 
 /** A state that came without the commits this view already has, given those of the state before. */
@@ -202,6 +214,7 @@ export function App({ compact = false }: { compact?: boolean }) {
   }, [refsWidth, detailWidth, graphWidth, detailHeight, refsHidden]);
 
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
+  const unpushed = useMemo(() => (state ? unpushedOf(state) : new Map<string, string>()), [state]);
 
   const highlighted = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -446,6 +459,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           onDrop={(event, row) => openMenu(event, dropEntries(row))}
           traced={traced}
           onTrace={trace}
+          unpushed={unpushed}
         />
         {hasDetail && !compact && (
           <Sash

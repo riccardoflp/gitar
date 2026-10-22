@@ -960,6 +960,12 @@ input:focus-visible,
   opacity: 0.2;
 }
 
+/* The ring around the dot of a commit that pushing its branch would send. */
+.graph .unpushed {
+  fill: none;
+  stroke-width: 1.5;
+}
+
 .message {
   flex: 1;
   min-width: 0;
@@ -1023,6 +1029,17 @@ input:focus-visible,
 /* Set aside rather than part of the history, as its line is. */
 .message .label.stash {
   border-style: dotted;
+}
+
+/* Beside the message of a commit not pushed yet, in the color the Commits view gives the ones still to push. */
+.message .unpushed {
+  flex: none;
+  display: flex;
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+}
+
+.row.selected .message .unpushed {
+  color: inherit;
 }
 
 /* The marks of a bisect say good or bad, which is not about the line they are on. */

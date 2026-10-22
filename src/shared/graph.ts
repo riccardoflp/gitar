@@ -75,6 +75,36 @@ export function reachedFrom(rows: Pick<Row, 'hash' | 'parents'>[], tip: string):
   return reached;
 }
 
+/** A local branch with commits its upstream has not, as far as the last fetch saw. */
+export interface Ahead {
+  tip: string;
+  /** The name of the upstream, `origin/main`, and its commit. */
+  upstream: string;
+  upstreamTip: string;
+  /** How many commits git counts that the branch has and its upstream has not. */
+  ahead: number;
+}
+
+/**
+ * The commits among the rows that a branch has and its upstream has not: what pushing it would send, by hash, with
+ * the upstream it would go to. An upstream that is not among the rows is further down than all of them, so that it
+ * reaches none of them, unless the graph leaves it out: then the commits of the branch are more than git counts, and
+ * which of them are pushed is not known, so none is said to be.
+ */
+export function unpushedCommits(rows: Pick<Row, 'hash' | 'parents'>[], branches: Ahead[]): Map<string, string> {
+  const unpushed = new Map<string, string>();
+  const listed = new Set(rows.map((row) => row.hash));
+  for (const branch of branches) {
+    if (!branch.ahead || !listed.has(branch.tip)) continue;
+    // The parents of the last commits loaded are not listed yet: only what is listed is counted.
+    const own = new Set([...reachedFrom(rows, branch.tip)].filter((hash) => listed.has(hash)));
+    if (listed.has(branch.upstreamTip)) for (const hash of reachedFrom(rows, branch.upstreamTip)) own.delete(hash);
+    else if (own.size > branch.ahead) continue;
+    for (const hash of own) if (!unpushed.has(hash)) unpushed.set(hash, branch.upstream);
+  }
+  return unpushed;
+}
+
 /** Which parts of the graph cell of a row belong to a history: its commit, and each of its lines on top and at the bottom. */
 export interface GraphTrace {
   node: boolean;

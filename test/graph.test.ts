@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, fitGraph, laneCount, reachedFrom, traceGraph } from '../src/shared/graph';
+import { GraphLayout, fitGraph, laneCount, reachedFrom, traceGraph, unpushedCommits } from '../src/shared/graph';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -140,5 +140,27 @@ describe('traceGraph', () => {
     const listed = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
     const traced = traceGraph(listed, reachedFrom(listed, 'm'));
     expect(traced.every((row) => row.node && row.top.every(Boolean) && row.bottom.every(Boolean))).toBe(true);
+  });
+});
+
+describe('unpushedCommits', () => {
+  const commits = (list: [hash: string, ...parents: string[]][]) => list.map(([hash, ...parents]) => ({ hash, parents }));
+  // main has two commits of its own over origin/main, which has one main has not.
+  const listed = commits([['m2', 'm1'], ['o1', 'base'], ['m1', 'base'], ['base', 'root'], ['root']]);
+  const main = { tip: 'm2', upstream: 'origin/main', upstreamTip: 'o1', ahead: 2 };
+
+  it('says which commits a branch has that its upstream has not', () => {
+    expect(unpushedCommits(listed, [main])).toEqual(new Map([['m2', 'origin/main'], ['m1', 'origin/main']]));
+    expect(unpushedCommits(listed, [{ ...main, ahead: 0 }])).toEqual(new Map());
+  });
+
+  it('takes every commit of the branch for unpushed when its upstream is further down than those loaded', () => {
+    const loaded = listed.slice(0, 3).filter((row) => row.hash !== 'o1');
+    expect([...unpushedCommits(loaded, [{ ...main, upstreamTip: 'base' }]).keys()]).toEqual(['m2', 'm1']);
+  });
+
+  it('says nothing when the graph leaves the upstream out and the commits of the branch are more than git counts', () => {
+    const local = listed.filter((row) => row.hash !== 'o1');
+    expect(unpushedCommits(local, [main])).toEqual(new Map());
   });
 });

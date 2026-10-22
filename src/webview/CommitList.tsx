@@ -67,6 +67,8 @@ interface Props {
   traced: string | null;
   /** The pointer came to a label, with its commit, or left it, with null. */
   onTrace(hash: string | null): void;
+  /** The commits a branch has that its upstream has not yet, with the upstream they would be pushed to. */
+  unpushed: ReadonlyMap<string, string>;
 }
 
 const ROW_HEIGHT = 24;
@@ -105,6 +107,8 @@ interface GraphProps {
   node: 'commit' | 'worktree' | 'stash';
   /** While the history of a label stands out: which parts of the cell are in it. The others fade. */
   trace?: GraphTrace;
+  /** A commit not pushed yet, which has a ring around its dot. */
+  unpushed: boolean;
 }
 
 /**
@@ -128,7 +132,7 @@ export function useTrace(): [string | null, (hash: string | null) => void] {
   return [traced, traceLater];
 }
 
-const Graph = memo(function Graph({ graph, width, height, lane, node, trace }: GraphProps) {
+const Graph = memo(function Graph({ graph, width, height, lane, node, trace, unpushed }: GraphProps) {
   const mid = height / 2;
   const laneX = (index: number) => lane / 2 + 3 + index * lane;
   const x = laneX(graph.col);
@@ -157,13 +161,23 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace }: G
         <rect className={`hollow${nodeClass}`} x={x - radius + 0.5} y={mid - radius + 0.5} width={radius * 2 - 1} height={radius * 2 - 1} rx={1} stroke={laneColor(graph.color)} />
       )}
       {node === 'commit' && <circle className={nodeClass.trim() || undefined} cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />}
+      {node === 'commit' && unpushed && <circle className={`unpushed${nodeClass}`} cx={x} cy={mid} r={radius + 2.5} stroke={laneColor(graph.color)} />}
     </svg>
   );
 });
 
+/** Said of a commit that pushing its branch would send, as the Commits view says it. */
+function Unpushed({ upstream }: { upstream: string }) {
+  return (
+    <span className="unpushed" title={`Not pushed to ${upstream}`} aria-label={`Not pushed to ${upstream}`}>
+      <Icon name="cloud-upload" />
+    </span>
+  );
+}
+
 export function CommitList(props: Props) {
   const { rows, empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
-  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace } = props;
+  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed } = props;
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -314,6 +328,7 @@ export function CommitList(props: Props) {
               <span className="text">{label.name}</span>
             </span>
           ));
+          const pushTo = unpushed.get(row.hash);
           if (counted.length) {
             chips.push(
               <span key="more" className="label more" title={counted.map((label) => label.name).join(', ')}>
@@ -345,13 +360,14 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
-              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} trace={trace?.[index]} />
+              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} trace={trace?.[index]} unpushed={pushTo !== undefined} />
               {tall ? (
                 <div className="lines">
                   <span className="subject">{row.subject}</span>
                   {/* Under the message the labels have the room to keep their names. */}
                   <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                     {chips}
+                    {pushTo && <Unpushed upstream={pushTo} />}
                     {worktree ? (
                       <span className="who">Not committed yet</span>
                     ) : (
@@ -367,6 +383,7 @@ export function CommitList(props: Props) {
               ) : (
                 <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                   {chips}
+                  {pushTo && <Unpushed upstream={pushTo} />}
                   <span className="subject">{row.subject}</span>
                 </div>
               )}
