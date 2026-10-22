@@ -244,6 +244,8 @@ export interface RepoState {
   showStashes: boolean;
   /** Whether the history of the commit selected in the graph stands out, as the settings say. */
   traceSelected: boolean;
+  /** Whether the graph follows only the first parent of each merge, as the settings say. */
+  firstParent: boolean;
   /**
    * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
@@ -653,6 +655,7 @@ export type WebviewMessage =
   /** Shows the stashes in the graph, or no longer. */
   | { type: 'setShowStashes'; show: boolean }
   | { type: 'setTraceSelected'; trace: boolean }
+  | { type: 'setFirstParent'; only: boolean }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }

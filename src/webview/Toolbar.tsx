@@ -180,6 +180,11 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
     showKind('tag', 'Show tags'),
     { label: 'Show stashes', checked: state.showStashes, run: () => post({ type: 'setShowStashes', show: !state.showStashes }) },
     {
+      label: 'Show only the first parent of merges',
+      checked: state.firstParent,
+      run: () => post({ type: 'setFirstParent', only: !state.firstParent }),
+    },
+    {
       label: 'Bring out the history of the selected commit',
       checked: state.traceSelected,
       run: () => post({ type: 'setTraceSelected', trace: !state.traceSelected }),

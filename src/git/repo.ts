@@ -131,6 +131,8 @@ type Listed = Commit & Pick<Row, 'stash'>;
 
 export class Repo {
   private gitDir?: string;
+  /** Whether the graph follows only the first parent of each merge, as the settings say: what was merged is left out. */
+  firstParent = false;
 
   constructor(
     readonly root: string,
@@ -525,6 +527,8 @@ export class Repo {
     const commits = parseLog(await this.read(['log', '-z', `--format=${LOG_FORMAT}`, `--max-count=${limit + 1}`, ...args], !filter));
     const hasMore = commits.length > limit;
     if (hasMore) commits.length = limit;
+    // The other parents of a merge are not followed: a line to them would lead nowhere.
+    if (this.firstParent) for (const commit of commits) commit.parents.length = Math.min(commit.parents.length, 1);
     const stashList = parseStashes(stashOut);
     // Not among the results of a search, nor in the history of a file or of a commit, which they are no part of.
     const listed: Listed[] = stashes && !filter && stashList.length ? await this.withStashes(commits, stashList) : commits;
@@ -590,6 +594,7 @@ export class Repo {
       worktreesRoot: null,
       openBranches: 'checkout',
       showStashes: stashes,
+      firstParent: this.firstParent,
       traceSelected: true,
       branchesFollowScope: true,
       resolveWithAI: false,
@@ -608,6 +613,7 @@ export class Repo {
     search?: Search,
   ): Promise<{ args: string[]; names: string[] }> {
     const args = ['--date-order'];
+    if (this.firstParent) args.push('--first-parent');
     for (const text of [filter, search]) {
       if (text?.kind === 'message') args.push('--fixed-strings', '--regexp-ignore-case', `--grep=${text.query}`);
       if (text?.kind === 'author') args.push('--fixed-strings', '--regexp-ignore-case', `--author=${text.query}`);

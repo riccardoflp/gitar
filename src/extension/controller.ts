@@ -179,11 +179,12 @@ function readDetail(reads: number, cause: string | undefined): string | undefine
  * A commit never changes, so its hash stands for all of it, and the lines of the graph of a row only depend on the rows
  * above it. The row of the uncommitted changes only counts for being there or not, which moves the lines of the graph:
  * how many changes it says there are is sent apart.
- * The filter is part of it because the history of a file gives the same commits other parents.
+ * The filter is part of it because the history of a file gives the same commits other parents, and so is following
+ * only the first parent of each merge, which leaves a merge one parent.
  */
 function rowsKey(state: RepoState, filter: Filter | null, count = state.rows.length): string {
   const hash = createHash('sha1');
-  hash.update(`${state.root}\0${JSON.stringify(filter)}\0`);
+  hash.update(`${state.root}\0${JSON.stringify(filter)}\0${state.firstParent}\0`);
   for (let index = 0; index < count; index++) hash.update(state.rows[index].hash);
   return hash.digest('hex');
 }
@@ -502,6 +503,7 @@ export class Controller implements vscode.Disposable {
   private async readState(repo: Repo): Promise<RepoState> {
     const resolve = this.autoResolve();
     const stashes = vscode.workspace.getConfiguration('gitardo').get('graph.showStashes') !== false;
+    repo.firstParent = vscode.workspace.getConfiguration('gitardo').get('graph.firstParent') === true;
     if (!this.filter) return repo.state(this.limit, null, this.scope, resolve, stashes);
     try {
       return await repo.state(this.limit, this.filter, this.scope, resolve, stashes);
@@ -1940,6 +1942,8 @@ export class Controller implements vscode.Disposable {
         return vscode.workspace.getConfiguration('gitardo').update('branches.followGraphFilter', message.follow === true, vscode.ConfigurationTarget.Global);
       case 'setShowStashes':
         return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
+      case 'setFirstParent':
+        return vscode.workspace.getConfiguration('gitardo').update('graph.firstParent', message.only === true, vscode.ConfigurationTarget.Global);
       case 'setTraceSelected':
         return vscode.workspace.getConfiguration('gitardo').update('graph.traceSelected', message.trace === true, vscode.ConfigurationTarget.Global);
       case 'setFavorite':

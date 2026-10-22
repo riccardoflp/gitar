@@ -6,6 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- **Show only the first parent of merges** in the **…** menu of the toolbar of the graph, or the setting `gitardo.graph.firstParent`: each branch along its own line, a merge as one commit without what it brought in.
 - **Upstream** in the list of the branches shown in the graph: what is checked out and its upstream, to see what is ahead of it and what is behind. It follows you as you switch branch.
 - The commit selected in the graph brings out its history, the commits it comes from and the ones made on top of it, and dims the rest, less than the pointer on a label does. **Bring out the history of the selected commit** in the **…** menu of the toolbar, or the setting `gitardo.graph.traceSelected`, switches it off.
 - The label of a branch in the graph ends with the number of its open pull request on GitHub, in the color of its checks, once the pull requests are loaded. A click opens it.

@@ -1793,6 +1793,22 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await repo.commitDetail((await state()).stashes[0].hash))!.untracked).toBeUndefined();
   });
 
+  it('follows only the first parent of each merge when asked, leaving out what the merge brought', async () => {
+    await divergent();
+    await git(root, ['merge', '--no-ff', '-X', 'ours', '-m', 'Merge other', 'other']);
+    // The branch merged is not shown on its own: only what the history of main reaches is left.
+    const subjects = async () => (await repo.state(100, null, { kind: 'current' })).rows.map((row) => row.subject);
+    expect(await subjects()).toEqual(['Merge other', 'main change', 'other change', 'base']);
+
+    repo.firstParent = true;
+    const state = await repo.state(100, null, { kind: 'current' });
+    expect(state.firstParent).toBe(true);
+    expect(state.rows.map((row) => row.subject)).toEqual(['Merge other', 'main change', 'base']);
+    expect(state.rows[0].parents).toHaveLength(1);
+    expect(state.rows[0].graph.bottom).toHaveLength(1);
+    expect(await repo.position((await git(root, ['rev-parse', 'other'])).stdout.trim(), null, { kind: 'current' })).toBe(-1);
+  });
+
   it('shows the stashes in the graph, each above the commit it was made on, when that commit is shown', async () => {
     const other = await divergent();
     write('a.txt', 'set aside\n');
