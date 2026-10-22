@@ -1,5 +1,6 @@
 import {
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -62,6 +63,10 @@ interface Props {
   dragSource(label: Label | null, row: Row): DragSource | null;
   canDrop(row: Row): boolean;
   onDrop(event: MouseEvent, row: Row): void;
+  /** The commit whose history stands out, while the pointer rests on a label here or on a branch beside the graph. */
+  traced: string | null;
+  /** The pointer came to a label, with its commit, or left it, with null. */
+  onTrace(hash: string | null): void;
 }
 
 const ROW_HEIGHT = 24;
@@ -102,6 +107,27 @@ interface GraphProps {
   trace?: GraphTrace;
 }
 
+/**
+ * The commit whose history stands out in the graph, from a label or a branch the pointer rests on, and what to call
+ * when the pointer comes to one or leaves it.
+ */
+export function useTrace(): [string | null, (hash: string | null) => void] {
+  const [traced, setTraced] = useState<string | null>(null);
+  const shown = useRef<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const traceLater = useCallback((hash: string | null) => {
+    const show = (next: string | null) => {
+      shown.current = next;
+      setTraced(next);
+    };
+    clearTimeout(timer.current);
+    if (hash && shown.current) show(hash);
+    else timer.current = setTimeout(() => show(hash), hash ? TRACE_DELAY : UNTRACE_DELAY);
+  }, []);
+  return [traced, traceLater];
+}
+
 const Graph = memo(function Graph({ graph, width, height, lane, node, trace }: GraphProps) {
   const mid = height / 2;
   const laneX = (index: number) => lane / 2 + 3 + index * lane;
@@ -137,7 +163,7 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace }: G
 
 export function CommitList(props: Props) {
   const { rows, empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
-  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall } = props;
+  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace } = props;
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -172,16 +198,7 @@ export function CommitList(props: Props) {
   }, [rows]);
   const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
-
-  // The commit of the label the pointer rests on: its history stands out in the graph, and what it does not reach fades.
-  const [traced, setTraced] = useState<string | null>(null);
-  const traceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(traceTimer.current), []);
-  const traceLater = (hash: string | null) => {
-    clearTimeout(traceTimer.current);
-    if (hash && traced) setTraced(hash);
-    else traceTimer.current = setTimeout(() => setTraced(hash), hash ? TRACE_DELAY : UNTRACE_DELAY);
-  };
+  // What the history of the commit traced does not reach fades.
   const trace = useMemo(() => {
     if (!traced || !rows.some((row) => row.hash === traced)) return null;
     return traceGraph(rows, reachedFrom(rows, traced));
@@ -282,8 +299,8 @@ export function CommitList(props: Props) {
               className={`label ${label.kind}${label.current ? ' current' : ''}`}
               title={label.worktree ? `${label.name}\nIn the worktree ${label.worktree}` : label.name}
               onContextMenu={(event) => onLabelMenu(event, label, row)}
-              onMouseEnter={() => traceLater(row.hash)}
-              onMouseLeave={() => traceLater(null)}
+              onMouseEnter={() => onTrace(row.hash)}
+              onMouseLeave={() => onTrace(null)}
               onDoubleClick={(event) => {
                 const open = labelOpen(label);
                 if (!open) return;

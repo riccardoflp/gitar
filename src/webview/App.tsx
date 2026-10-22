@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { WORKTREE, type CommitDetail, type Comparison, type Loading, type RepoState, type Row, type Search } from '../shared/protocol';
 import { worktreeOf } from '../shared/refs';
 import { BisectBanner } from './BisectBanner';
-import { CommitList, type Label, type SelectMode } from './CommitList';
+import { CommitList, useTrace, type Label, type SelectMode } from './CommitList';
 import { Compare } from './Compare';
 import { useMenu } from './ContextMenu';
 import { Detail } from './Detail';
@@ -197,6 +197,8 @@ export function App({ compact = false }: { compact?: boolean }) {
   }, [refsWidth, detailWidth, graphWidth, detailHeight, refsHidden]);
 
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
+  // The history the graph brings out, of the label or the branch beside it the pointer rests on.
+  const [traced, trace] = useTrace();
 
   const highlighted = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -410,7 +412,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           } as CSSProperties
         }
       >
-        {!compact && !refsHidden && <RefsTree state={state} selected={selected} onSelect={goTo} onCompare={compare} onReveal={goTo} />}
+        {!compact && !refsHidden && <RefsTree state={state} selected={selected} onSelect={goTo} onCompare={compare} onReveal={goTo} onTrace={trace} />}
         {!compact && !refsHidden && (
           <Sash pane="refs" width={refsWidth} onResize={(width) => resize({ refsWidth: width })} onReset={() => resize({ refsWidth: WIDTHS.refsWidth })} />
         )}
@@ -439,6 +441,8 @@ export function App({ compact = false }: { compact?: boolean }) {
           }}
           canDrop={(row) => !row.stash && dropEntries(row).length > 0}
           onDrop={(event, row) => openMenu(event, dropEntries(row))}
+          traced={traced}
+          onTrace={trace}
         />
         {hasDetail && !compact && (
           <Sash

@@ -35,6 +35,8 @@ interface Props {
   onReveal(hash: string): void;
   /** The sections to list, when not all of them. */
   sections?: SectionId[];
+  /** Beside the graph: the pointer came to a row, with its commit, whose history the graph brings out, or left it, with null. */
+  onTrace?(hash: string | null): void;
 }
 
 /** Where a submodule stands against the commit recorded for it, as an icon with the number of commits beside it. */
@@ -115,7 +117,7 @@ function submoduleBadge(submodule: Submodule): Badge {
   }
 }
 
-export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, onReveal, sections }: Props) {
+export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCompare, onReveal, sections, onTrace }: Props) {
   // The sections are all closed each time VS Code starts; the ones opened since are remembered until it is closed.
   const [opened, setOpened] = useState(() => {
     const saved = loadUiState({ opened: {} as Record<string, boolean>, openedIn: '' });
@@ -187,6 +189,8 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
                 title={[item.title ?? item.label, outside && 'Not shown in the graph'].filter(Boolean).join('\n')}
                 onClick={() => item.hash && onSelect(item.hash)}
                 onDoubleClick={item.open}
+                onMouseEnter={item.hash && onTrace ? () => onTrace(item.hash!) : undefined}
+                onMouseLeave={item.hash && onTrace ? () => onTrace(null) : undefined}
                 draggable={item.drag !== undefined}
                 onDragStart={(event) => item.drag && startDrag(event, item.drag)}
                 onDragEnd={endDrag}
