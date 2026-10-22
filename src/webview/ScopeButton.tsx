@@ -16,7 +16,8 @@ const GROUPS: { kind: ScopeChoice['kind']; title: string }[] = [
 const QUICK: { scope: Scope | null; label: string; title: string }[] = [
   { scope: null, label: 'All', title: 'Every branch, remote branch and tag' },
   { scope: { kind: 'current' }, label: 'Current', title: 'Only what is checked out, whichever branch that is as you switch' },
-  { scope: { kind: 'local' }, label: 'Local', title: 'Only the local branches' },
+  { scope: { kind: 'kinds', kinds: ['branch'] }, label: 'Local', title: 'Only the local branches, and what is checked out' },
+  { scope: { kind: 'kinds', kinds: ['remote'] }, label: 'Remotes', title: 'Only the remote branches, and what is checked out' },
 ];
 
 function Picker({ state, anchor, onClose }: { state: RepoState; anchor: HTMLElement; onClose(): void }) {
@@ -34,6 +35,10 @@ function Picker({ state, anchor, onClose }: { state: RepoState; anchor: HTMLElem
     setWanted({ scope: next });
     post({ type: 'setScope', scope: next });
   };
+  // The same for the switch of the list of branches, which waits for the settings to change.
+  const [follow, setFollow] = useState<boolean | null>(null);
+  const follows = follow ?? state.branchesFollowScope;
+  useEffect(() => setFollow(null), [state.branchesFollowScope]);
 
   // Under the button and inside the view: as tall as the room there is, which in the panel is little.
   // Placed before it is painted, and never hidden, or the box could not take the focus.
@@ -84,7 +89,7 @@ function Picker({ state, anchor, onClose }: { state: RepoState; anchor: HTMLElem
           <button
             key={quick.label}
             role="radio"
-            aria-checked={(scope?.kind ?? null) === (quick.scope?.kind ?? null)}
+            aria-checked={same(scope, quick.scope)}
             title={quick.title}
             onClick={() => setScope(quick.scope)}
           >
@@ -121,6 +126,17 @@ function Picker({ state, anchor, onClose }: { state: RepoState; anchor: HTMLElem
         })}
         {!choices.length && <div className="none">{needle ? 'No branch or tag has that in its name' : 'No branches or tags yet'}</div>}
       </div>
+      <label className="follow" title="Beside the graph and in the Branches view: only the branches the graph shows, or all of them with the others dimmed">
+        <input
+          type="checkbox"
+          checked={follows}
+          onChange={() => {
+            setFollow(!follows);
+            post({ type: 'setBranchesFollowScope', follow: !follows });
+          }}
+        />
+        <span>Filter the list of branches too</span>
+      </label>
     </div>,
     document.body,
   );

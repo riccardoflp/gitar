@@ -128,12 +128,15 @@ export type Filter =
   /** `message` and `author` match text; `pickaxe` finds commits that add or remove the text; `regex` matches changed lines. */
   | { kind: 'message' | 'author' | 'pickaxe' | 'regex'; query: string };
 
+/** The kinds of references whose histories the graph can show: local branches, remote branches and tags. */
+export type RefKind = 'branch' | 'remote' | 'tag';
+
 /**
  * Which histories the graph shows, when not those of every branch, remote branch and tag: of what is checked out, of
- * the local branches, or of the references chosen one by one, by their full names (`refs/heads/main`). It is apart
- * from the filter, which narrows what is left of it.
+ * some kinds of references, or of the references chosen one by one, by their full names (`refs/heads/main`). It is
+ * apart from the filter, which narrows what is left of it.
  */
-export type Scope = { kind: 'current' } | { kind: 'local' } | { kind: 'refs'; refs: string[] };
+export type Scope = { kind: 'current' } | { kind: 'kinds'; kinds: RefKind[] } | { kind: 'refs'; refs: string[] };
 
 /** What the graph waits for: the commits of another filter, scope or repository, or the ones after the last that is loaded. */
 export type Loading = 'filter' | 'more';
@@ -232,6 +235,11 @@ export interface RepoState {
   worktreesRoot: string | null;
   /** What a double click on a branch does, as the settings say: check it out here, or open its worktree. */
   openBranches: 'checkout' | 'worktree';
+  /**
+   * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
+   * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
+   */
+  branchesFollowScope: boolean;
   /** Whether a language model can be asked how to resolve the conflicts, as the settings say. */
   resolveWithAI: boolean;
   /**
@@ -626,6 +634,8 @@ export type WebviewMessage =
   | { type: 'action'; action: Action }
   | { type: 'setFilter'; filter: Filter | null }
   | { type: 'setScope'; scope: Scope | null }
+  /** Lists only the branches the graph is narrowed to beside it and in the Branches view, or all of them. */
+  | { type: 'setBranchesFollowScope'; follow: boolean }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }

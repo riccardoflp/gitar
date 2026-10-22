@@ -198,6 +198,8 @@ async function main() {
   let limit = PAGE_SIZE;
   let filter: Filter | null = null;
   let scope: Scope | null = null;
+  /** What `gitardo.branches.followGraphFilter` would say, kept while the server runs. */
+  let branchesFollowScope = true;
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
   /** The worktrees of the repository shown, which the views can be pointed at, and the repository to go back to. */
@@ -296,7 +298,7 @@ async function main() {
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', resolveWithAI: true, home: away } }];
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, resolveWithAI: true, home: away } }];
   }
 
   /** `light` for a page in the light theme, which can have other file icons. */
@@ -320,6 +322,9 @@ async function main() {
       case 'setScope':
         scope = message.scope;
         limit = PAGE_SIZE;
+        return state();
+      case 'setBranchesFollowScope':
+        branchesFollowScope = message.follow === true;
         return state();
       case 'setFavorite': {
         if (!repo) return [];

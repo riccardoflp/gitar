@@ -722,8 +722,8 @@ try {
         on: document.querySelector('.button.scope').classList.contains('on'),
         bar: document.querySelector('.filterbar')?.textContent ?? null,
         subjects: [...document.querySelectorAll('.row .subject')].map((row) => row.textContent),
-        listed: [...document.querySelectorAll('.scope-picker label')].map((label) => label.textContent),
-        ticked: [...document.querySelectorAll('.scope-picker label')].filter((label) => label.querySelector('input').checked).map((label) => label.textContent),
+        listed: [...document.querySelectorAll('.scope-picker .choices label')].map((label) => label.textContent),
+        ticked: [...document.querySelectorAll('.scope-picker .choices label')].filter((label) => label.querySelector('input').checked).map((label) => label.textContent),
         quick: document.querySelector('.scope-picker .quick [aria-checked="true"]')?.textContent ?? null,
         open: !!document.querySelector('.scope-picker'),
       })`);
@@ -768,7 +768,7 @@ try {
     await graph.click('.scope-picker .refs-filter input');
     await type('feat');
     await shows('the branches of that name', (now) => now.listed.join() === 'feature');
-    await graph.click('.scope-picker label', 'feature');
+    await graph.click('.scope-picker .choices label', 'feature');
     const two = await shows('main and feature', (now) => now.subjects.includes('Add feature'));
     assert(two.shown === 'Branches shown: main +1' && two.quick === null, `two: ${JSON.stringify(two)}`);
     assert(two.bar.startsWith('Only the history of main, feature · 5 commits'), `bar: ${two.bar}`);
@@ -777,7 +777,7 @@ try {
     // Escape empties the box before it closes the list; a tick taken away takes the branch away.
     await key('Escape');
     await shows('all the names again', (now) => now.open && now.listed.length > 1);
-    await graph.click('.scope-picker label', 'main');
+    await graph.click('.scope-picker .choices label', 'main');
     const one = await shows('feature alone', (now) => !now.subjects.includes('Commit from the UI'));
     assert(one.shown === 'Branches shown: feature' && one.ticked.join() === 'feature', `one: ${JSON.stringify(one)}`);
     // The changes are not shown above a graph that leaves out the commit they are made on.

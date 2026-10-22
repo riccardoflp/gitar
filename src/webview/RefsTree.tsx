@@ -1,7 +1,7 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState, Submodule } from '../shared/protocol';
 import { changesText, pullOf, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
-import { scopeLabel, scopeRefs } from '../shared/scope';
+import { scopeLabel, scopeRefs, toggleScopeRef } from '../shared/scope';
 import { submoduleDepth, submoduleStatus, submoduleStatusText } from '../shared/submodules';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
@@ -49,6 +49,8 @@ interface Item {
   key: string;
   /** The commit to select in the graph when it is clicked. None for what is not a commit of the repository. */
   hash?: string;
+  /** The full name of a branch, remote branch or tag, which the graph can be narrowed to. */
+  ref?: string;
   label: string;
   hint?: string;
   title?: string;
@@ -125,8 +127,11 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
   const openMenu = useMenu();
   const needle = filter.trim().toLowerCase();
   // What the graph is narrowed to is what is listed here: the branches, remote branches and tags whose history it shows.
+  // Or, as the settings may say, they are all listed and the others are dimmed.
   const scoped = useMemo(() => (state.scope ? new Set(scopeRefs(state.scope, state)) : null), [state]);
   const within = (ref: string) => !scoped || scoped.has(ref);
+  const follows = state.branchesFollowScope;
+  const listedHere = (ref: string) => !follows || within(ref);
 
   const toggle = (id: string) => {
     // From what is open now, not from the last render: two sections opened before it are both kept.
@@ -172,46 +177,65 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
           ))}
         </div>
         {open &&
-          listed.map((item) => (
-            <button
-              key={item.key}
-              className={`ref${item.current ? ' current' : ''}${item.hash && item.hash === selected ? ' selected' : ''}`}
-              style={item.depth ? { paddingLeft: 26 + item.depth * 12 } : undefined}
-              title={item.title ?? item.label}
-              onClick={() => item.hash && onSelect(item.hash)}
-              onDoubleClick={item.open}
-              draggable={item.drag !== undefined}
-              onDragStart={(event) => item.drag && startDrag(event, item.drag)}
-              onDragEnd={endDrag}
-              onContextMenu={(event) => {
-                if (item.hash) onSelect(item.hash);
-                openMenu(event, item.menu?.() ?? []);
-              }}
-            >
-              <span className="grow">{item.label}</span>
-              {item.favorite && id !== 'favorites' && <Icon name="star-full" />}
-              {item.worktree && <Icon name="worktree" />}
-              {item.hint && <span className="hint">{item.hint}</span>}
-              {item.changes !== undefined && (
-                <span className="dirty">
-                  <Icon name="edit" />
-                  {item.changes}
-                </span>
-              )}
-              {item.badge && (
-                <span className={`badge ${item.badge.tone}`} aria-label={item.badge.text}>
-                  <Icon name={item.badge.icon} />
-                  {item.badge.count}
-                </span>
-              )}
-              {item.pull && (
-                <span className={`pull ${item.pull.checks ?? ''}`}>
-                  <Icon name={item.pull.draft ? 'git-pull-request-draft' : 'git-pull-request'} />
-                  {item.pull.number}
-                </span>
-              )}
-            </button>
-          ))}
+          listed.map((item) => {
+            const outside = item.ref !== undefined && !within(item.ref);
+            return (
+              <button
+                key={item.key}
+                className={`ref${item.current ? ' current' : ''}${item.hash && item.hash === selected ? ' selected' : ''}${outside ? ' outside' : ''}`}
+                style={item.depth ? { paddingLeft: 26 + item.depth * 12 } : undefined}
+                title={[item.title ?? item.label, outside && 'Not shown in the graph'].filter(Boolean).join('\n')}
+                onClick={() => item.hash && onSelect(item.hash)}
+                onDoubleClick={item.open}
+                draggable={item.drag !== undefined}
+                onDragStart={(event) => item.drag && startDrag(event, item.drag)}
+                onDragEnd={endDrag}
+                onContextMenu={(event) => {
+                  if (item.hash) onSelect(item.hash);
+                  openMenu(event, item.menu?.() ?? []);
+                }}
+              >
+                <span className="grow">{item.label}</span>
+                {item.favorite && id !== 'favorites' && <Icon name="star-full" />}
+                {item.worktree && <Icon name="worktree" />}
+                {item.hint && <span className="hint">{item.hint}</span>}
+                {item.changes !== undefined && (
+                  <span className="dirty">
+                    <Icon name="edit" />
+                    {item.changes}
+                  </span>
+                )}
+                {item.badge && (
+                  <span className={`badge ${item.badge.tone}`} aria-label={item.badge.text}>
+                    <Icon name={item.badge.icon} />
+                    {item.badge.count}
+                  </span>
+                )}
+                {item.pull && (
+                  <span className={`pull ${item.pull.checks ?? ''}`}>
+                    <Icon name={item.pull.draft ? 'git-pull-request-draft' : 'git-pull-request'} />
+                    {item.pull.number}
+                  </span>
+                )}
+                {outside && (
+                  // Inside the row, which is a button itself: a click here is its own, and selects nothing.
+                  <span
+                    className="show-too"
+                    role="button"
+                    title="Show this history too"
+                    aria-label="Show this history too"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      post({ type: 'setScope', scope: toggleScopeRef(state.scope, item.ref!, state) });
+                    }}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
+                    <Icon name="eye" />
+                  </span>
+                )}
+              </button>
+            );
+          })}
         {open && listed.length < items.length && (
           <button className="ref more" onClick={() => setFull({ ...full, [id]: true })}>
             <span className="grow">Show all {items.length}…</span>
@@ -223,7 +247,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
 
   const favorites = new Set(state.favorites);
   const branches = state.branches
-    .filter((branch) => within(`refs/heads/${branch.name}`))
+    .filter((branch) => listedHere(`refs/heads/${branch.name}`))
     .map((branch): Item => {
       const upstream = branch.upstream;
       const pull = pullOf(pushedName(branch, state), state);
@@ -235,6 +259,7 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
       return {
         key: branch.name,
         hash: branch.hash,
+        ref: `refs/heads/${branch.name}`,
         label: branch.name,
         hint: upstreamHint(branch),
         pull,
@@ -249,11 +274,12 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
       };
     });
   const remotes = state.remoteBranches
-    .filter((ref) => within(`refs/remotes/${ref.name}`))
+    .filter((ref) => listedHere(`refs/remotes/${ref.name}`))
     .map(
       (ref): Item => ({
         key: ref.name,
         hash: ref.hash,
+        ref: `refs/remotes/${ref.name}`,
         label: ref.name,
         favorite: favorites.has(`refs/remotes/${ref.name}`),
         menu: () => remoteBranchMenu(ref, state, onCompare, onReveal),
@@ -309,9 +335,21 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         </div>
       )}
       {scoped && (
-        <div className="refs-scope" role="status" title="Only the branches the graph is narrowed to are listed">
+        <div
+          className="refs-scope"
+          role="status"
+          title={follows ? 'Only the branches the graph is narrowed to are listed' : 'The graph is narrowed to these: the others are dimmed'}
+        >
           <Icon name="filter-filled" />
           <span className="grow">{scopeLabel(state.scope)}</span>
+          <button
+            className="follow"
+            onClick={() => post({ type: 'setBranchesFollowScope', follow: !follows })}
+            title={follows ? 'List all the branches here, the ones not in the graph dimmed' : 'List only the branches in the graph here'}
+            aria-label={follows ? 'List all the branches here' : 'List only the branches in the graph here'}
+          >
+            <Icon name={follows ? 'list-flat' : 'list-filter'} />
+          </button>
           <button className="link" onClick={() => post({ type: 'setScope', scope: null })}>
             Show all
           </button>
@@ -326,8 +364,14 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
         'Tags',
         'tag',
         state.tags
-          .filter((ref) => within(`refs/tags/${ref.name}`))
-          .map((ref) => ({ key: ref.name, hash: ref.hash, label: ref.name, menu: () => tagMenu(ref, state, onCompare, onReveal) })),
+          .filter((ref) => listedHere(`refs/tags/${ref.name}`))
+          .map((ref) => ({
+            key: ref.name,
+            hash: ref.hash,
+            ref: `refs/tags/${ref.name}`,
+            label: ref.name,
+            menu: () => tagMenu(ref, state, onCompare, onReveal),
+          })),
       )}
       {section(
         'stashes',

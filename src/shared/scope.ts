@@ -1,4 +1,4 @@
-import type { RepoState, Scope } from './protocol';
+import type { RefKind, RepoState, Scope } from './protocol';
 
 type Refs = Pick<RepoState, 'branch' | 'branches' | 'remoteBranches' | 'tags'>;
 
@@ -6,9 +6,12 @@ type Refs = Pick<RepoState, 'branch' | 'branches' | 'remoteBranches' | 'tags'>;
 export interface ScopeChoice {
   ref: string;
   name: string;
-  kind: 'branch' | 'remote' | 'tag';
+  kind: RefKind;
   current: boolean;
 }
+
+/** Every kind of reference, in the order they are listed everywhere. */
+export const REF_KINDS: RefKind[] = ['branch', 'remote', 'tag'];
 
 /**
  * No more references than this are chosen one by one: each is an argument of `git log`, and a command line has an
@@ -33,18 +36,33 @@ export function scopeChoices(state: Refs): ScopeChoice[] {
  */
 export function pruneScope(scope: unknown, state: Refs): Scope | null {
   if (!scope || typeof scope !== 'object') return null;
-  const { kind, refs } = scope as { kind?: unknown; refs?: unknown };
-  if (kind === 'current' || kind === 'local') return { kind };
+  const { kind, kinds, refs } = scope as { kind?: unknown; kinds?: unknown; refs?: unknown };
+  if (kind === 'current') return { kind };
+  // Remembered from before the kinds of references could be chosen apart: the local branches alone.
+  if (kind === 'local') return { kind: 'kinds', kinds: ['branch'] };
+  if (kind === 'kinds') return Array.isArray(kinds) ? kindsScope(REF_KINDS.filter((each) => kinds.includes(each))) : null;
   if (kind !== 'refs' || !Array.isArray(refs)) return null;
   const known = new Set(scopeChoices(state).map((choice) => choice.ref));
   const kept = [...new Set(refs)].filter((ref): ref is string => typeof ref === 'string' && known.has(ref));
   return kept.length ? { kind: 'refs', refs: kept.slice(0, MAX_SCOPE_REFS) } : null;
 }
 
+/** The scope that shows these kinds of references: none, and so all the history, when they are all there or none is. */
+export function kindsScope(kinds: RefKind[]): Scope | null {
+  const kept = REF_KINDS.filter((kind) => kinds.includes(kind));
+  return kept.length && kept.length < REF_KINDS.length ? { kind: 'kinds', kinds: kept } : null;
+}
+
+/** The kinds of references the graph shows, or null when it shows references chosen one by one, or what is checked out. */
+export function scopeKinds(scope: Scope | null): RefKind[] | null {
+  if (!scope) return REF_KINDS;
+  return scope.kind === 'kinds' ? scope.kinds : null;
+}
+
 /** The references whose history a scope shows, by their full names. Checked out with no branch, there is none to name. */
 export function scopeRefs(scope: Scope, state: Refs): string[] {
   if (scope.kind === 'refs') return scope.refs;
-  if (scope.kind === 'local') return state.branches.map((branch) => `refs/heads/${branch.name}`);
+  if (scope.kind === 'kinds') return scopeChoices(state).flatMap((choice) => (scope.kinds.includes(choice.kind) ? [choice.ref] : []));
   return state.branch ? [`refs/heads/${state.branch}`] : [];
 }
 
@@ -58,11 +76,20 @@ export function toggleScopeRef(scope: Scope | null, ref: string, state: Refs): S
 /** The name of a reference as it is shown: `main`, `origin/main`, `v1.0`. */
 export const scopeRefName = (ref: string) => ref.replace(/^refs\/(heads|remotes|tags)\//, '');
 
-/** A scope in a few words, for a button: "Current branch", "main", "main +2". */
+const KINDS_LABELS: Record<string, string> = {
+  branch: 'Local branches',
+  remote: 'Remote branches',
+  tag: 'Tags',
+  'branch remote': 'Branches',
+  'branch tag': 'Local branches and tags',
+  'remote tag': 'Remote branches and tags',
+};
+
+/** A scope in a few words, for a button: "Current branch", "Remote branches", "main", "main +2". */
 export function scopeLabel(scope: Scope | null): string {
   if (!scope) return 'All branches';
   if (scope.kind === 'current') return 'Current branch';
-  if (scope.kind === 'local') return 'Local branches';
+  if (scope.kind === 'kinds') return KINDS_LABELS[scope.kinds.join(' ')] ?? 'All branches';
   const [first, ...others] = scope.refs.map(scopeRefName);
   return others.length ? `${first} +${others.length}` : first;
 }

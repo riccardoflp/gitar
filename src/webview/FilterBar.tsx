@@ -44,10 +44,19 @@ function describe(filter: Filter): ReactNode {
   );
 }
 
-/** The branches a scope is made of: "the current branch", "main, feature and 2 more". */
+const KIND_NAMES = { branch: 'the local branches', remote: 'the remote branches', tag: 'the tags' };
+
+/** The branches a scope is made of: "the current branch", "the local branches and the tags", "main, feature and 2 more". */
 function branches(scope: Scope): ReactNode {
   if (scope.kind === 'current') return <b>the current branch</b>;
-  if (scope.kind === 'local') return <b>the local branches</b>;
+  if (scope.kind === 'kinds') {
+    return scope.kinds.map((kind, index) => (
+      <Fragment key={kind}>
+        {index > 0 && ' and '}
+        <b>{KIND_NAMES[kind]}</b>
+      </Fragment>
+    ));
+  }
   const names = scope.refs.map(scopeRefName);
   return (
     <>

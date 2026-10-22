@@ -2845,7 +2845,7 @@ export async function run(): Promise<void> {
     assert.deepEqual(await sequence({ type: 'setFilter', filter: { kind: 'path', path: 'b.txt' } }), ['loading filter', 'state path', 'loading null']);
     assert.deepEqual(await sequence({ type: 'loadMore' }), ['loading more', 'state path', 'loading null']);
     assert.deepEqual(await sequence({ type: 'setFilter', filter: null }), ['loading filter', 'state none', 'loading null']);
-    assert.deepEqual(await sequence({ type: 'setScope', scope: { kind: 'local' } }), ['loading filter', 'state none', 'loading null']);
+    assert.deepEqual(await sequence({ type: 'setScope', scope: { kind: 'kinds', kinds: ['branch'] } }), ['loading filter', 'state none', 'loading null']);
     await controller.setScope(null);
 
     // Another repository: the views wait for its commits as for those of a filter.

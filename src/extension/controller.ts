@@ -390,6 +390,7 @@ export class Controller implements vscode.Disposable {
           agentsWindow: await (this.agentsWindow ??= hasCommand(AGENTS_WINDOW)),
           worktreesRoot: worktreesFolder(state),
           openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
+          branchesFollowScope: vscode.workspace.getConfiguration('gitardo').get('branches.followGraphFilter') !== false,
           resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
@@ -1911,6 +1912,9 @@ export class Controller implements vscode.Disposable {
         return this.setFilter(message.filter);
       case 'setScope':
         return this.setScope(message.scope);
+      case 'setBranchesFollowScope':
+        // For the user wherever they work. The views are told when the settings change.
+        return vscode.workspace.getConfiguration('gitardo').update('branches.followGraphFilter', message.follow === true, vscode.ConfigurationTarget.Global);
       case 'setFavorite':
         return this.setFavorite(message.ref, message.favorite === true);
       case 'goTo':

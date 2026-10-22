@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import type { PullAction, RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
+import type { PullAction, RefKind, RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
+import { kindsScope, scopeKinds } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
 import { RepoSelect } from './RepoSelect';
@@ -157,10 +158,27 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
   const keepFocus = (event: MouseEvent) => event.preventDefault();
 
   const run = (command: UiCommand) => () => post({ type: 'command', command });
+  // The kinds of references the graph shows, as the list of branches has them. Not while some are chosen one by one there.
+  const kinds = scopeKinds(state.scope);
+  const showKind = (kind: RefKind, label: string): MenuEntry => {
+    const on = !!kinds?.includes(kind);
+    return {
+      label,
+      checked: on,
+      // With no kind left the graph would have nothing to show.
+      disabled: !kinds || (on && kinds.length === 1),
+      hint: kinds ? undefined : 'Chosen in the filter',
+      run: () => kinds && post({ type: 'setScope', scope: kindsScope(on ? kinds.filter((each) => each !== kind) : [...kinds, kind]) }),
+    };
+  };
   const more: MenuEntry[] = [
     // Its button is the first to go when the toolbar is short of room.
     !compact && { label: 'Refresh', run: () => post({ type: 'refresh' }) },
     !compact && 'separator',
+    showKind('branch', 'Show local branches'),
+    showKind('remote', 'Show remote branches'),
+    showKind('tag', 'Show tags'),
+    'separator',
     { label: 'Compare branches, tags or commits…', run: () => post({ type: 'compare' }) },
     { label: 'Go to commit…', run: run('goToCommit') },
     { label: 'History of the active file', run: run('activeFileHistory') },

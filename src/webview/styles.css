@@ -424,6 +424,17 @@ input:focus-visible,
   accent-color: var(--vscode-button-background);
 }
 
+/* Below the list: whether the branches listed beside the graph are narrowed as it is. */
+.scope-picker label.follow {
+  flex: none;
+  margin-top: 4px;
+  padding-top: 4px;
+  height: 26px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+  border-radius: 0;
+}
+
 .scope-picker .none {
   padding: 6px;
   color: var(--vscode-descriptionForeground);
@@ -673,6 +684,18 @@ input:focus-visible,
   background: none;
 }
 
+.refs .refs-scope button.follow {
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  color: var(--vscode-icon-foreground);
+}
+
+.refs .refs-scope button.follow:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
 /* The mark of a favorite, beside its name where it is listed with the others, and of a branch another worktree has. */
 .ref .codicon-star-full,
 .ref .codicon-worktree {
@@ -691,6 +714,31 @@ input:focus-visible,
 
 .ref.current {
   font-weight: 600;
+}
+
+/* Listed although the graph leaves its history out, when the settings say to list them all. */
+.ref.outside > :not(.show-too) {
+  opacity: 0.5;
+}
+
+/* What adds its history to the graph, shown on the row the pointer is on. */
+.ref .show-too {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  color: var(--vscode-icon-foreground);
+}
+
+.ref:hover .show-too {
+  display: flex;
+}
+
+.ref .show-too:hover {
+  background: var(--vscode-toolbar-hoverBackground);
 }
 
 .ref.selected {
@@ -1371,6 +1419,11 @@ input:focus-visible,
   box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgb(0 0 0 / 35%));
 }
 
+/* As wide as its entries, hints included, even where it opens close to the right edge and is moved away from it. */
+.menu.context:not(.columns) {
+  width: max-content;
+}
+
 /* In a view narrower than its longest entry, the end of that one is cut. */
 .menu.context button {
   flex: none;
@@ -1391,6 +1444,29 @@ input:focus-visible,
   width: 100%;
   text-align: start;
   break-inside: avoid;
+}
+
+/* Room on the left for the check marks of what is switched on. */
+.menu.context.checks button {
+  position: relative;
+  padding-left: 26px;
+}
+
+.menu.context button .codicon-check {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.menu.context button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.menu.context button:disabled:hover {
+  color: inherit;
+  background: none;
 }
 
 .menu hr {

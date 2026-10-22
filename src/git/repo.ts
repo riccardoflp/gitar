@@ -23,7 +23,7 @@ import {
   type Worktree,
 } from '../shared/protocol';
 import { subjectAndBody } from '../shared/message';
-import { SCOPE_PREFIXES, pruneScope } from '../shared/scope';
+import { REF_KINDS, SCOPE_PREFIXES, pruneScope, scopeKinds } from '../shared/scope';
 import { resolveConflicts, type Conflict } from './conflicts';
 import { GitError, formatCommand, git, type GitResult } from './exec';
 import type { UndoInfo } from './ops';
@@ -578,6 +578,7 @@ export class Repo {
       agentsWindow: false,
       worktreesRoot: null,
       openBranches: 'checkout',
+      branchesFollowScope: true,
       resolveWithAI: false,
       home: null,
     };
@@ -612,8 +613,11 @@ export class Repo {
       args.push('--ignore-missing', ...scope.refs.filter((ref) => SCOPE_PREFIXES.some((prefix) => ref.startsWith(prefix))));
     } else {
       // refs/stash is left out on purpose: stashes have their own list and their internal commits clutter the graph.
-      args.push('--branches');
-      if (scope?.kind !== 'local') args.push('--remotes', '--tags');
+      const kinds = scopeKinds(scope) ?? REF_KINDS;
+      if (kinds.includes('branch')) args.push('--branches');
+      if (kinds.includes('remote')) args.push('--remotes');
+      if (kinds.includes('tag')) args.push('--tags');
+      // What is checked out is always there, whichever kinds of references are left out.
       if (head) args.push('HEAD');
     }
     // A file is followed under the names it had before, or its history would end at the commit that renamed it.

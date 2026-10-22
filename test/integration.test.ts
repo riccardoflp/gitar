@@ -1227,7 +1227,10 @@ describe('against a real repository', { timeout: 60_000 }, () => {
 
     expect(await shown(null)).toEqual(['Tagged only', 'base', 'main change', 'other change']);
     expect(await shown({ kind: 'current' })).toEqual(['base', 'main change']);
-    expect(await shown({ kind: 'local' })).toEqual(['base', 'main change', 'other change']);
+    expect(await shown({ kind: 'kinds', kinds: ['branch'] })).toEqual(['base', 'main change', 'other change']);
+    expect(await shown({ kind: 'kinds', kinds: ['tag'] })).toEqual(['Tagged only', 'base', 'main change', 'other change']);
+    // With no remote branches, only what is checked out is left: it is always there.
+    expect(await shown({ kind: 'kinds', kinds: ['remote'] })).toEqual(['base', 'main change']);
     expect(await shown(only('refs/heads/other'))).toEqual(['base', 'other change']);
     expect(await shown(only('refs/tags/v1'))).toEqual(['base', 'other change']);
     expect(await shown(only('refs/tags/loose', 'refs/heads/other'))).toEqual(['Tagged only', 'base', 'main change', 'other change']);
@@ -1243,12 +1246,12 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     const none = await repo.state(100, null, only('refs/heads/gone'));
     expect(none.scope).toBeNull();
     expect(none.rows).toHaveLength(4);
-    expect((await repo.state(100, null, { kind: 'local' })).scope).toEqual({ kind: 'local' });
+    expect((await repo.state(100, null, { kind: 'kinds', kinds: ['branch'] })).scope).toEqual({ kind: 'kinds', kinds: ['branch'] });
 
     // What is searched for is found among them, and a commit is as far back as it is among them.
     expect(await repo.position(main, null, only('refs/heads/other'))).toBe(-1);
     expect(await repo.position(other, null, only('refs/heads/other'))).toBe(0);
-    expect(await repo.position(tagged, null, { kind: 'local' })).toBe(-1);
+    expect(await repo.position(tagged, null, { kind: 'kinds', kinds: ['branch'] })).toBe(-1);
     expect(await repo.matches({ kind: 'message', query: 'change' }, null, 10, { kind: 'current' })).toEqual({ hashes: [main], more: false });
     expect(await repo.matches({ kind: 'message', query: 'change' }, null, 10, only('refs/tags/v1'))).toEqual({ hashes: [other], more: false });
     // A branch deleted between the reading of the state and the search is passed over, not an error.
@@ -1268,6 +1271,11 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     fs.rmSync(path.join(root, 'dirty.txt'));
     await run(checkoutOp('detached', other));
     expect(await shown({ kind: 'current' })).toEqual(['base', 'other change']);
+
+    // The remote branches, with what is checked out, and without what only a tag reaches.
+    await run(checkoutOp('branch', 'main'));
+    await git(root, ['update-ref', 'refs/remotes/origin/other', other]);
+    expect(await shown({ kind: 'kinds', kinds: ['remote'] })).toEqual(['base', 'main change', 'other change']);
   });
 
   it('says how far back a commit is, and which commits a search finds', async () => {

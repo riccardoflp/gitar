@@ -2,6 +2,17 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- **Show local branches**, **Show remote branches** and **Show tags** in the **…** menu of the toolbar switch each kind of reference on and off in the graph. The list of the branches shown has **Remotes** beside **Local**, for the remote branches alone. What is checked out stays in the graph either way.
+- The references beside the graph and the Branches view can list every branch while the graph is narrowed, with the ones it leaves out dimmed and an eye on each that adds its history to the graph: **Filter the list of branches too** at the bottom of the list of the branches shown, the button on the line above the references, or the setting `gitardo.branches.followGraphFilter`.
+
+### Fixed
+
+- A context menu opened close to the right edge of a view, such as the one of **…**, could put the words beside an entry under it instead of on its line.
+
 ## 0.6.0 - 2026-10-22
 
 ### Added

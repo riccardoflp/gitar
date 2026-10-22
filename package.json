@@ -1137,6 +1137,11 @@
           "default": "checkout",
           "description": "What a double click on a local branch does. A branch that another worktree has always opens that worktree, and the context menu of a branch has both, whatever is set here."
         },
+        "gitardo.branches.followGraphFilter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the branches, remote branches and tags listed beside the graph and in the Branches view are only the ones the graph is narrowed to. Switched off, they are all listed, and the ones the graph leaves out are dimmed. The list of branches of the graph has the same switch."
+        },
         "gitardo.branches.format": {
           "type": "string",
           "default": "",

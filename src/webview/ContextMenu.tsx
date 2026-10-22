@@ -9,6 +9,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react';
+import { Icon } from './Icon';
 
 export interface MenuItem {
   label: string;
@@ -16,6 +17,10 @@ export interface MenuItem {
   danger?: boolean;
   /** A word or two said after the label, less visible than it. */
   hint?: string;
+  /** Set on what is switched on or off, with a check mark while it is on. */
+  checked?: boolean;
+  /** Shown, but not to be chosen now: the hint says why. */
+  disabled?: boolean;
 }
 
 /** Falsy entries are dropped, so menus can be written with `condition && item`. */
@@ -94,9 +99,13 @@ function Menu({ menu, onClose }: { menu: OpenState; onClose(): void }) {
     };
   }, [onClose]);
 
+  const classes = ['menu', 'context'];
+  if (columns > 1) classes.push('columns');
+  // The labels all start after the room of the check marks, when there are some.
+  if (menu.items.some((item) => item !== 'separator' && item.checked !== undefined)) classes.push('checks');
   return (
     <div
-      className={columns > 1 ? 'menu context columns' : 'menu context'}
+      className={classes.join(' ')}
       role="menu"
       tabIndex={-1}
       ref={element}
@@ -108,13 +117,16 @@ function Menu({ menu, onClose }: { menu: OpenState; onClose(): void }) {
         ) : (
           <button
             key={index}
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            aria-checked={item.checked}
             className={item.danger ? 'danger' : undefined}
+            disabled={item.disabled}
             onClick={() => {
               onClose();
               item.run();
             }}
           >
+            {item.checked && <Icon name="check" />}
             {item.label}
             {item.hint && <span className="hint">{item.hint}</span>}
           </button>
