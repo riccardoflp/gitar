@@ -76,6 +76,8 @@ interface Props {
   traceSelected: boolean;
   /** What is shown of each commit beside its message. */
   columns: GraphColumn[];
+  /** The commit checked out, which `Home` goes back to. */
+  head: string | null;
 }
 
 const ROW_HEIGHT = 24;
@@ -177,6 +179,12 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace, unp
   );
 });
 
+/** The first row from `start` on, going down or up, that is what is looked for, not counting the one at `start`; -1 when none is. */
+function nearest(rows: Row[], start: number, step: number, wanted: (row: Row) => boolean): number {
+  for (let index = start + step; index >= 0 && index < rows.length; index += step) if (wanted(rows[index])) return index;
+  return -1;
+}
+
 /** The open pull request of a branch, on its label: its number, in the color of its checks. A click opens it. */
 function PullBadge({ request, branch }: { request: PullRequest; branch: string }) {
   return (
@@ -274,16 +282,33 @@ export function CommitList(props: Props) {
     // Only a new reveal request should move the scroll position, not every refresh of the rows.
   }, [reveal]);
 
+  const go = (index: number) => {
+    if (index < 0) return;
+    onSelect(rows[index].hash, 'single');
+    scrollTo(index, false);
+  };
   const onKeyDown = (event: KeyboardEvent) => {
     // Enter does what a double click does.
     if (event.key === 'Enter' && selected && selected !== WORKTREE) return onOpen(selected);
-    const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
-    if (!step || !rows.length) return;
-    event.preventDefault();
+    if (!rows.length) return;
     const current = rows.findIndex((row) => row.hash === selected);
-    const next = Math.min(rows.length - 1, Math.max(0, current + step));
-    onSelect(rows[next].hash, 'single');
-    scrollTo(next, false);
+    if (event.key === 'Home' && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      return go(rows.findIndex((row) => row.hash === props.head));
+    }
+    const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    if (event.altKey && current >= 0) {
+      // With Shift, the next merge or the one before; without, the first parent, or the commit made on top of this one:
+      // on its line when there is one, or else the merge that took it.
+      const row = rows[current];
+      if (event.shiftKey) return go(nearest(rows, current, step, (other) => other.parents.length > 1));
+      if (step > 0) return go(rows.findIndex((other) => other.hash === row.parents[0]));
+      const child = nearest(rows, current, -1, (other) => other.parents[0] === row.hash);
+      return go(child >= 0 ? child : nearest(rows, current, -1, (other) => other.parents.includes(row.hash)));
+    }
+    go(Math.min(rows.length - 1, Math.max(0, current + step)));
   };
 
   const listClasses = ['commits'];

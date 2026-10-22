@@ -426,6 +426,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           unpushed={unpushed}
           traceSelected={state.traceSelected}
           columns={state.graphColumns}
+          head={state.head}
         />
         {hasDetail && !compact && (
           <Sash

@@ -6,6 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- Keys to move around the graph: `Home` to the commit checked out, `Alt`+`↓` to the first parent of the commit selected and `Alt`+`↑` to the commit made on top of it, `Alt`+`Shift`+`↓` and `Alt`+`Shift`+`↑` to the next merge and the one before.
 - **Show the author**, **Show the date** and **Show the hash** in the **…** menu of the toolbar of the graph, or the setting `gitardo.graph.columns`, switch each of them on and off beside the messages of the commits.
 - **Show only the first parent of merges** in the **…** menu of the toolbar of the graph, or the setting `gitardo.graph.firstParent`: each branch along its own line, a merge as one commit without what it brought in.
 - **Upstream** in the list of the branches shown in the graph: what is checked out and its upstream, to see what is ahead of it and what is behind. It follows you as you switch branch.
