@@ -203,6 +203,43 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace, unp
   );
 });
 
+interface MarksProps {
+  rows: Row[];
+  /** How many rows high the list is, the one that says more are loading included. */
+  total: number;
+  /** How high the list is on the screen, and so its scroll bar. */
+  height: number;
+  head: string | null;
+  selected: string | null;
+  matches: ReadonlySet<string> | null;
+}
+
+/**
+ * Beside the scroll bar, where in the list the commit checked out is, in the color of its line, the one selected,
+ * and what a search found. Marks closer than a pixel are one.
+ */
+const ScrollMarks = memo(function ScrollMarks({ rows, total, height, head, selected, matches }: MarksProps) {
+  const at = (index: number) => Math.round(((index + 0.5) / total) * height);
+  const found = useMemo(() => {
+    const tops = new Set<number>();
+    if (matches) rows.forEach((row, index) => matches.has(row.hash) && tops.add(at(index)));
+    return [...tops];
+  }, [rows, matches, total, height]);
+  const headAt = rows.findIndex((row) => row.hash === head);
+  const selectedAt = selected === null ? -1 : rows.findIndex((row) => row.hash === selected);
+  return (
+    <div className="scroll-marks" aria-hidden="true">
+      <div style={{ height }}>
+        {found.map((top) => (
+          <span key={top} className="found" style={{ top }} />
+        ))}
+        {headAt >= 0 && <span className="head" style={{ top: at(headAt), background: laneColor(rows[headAt].graph.color) }} />}
+        {selectedAt >= 0 && <span className="selected" style={{ top: at(selectedAt) }} />}
+      </div>
+    </div>
+  );
+});
+
 /** The first row from `start` on, going down or up, that is what is looked for, not counting the one at `start`; -1 when none is. */
 function nearest(rows: Row[], start: number, step: number, wanted: (row: Row) => boolean): number {
   for (let index = start + step; index >= 0 && index < rows.length; index += step) if (wanted(rows[index])) return index;
@@ -369,6 +406,9 @@ export function CommitList(props: Props) {
             onReset={() => props.onGraphWidth(null)}
           />
         </div>
+      )}
+      {rows.length > 0 && height > 0 && (
+        <ScrollMarks rows={rows} total={rows.length + (hasMore ? 1 : 0)} height={height} head={props.head} selected={selected} matches={matchSet} />
       )}
       {/* With more to load, one more row says so at the end, where scrolling gets before they come. */}
       <div className="spacer" style={{ height: (rows.length + (hasMore ? 1 : 0)) * rowHeight }}>

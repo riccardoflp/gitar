@@ -538,6 +538,45 @@ input:focus-visible,
   height: 0;
 }
 
+/* Beside the scroll bar, it stays where it is while the commits scroll under it. */
+.scroll-marks {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 0;
+}
+
+.scroll-marks > div {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  pointer-events: none;
+}
+
+.scroll-marks span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+}
+
+.scroll-marks .found {
+  background: var(--vscode-editorOverviewRuler-findMatchForeground, rgb(209 134 22 / 80%));
+}
+
+.scroll-marks .head {
+  height: 4px;
+  margin-top: -2px;
+}
+
+.scroll-marks .selected {
+  height: 4px;
+  margin-top: -2px;
+  background: var(--vscode-focusBorder);
+}
+
 .sash.graph-sash {
   bottom: auto;
   left: calc(var(--graph) - 2px);
