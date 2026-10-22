@@ -45,7 +45,7 @@ const TIMED = `(act) => new Promise((resolve) => {
       wait: Math.round(received - started),
       draw: Math.round(performance.now() - received),
       sent: event.data.state.rows.length,
-      same: !!event.data.sameRows,
+      kept: event.data.kept ?? 0,
     }), 0));
   };
   addEventListener('message', listener);
@@ -64,7 +64,7 @@ try {
   report('references listed', `${await count('.refs .ref')} of ${await graph.evaluate(`[...document.querySelectorAll('.refs .count')].reduce((sum, badge) => sum + Number(badge.textContent), 0)`)}`);
   await shot('graph');
 
-  const describe = (timing) => `${timing.wait} ms + ${timing.draw} ms to draw (${timing.same ? 'commits not sent again' : `${timing.sent} commits sent`})`;
+  const describe = (timing) => `${timing.wait} ms + ${timing.draw} ms to draw (${timing.kept ? `${timing.kept} rows not sent again, ${timing.sent} sent` : `${timing.sent} commits sent`})`;
   const refresh = () => graph.evaluate(`(${TIMED})(() => document.querySelector('button[aria-label="Refresh"]').click())`);
   await refresh();
   report('refresh', describe(await refresh()));

@@ -70,6 +70,11 @@ const TALL_ROW_HEIGHT = 42;
 /** How many labels a commit shows there, the last of which counts the others when there are more. */
 const TALL_LABELS = 3;
 const OVERSCAN = 8;
+/**
+ * How many commits are kept loaded below the last one on screen. Scrolling fast covers a few hundred commits in a
+ * second or two, about as long as reading the next ones takes in a large repository: it should never catch up.
+ */
+const AHEAD = 500;
 export const LABEL_ICONS = {
   head: 'target',
   branch: 'git-branch',
@@ -164,10 +169,11 @@ export function CommitList(props: Props) {
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const end = Math.min(rows.length, Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN);
 
-  // Ask for the next page once per loaded length, when the end of the list gets close.
+  // Ask for the next page once per loaded length, well before the end of the list comes into sight. With small pages
+  // one follows the other until there are enough ahead.
   const requestedAt = useRef(0);
   useEffect(() => {
-    if (hasMore && end >= rows.length - 50 && requestedAt.current !== rows.length) {
+    if (hasMore && end >= rows.length - AHEAD && requestedAt.current !== rows.length) {
       requestedAt.current = rows.length;
       post({ type: 'loadMore' });
     }

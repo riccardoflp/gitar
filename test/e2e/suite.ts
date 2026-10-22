@@ -2753,12 +2753,12 @@ export async function run(): Promise<void> {
       write('first.txt', '1\n');
       let outgoing = await latest('the state with one change', (told) => told.changes === 1);
       // The row of the uncommitted changes is new, and moves the lines of the graph: everything is sent.
-      assert.equal(outgoing.sameRows, undefined);
+      assert.equal(outgoing.kept, undefined);
       assert.equal(outgoing.state!.rows.length, commits + 1);
 
       write('second.txt', '2\n');
       outgoing = await latest('the state with two changes', (told) => told.changes === 2);
-      assert.equal(outgoing.sameRows, true);
+      assert.equal(outgoing.kept, commits + 1);
       assert.deepEqual(
         outgoing.state!.rows.map((row) => row.subject),
         ['Uncommitted changes (2)'],
@@ -2769,9 +2769,26 @@ export async function run(): Promise<void> {
       await git(app, ['add', '.']);
       await git(app, ['commit', '-m', 'Two files']);
       outgoing = await latest('the state with the new commit', (told) => told.changes === 0);
-      assert.equal(outgoing.sameRows, undefined);
+      assert.equal(outgoing.kept, undefined);
       assert.equal(outgoing.state!.rows[0].subject, 'Two files');
       assert.equal(outgoing.state!.rows.length, commits + 1);
+
+      // Loading more of the history sends the commits after the ones the graph has, and only those.
+      const all = state().rows.map((row) => row.hash);
+      const pages = internals.limit;
+      try {
+        internals.limit = 2;
+        await vscode.commands.executeCommand('gitardo.refresh');
+        assert.deepEqual(state().rows.map((row) => row.hash), all.slice(0, 2));
+        const from = sent.length;
+        await internals.onMessage(graph, { type: 'loadMore' });
+        outgoing = await until('the state with the next commits', () => sent.slice(from).find((told) => told.state?.hasMore === false));
+        assert.equal(outgoing.kept, 2);
+        assert.deepEqual(outgoing.state!.rows.map((row) => row.hash), all.slice(2));
+        assert.deepEqual(state().rows.map((row) => row.hash), all);
+      } finally {
+        internals.limit = pages;
+      }
     } finally {
       graph.postMessage = postMessage;
     }

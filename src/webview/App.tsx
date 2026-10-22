@@ -68,13 +68,17 @@ export function buildLabels(state: RepoState): Map<string, Label[]> {
   return labels;
 }
 
-/** A state that came without its commits, because they are the ones this view already has, given those of the state before. */
-function withRowsOf(previous: RepoState | null, next: RepoState): RepoState {
+/** A state that came without the commits this view already has, given those of the state before. */
+function withRowsOf(previous: RepoState | null, next: RepoState, kept: number): RepoState {
   const rows = previous?.rows ?? [];
-  // Only the row of the uncommitted changes comes again, for the number of changes in its text.
-  const [worktree] = next.rows;
-  if (worktree && rows[0]?.hash === WORKTREE && rows[0].subject !== worktree.subject) return { ...next, rows: [worktree, ...rows.slice(1)] };
-  return { ...next, rows };
+  // The row of the uncommitted changes comes again, for the number of changes in its text, before the commits that are new.
+  const again = rows[0]?.hash === WORKTREE && next.rows[0]?.hash === WORKTREE ? next.rows[0] : null;
+  const after = again ? next.rows.slice(1) : next.rows;
+  // The same commits stay the same list, for what is worked out from them.
+  if (kept === rows.length && !after.length && (!again || again.subject === rows[0].subject)) return { ...next, rows };
+  const merged = rows.slice(0, kept).concat(after);
+  if (again) merged[0] = again;
+  return { ...next, rows: merged };
 }
 
 /** A search of the whole history, and the commits git found for it: null while it is looking. */
@@ -150,7 +154,8 @@ export function App({ compact = false }: { compact?: boolean }) {
     const stop = onMessage((message) => {
       if (message.type === 'state') {
         const next = message.state;
-        setState(next && message.sameRows ? (previous) => withRowsOf(previous, next) : next);
+        const kept = message.kept;
+        setState(next && kept !== undefined ? (previous) => withRowsOf(previous, next, kept) : next);
         setLoaded(true);
         const root = message.state?.root ?? null;
         if (root !== rootRef.current) {

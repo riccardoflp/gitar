@@ -519,10 +519,11 @@ export type Action =
 
 export type HostMessage =
   /**
-   * With `sameRows` the commits are the ones sent before, and are not sent again: `state.rows` only has the row of the
-   * uncommitted changes, if there is one, because the number of changes it tells may be another.
+   * With `kept` the first `kept` rows are the ones sent before, and are not sent again: `state.rows` only has the rows
+   * after them, which are none when the commits are the same, and before those the row of the uncommitted changes, if
+   * there is one, because the number of changes it tells may be another.
    */
-  | { type: 'state'; state: RepoState | null; sameRows?: true }
+  | { type: 'state'; state: RepoState | null; kept?: number }
   /** The commits of what is checked out, for the view that asked. */
   | { type: 'log'; log: BranchLog }
   | { type: 'detail'; hash: string; detail: CommitDetail | null }

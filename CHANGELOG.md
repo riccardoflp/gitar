@@ -10,6 +10,10 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 - The stashes in the graph, each above the commit it was made on while that commit is shown: a square with no fill, a dashed line down to the commit, and a label with a dotted border. Their context menu applies, pops, drops them or makes a branch of them. **Show stashes** in the **…** menu of the toolbar, or the setting `gitardo.graph.showStashes`, takes them out.
 - The references beside the graph and the Branches view can list every branch while the graph is narrowed, with the ones it leaves out dimmed and an eye on each that adds its history to the graph: **Filter the list of branches too** at the bottom of the list of the branches shown, the button on the line above the references, or the setting `gitardo.branches.followGraphFilter`.
 
+### Changed
+
+- Scrolling down the graph no longer stops at the end of the commits loaded to wait for the next: they are read while there are still hundreds to scroll through. Only the commits that are new are sent to the graph, so the next ones come as quickly however far down it is.
+
 ### Fixed
 
 - A context menu opened close to the right edge of a view, such as the one of **…**, could put the words beside an entry under it instead of on its line.

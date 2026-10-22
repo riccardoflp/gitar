@@ -172,15 +172,16 @@ function readDetail(reads: number, cause: string | undefined): string | undefine
 }
 
 /**
- * Identifies the rows of a state: two states with the same key have the same rows.
- * A commit never changes, so its hash stands for all of it. The row of the uncommitted changes only counts for being
- * there or not, which moves the lines of the graph: how many changes it says there are is sent apart.
+ * Identifies the first `count` rows of a state: two states with the same key have the same rows, as far as that.
+ * A commit never changes, so its hash stands for all of it, and the lines of the graph of a row only depend on the rows
+ * above it. The row of the uncommitted changes only counts for being there or not, which moves the lines of the graph:
+ * how many changes it says there are is sent apart.
  * The filter is part of it because the history of a file gives the same commits other parents.
  */
-function rowsKey(state: RepoState, filter: Filter | null): string {
+function rowsKey(state: RepoState, filter: Filter | null, count = state.rows.length): string {
   const hash = createHash('sha1');
   hash.update(`${state.root}\0${JSON.stringify(filter)}\0`);
-  for (const row of state.rows) hash.update(row.hash);
+  for (let index = 0; index < count; index++) hash.update(state.rows[index].hash);
   return hash.digest('hex');
 }
 
@@ -248,8 +249,8 @@ export class Controller implements vscode.Disposable {
   private reviewTab?: ConflictReviewTab;
   /** The views with a search box that have the keyboard: one at most, but each says so on its own. */
   private readonly focused = new Set<vscode.Webview>();
-  /** What identifies the commits each view that lists them was last sent. */
-  private readonly sentRows = new WeakMap<vscode.Webview, string>();
+  /** What identifies the commits each view that lists them was last sent, and how many they were. */
+  private readonly sentRows = new WeakMap<vscode.Webview, { key: string; count: number }>();
   /** The files of the repository shown that have edits not saved in an editor, by their paths from its root. */
   private unsaved: string[] = [];
   /** What `unsaved` was last worked out from: the state, and the files of the editors with edits not saved. */
@@ -1864,23 +1865,26 @@ export class Controller implements vscode.Disposable {
       return;
     }
     const { state } = message;
-    const key = rowsKey(state, this.filter);
+    const { rows } = state;
+    const keys = new Map([[rows.length, rowsKey(state, this.filter)]]);
+    const keyOf = (count: number) => keys.get(count) ?? keys.set(count, rowsKey(state, this.filter, count)).get(count)!;
     for (const view of targets) {
       // The views that never show the graph are spared the rows.
       if (!showsGraph(this.views.get(view) ?? 'graph')) {
         void view.postMessage({ type: 'state', state: { ...state, rows: [] } } satisfies HostMessage);
         continue;
       }
-      // Most refreshes follow a change to the files, which leaves the history as it was: thousands of commits
-      // are not sent again to a view that already has them.
-      const sameRows = this.sentRows.get(view) === key;
-      this.sentRows.set(view, key);
-      const sent: HostMessage = sameRows
-        ? { type: 'state', state: { ...state, rows: state.rows.filter((row) => row.hash === WORKTREE) }, sameRows }
-        : message;
-      void view.postMessage(sent).then((delivered) => {
+      // Most refreshes follow a change to the files, which leaves the history as it was, and loading more of it only
+      // adds commits after the others: the thousands a view already has are not sent to it again.
+      const before = this.sentRows.get(view);
+      const kept = before && before.count <= rows.length && keyOf(before.count) === before.key ? before.count : 0;
+      const sent = { key: keyOf(rows.length), count: rows.length };
+      this.sentRows.set(view, sent);
+      const worktree = rows[0]?.hash === WORKTREE ? [rows[0]] : [];
+      const posted: HostMessage = kept ? { type: 'state', state: { ...state, rows: [...worktree, ...rows.slice(kept)] }, kept } : message;
+      void view.postMessage(posted).then((delivered) => {
         // A view that is not there to receive it asks again when it comes back, and gets everything.
-        if (!delivered && this.sentRows.get(view) === key) this.sentRows.delete(view);
+        if (!delivered && this.sentRows.get(view) === sent) this.sentRows.delete(view);
       });
     }
   }
