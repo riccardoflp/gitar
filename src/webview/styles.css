@@ -846,6 +846,35 @@ input:focus-visible,
   opacity: 0.35;
 }
 
+/* A line before the first commit of a day, a week or a month further back, with its name at the end. */
+.row .period {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 0;
+  pointer-events: none;
+  font-size: 10px;
+  line-height: 10px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.row .period::before,
+.row .period::after {
+  content: '';
+  border-top: 1px solid var(--vscode-widget-border, color-mix(in srgb, currentColor 30%, transparent));
+}
+
+.row .period::before {
+  flex: 1;
+}
+
+.row .period::after {
+  width: 8px;
+}
+
 /* The history of the selected commit stands out less: it stays while the commits are read. */
 .commits.selection-traced .row.unreached > :not(.graph) {
   opacity: 0.6;

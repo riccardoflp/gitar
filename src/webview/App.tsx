@@ -427,6 +427,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           traceSelected={state.traceSelected}
           columns={state.graphColumns}
           head={state.head}
+          dateSeparators={state.dateSeparators}
         />
         {hasDetail && !compact && (
           <Sash

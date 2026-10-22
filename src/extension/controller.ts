@@ -412,6 +412,7 @@ export class Controller implements vscode.Disposable {
           branchesFollowScope: vscode.workspace.getConfiguration('gitardo').get('branches.followGraphFilter') !== false,
           traceSelected: vscode.workspace.getConfiguration('gitardo').get('graph.traceSelected') !== false,
           graphColumns: graphColumns(),
+          dateSeparators: vscode.workspace.getConfiguration('gitardo').get('graph.dateSeparators') !== false,
           resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
@@ -1950,6 +1951,8 @@ export class Controller implements vscode.Disposable {
         return vscode.workspace.getConfiguration('gitardo').update('branches.followGraphFilter', message.follow === true, vscode.ConfigurationTarget.Global);
       case 'setShowStashes':
         return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
+      case 'setDateSeparators':
+        return vscode.workspace.getConfiguration('gitardo').update('graph.dateSeparators', message.show === true, vscode.ConfigurationTarget.Global);
       case 'setGraphColumns': {
         const columns = GRAPH_COLUMNS.filter((column) => message.columns.includes(column));
         return vscode.workspace.getConfiguration('gitardo').update('graph.columns', columns, vscode.ConfigurationTarget.Global);

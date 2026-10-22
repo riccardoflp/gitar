@@ -1159,6 +1159,11 @@
           "default": ["author", "date", "hash"],
           "description": "What the graph shows of each commit beside its message: who made it, when, and its hash. The menu of the toolbar of the graph switches each of them on and off."
         },
+        "gitardo.graph.dateSeparators": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether a line before the first commit of yesterday, of this week, of last week and of each month before says which it is, in the graph. The menu of the toolbar of the graph has the same switch."
+        },
         "gitardo.graph.firstParent": {
           "type": "boolean",
           "default": false,

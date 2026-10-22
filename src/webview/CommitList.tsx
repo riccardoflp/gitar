@@ -18,7 +18,7 @@ import { Icon } from './Icon';
 import { Progress } from './Progress';
 import { Sash } from './Sash';
 import { endDrag, startDrag, type DragSource } from './drag';
-import { fullDate, laneColor, relativeTime, shortHash } from './util';
+import { datePeriods, fullDate, laneColor, relativeTime, shortHash } from './util';
 import { post } from './vscode';
 
 export interface Label {
@@ -78,6 +78,8 @@ interface Props {
   columns: GraphColumn[];
   /** The commit checked out, which `Home` goes back to. */
   head: string | null;
+  /** Whether a line with the name of a time further back, a day, a week or a month, comes before its first commit. */
+  dateSeparators: boolean;
 }
 
 const ROW_HEIGHT = 24;
@@ -265,6 +267,7 @@ export function CommitList(props: Props) {
   }, [rows]);
   const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
+  const periods = useMemo(() => (props.dateSeparators ? datePeriods(rows) : null), [rows, props.dateSeparators]);
   // What the history of the commit traced does not reach fades. Without one, what the selected commit comes from and
   // what was made on top of it stand out, less: it stays while the commits are read.
   const hovered = traced !== null && rows.some((row) => row.hash === traced);
@@ -439,6 +442,11 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
+              {periods?.has(index) && (
+                <span className="period" style={{ left: fit.width }}>
+                  <span>{periods.get(index)}</span>
+                </span>
+              )}
               <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} trace={trace?.[index]} unpushed={pushTo} />
               {tall ? (
                 <div className="lines">

@@ -254,6 +254,8 @@ export interface RepoState {
   firstParent: boolean;
   /** What the graph shows of each commit beside its message, as the settings say. */
   graphColumns: GraphColumn[];
+  /** Whether the graph names the days, weeks and months further back on a line before their first commit, as the settings say. */
+  dateSeparators: boolean;
   /**
    * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
@@ -665,6 +667,7 @@ export type WebviewMessage =
   | { type: 'setTraceSelected'; trace: boolean }
   | { type: 'setFirstParent'; only: boolean }
   | { type: 'setGraphColumns'; columns: GraphColumn[] }
+  | { type: 'setDateSeparators'; show: boolean }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }

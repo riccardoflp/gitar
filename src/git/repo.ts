@@ -597,6 +597,7 @@ export class Repo {
       showStashes: stashes,
       firstParent: this.firstParent,
       graphColumns: GRAPH_COLUMNS,
+      dateSeparators: true,
       traceSelected: true,
       branchesFollowScope: true,
       resolveWithAI: false,
