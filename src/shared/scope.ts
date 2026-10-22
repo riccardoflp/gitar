@@ -36,8 +36,8 @@ export function scopeChoices(state: Refs): ScopeChoice[] {
  */
 export function pruneScope(scope: unknown, state: Refs): Scope | null {
   if (!scope || typeof scope !== 'object') return null;
-  const { kind, kinds, refs } = scope as { kind?: unknown; kinds?: unknown; refs?: unknown };
-  if (kind === 'current') return { kind };
+  const { kind, kinds, refs, upstream } = scope as { kind?: unknown; kinds?: unknown; refs?: unknown; upstream?: unknown };
+  if (kind === 'current') return upstream === true ? { kind, upstream } : { kind };
   // Remembered from before the kinds of references could be chosen apart: the local branches alone.
   if (kind === 'local') return { kind: 'kinds', kinds: ['branch'] };
   if (kind === 'kinds') return Array.isArray(kinds) ? kindsScope(REF_KINDS.filter((each) => kinds.includes(each))) : null;
@@ -63,7 +63,9 @@ export function scopeKinds(scope: Scope | null): RefKind[] | null {
 export function scopeRefs(scope: Scope, state: Refs): string[] {
   if (scope.kind === 'refs') return scope.refs;
   if (scope.kind === 'kinds') return scopeChoices(state).flatMap((choice) => (scope.kinds.includes(choice.kind) ? [choice.ref] : []));
-  return state.branch ? [`refs/heads/${state.branch}`] : [];
+  if (!state.branch) return [];
+  const upstream = scope.upstream && state.branches.find((branch) => branch.name === state.branch)?.upstream;
+  return upstream ? [`refs/heads/${state.branch}`, `refs/remotes/${upstream.name}`] : [`refs/heads/${state.branch}`];
 }
 
 /** The scope with a reference added, or taken out if it is there: no scope, and so all the history, when none is left. */
@@ -88,7 +90,7 @@ const KINDS_LABELS: Record<string, string> = {
 /** A scope in a few words, for a button: "Current branch", "Remote branches", "main", "main +2". */
 export function scopeLabel(scope: Scope | null): string {
   if (!scope) return 'All branches';
-  if (scope.kind === 'current') return 'Current branch';
+  if (scope.kind === 'current') return scope.upstream ? 'Current and upstream' : 'Current branch';
   if (scope.kind === 'kinds') return KINDS_LABELS[scope.kinds.join(' ')] ?? 'All branches';
   const [first, ...others] = scope.refs.map(scopeRefName);
   return others.length ? `${first} +${others.length}` : first;

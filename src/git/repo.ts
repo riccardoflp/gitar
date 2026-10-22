@@ -621,6 +621,9 @@ export class Repo {
       args.push(filter.ref);
     } else if (scope?.kind === 'current' && head) {
       args.push('HEAD');
+      // Git has no upstream to give for a branch that has none, or with nothing checked out.
+      const upstream = scope.upstream ? (await this.read(['rev-parse', '--symbolic-full-name', '@{upstream}'], true)).trim() : '';
+      if (upstream.startsWith('refs/')) args.push(upstream);
     } else if (scope?.kind === 'refs') {
       // Full names, which cannot be taken for options. One deleted since it was chosen is passed over.
       args.push('--ignore-missing', ...scope.refs.filter((ref) => SCOPE_PREFIXES.some((prefix) => ref.startsWith(prefix))));

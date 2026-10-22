@@ -57,6 +57,12 @@ describe('the branches the graph is narrowed to', () => {
   it('says which references a scope shows', () => {
     expect(scopeRefs({ kind: 'current' }, state)).toEqual(['refs/heads/main']);
     expect(scopeRefs({ kind: 'current' }, { ...state, branch: null })).toEqual([]);
+    const upstream = { name: 'origin/main', remote: 'origin', branch: 'main', ahead: 1, behind: 0, gone: false };
+    const tracking = { ...state, branches: [branch('feature'), { ...branch('main', true), upstream }] };
+    expect(scopeRefs({ kind: 'current', upstream: true }, tracking)).toEqual(['refs/heads/main', 'refs/remotes/origin/main']);
+    expect(scopeRefs({ kind: 'current', upstream: true }, state)).toEqual(['refs/heads/main']);
+    expect(pruneScope({ kind: 'current', upstream: true }, state)).toEqual({ kind: 'current', upstream: true });
+    expect(pruneScope({ kind: 'current', upstream: 'yes' }, state)).toEqual({ kind: 'current' });
     expect(scopeRefs({ kind: 'kinds', kinds: ['branch'] }, state)).toEqual(['refs/heads/feature', 'refs/heads/main']);
     expect(scopeRefs({ kind: 'kinds', kinds: ['remote', 'tag'] }, state)).toEqual(['refs/remotes/origin/main', 'refs/tags/v1.0', 'refs/tags/main']);
     expect(scopeRefs({ kind: 'refs', refs: ['refs/tags/v1.0'] }, state)).toEqual(['refs/tags/v1.0']);
@@ -88,6 +94,7 @@ describe('the branches the graph is narrowed to', () => {
   it('names a scope in the few words a button has room for', () => {
     expect(scopeLabel(null)).toBe('All branches');
     expect(scopeLabel({ kind: 'current' })).toBe('Current branch');
+    expect(scopeLabel({ kind: 'current', upstream: true })).toBe('Current and upstream');
     expect(scopeLabel({ kind: 'kinds', kinds: ['branch'] })).toBe('Local branches');
     expect(scopeLabel({ kind: 'kinds', kinds: ['remote'] })).toBe('Remote branches');
     expect(scopeLabel({ kind: 'kinds', kinds: ['branch', 'remote'] })).toBe('Branches');

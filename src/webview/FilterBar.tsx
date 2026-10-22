@@ -48,7 +48,15 @@ const KIND_NAMES = { branch: 'the local branches', remote: 'the remote branches'
 
 /** The branches a scope is made of: "the current branch", "the local branches and the tags", "main, feature and 2 more". */
 function branches(scope: Scope): ReactNode {
-  if (scope.kind === 'current') return <b>the current branch</b>;
+  if (scope.kind === 'current') {
+    return scope.upstream ? (
+      <>
+        <b>the current branch</b> and <b>its upstream</b>
+      </>
+    ) : (
+      <b>the current branch</b>
+    );
+  }
   if (scope.kind === 'kinds') {
     return scope.kinds.map((kind, index) => (
       <Fragment key={kind}>

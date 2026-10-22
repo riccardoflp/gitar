@@ -16,6 +16,11 @@ const GROUPS: { kind: ScopeChoice['kind']; title: string }[] = [
 const QUICK: { scope: Scope | null; label: string; title: string }[] = [
   { scope: null, label: 'All', title: 'Every branch, remote branch and tag' },
   { scope: { kind: 'current' }, label: 'Current', title: 'Only what is checked out, whichever branch that is as you switch' },
+  {
+    scope: { kind: 'current', upstream: true },
+    label: 'Upstream',
+    title: 'What is checked out and its upstream, whichever branch that is as you switch: what is ahead of it and what is behind',
+  },
   { scope: { kind: 'kinds', kinds: ['branch'] }, label: 'Local', title: 'Only the local branches, and what is checked out' },
   { scope: { kind: 'kinds', kinds: ['remote'] }, label: 'Remotes', title: 'Only the remote branches, and what is checked out' },
 ];

@@ -189,12 +189,12 @@ From the context menu of a commit, branch or tag:
 
 The graph shows every branch, remote branch and tag until you tell it which ones. The button before the search box, three lines that get shorter, says what is shown and opens the list to choose from:
 
-- **All**, **Current**, **Local** and **Remotes** at the top choose with one click: everything, only what is checked out, only the local branches, or only the remote ones. **Current** follows you as you switch branch. What is checked out is in the graph whichever you choose.
-- Under them, every local branch, remote branch and tag has a tick. Tick the ones to show: the graph changes as you do. From **Current**, **Local** or **Remotes**, a tick added or taken away starts from the branches those stand for.
+- **All**, **Current**, **Upstream**, **Local** and **Remotes** at the top choose with one click: everything, only what is checked out, what is checked out and its upstream, only the local branches, or only the remote ones. **Upstream** shows at a glance what the branch has that its remote has not, and what there is to pull. **Current** and **Upstream** follow you as you switch branch. What is checked out is in the graph whichever you choose.
+- Under them, every local branch, remote branch and tag has a tick. Tick the ones to show: the graph changes as you do. From **Current**, **Upstream**, **Local** or **Remotes**, a tick added or taken away starts from the branches those stand for.
 - The box above the list leaves in it the names that contain what you type. `Escape` empties it, and closes the list when it is empty.
 - **Filter the list of branches too**, at the bottom, chooses what the references beside the graph and the Branches view list while the graph is narrowed: only the branches it shows, or all of them, with the ones it leaves out dimmed. A dimmed one has an eye at the end of its row, under the pointer, that adds its history to the graph. The setting is `gitardo.branches.followGraphFilter`, and the line above the references has the same switch.
 
-**Show local branches**, **Show remote branches** and **Show tags** in the **…** menu of the toolbar switch each kind of reference on and off in the graph, the same choice the list makes: **Local** is the local branches alone, **Remotes** the remote ones alone. One of them is always left on. They are greyed out while branches are ticked one by one, or **Current** is chosen.
+**Show local branches**, **Show remote branches** and **Show tags** in the **…** menu of the toolbar switch each kind of reference on and off in the graph, the same choice the list makes: **Local** is the local branches alone, **Remotes** the remote ones alone. One of them is always left on. They are greyed out while branches are ticked one by one, or **Current** or **Upstream** is chosen.
 
 The same can be done from the context menu of a branch or tag, on its label in the graph, in the references and in the Branches view. The references list only the branches that are shown, unless they are set to list them all, so one that is not is added from its label in the graph, or from the list of the button:
 

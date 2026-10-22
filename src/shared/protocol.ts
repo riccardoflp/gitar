@@ -140,7 +140,8 @@ export type RefKind = 'branch' | 'remote' | 'tag';
  * some kinds of references, or of the references chosen one by one, by their full names (`refs/heads/main`). It is
  * apart from the filter, which narrows what is left of it.
  */
-export type Scope = { kind: 'current' } | { kind: 'kinds'; kinds: RefKind[] } | { kind: 'refs'; refs: string[] };
+/** `upstream` with what is checked out: its upstream too, to see what is ahead of it and what is behind. */
+export type Scope = { kind: 'current'; upstream?: true } | { kind: 'kinds'; kinds: RefKind[] } | { kind: 'refs'; refs: string[] };
 
 /** What the graph waits for: the commits of another filter, scope or repository, or the ones after the last that is loaded. */
 export type Loading = 'filter' | 'more';

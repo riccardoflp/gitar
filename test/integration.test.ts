@@ -1276,6 +1276,14 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     await run(checkoutOp('branch', 'main'));
     await git(root, ['update-ref', 'refs/remotes/origin/other', other]);
     expect(await shown({ kind: 'kinds', kinds: ['remote'] })).toEqual(['base', 'main change', 'other change']);
+
+    // What is checked out and its upstream, when it has one.
+    expect(await shown({ kind: 'current', upstream: true })).toEqual(['base', 'main change']);
+    await git(root, ['remote', 'add', 'origin', 'https://example.com/repo.git']);
+    await git(root, ['config', 'branch.main.remote', 'origin']);
+    await git(root, ['config', 'branch.main.merge', 'refs/heads/other']);
+    expect(await shown({ kind: 'current', upstream: true })).toEqual(['base', 'main change', 'other change']);
+    expect(await shown({ kind: 'current' })).toEqual(['base', 'main change']);
   });
 
   it('says how far back a commit is, and which commits a search finds', async () => {
