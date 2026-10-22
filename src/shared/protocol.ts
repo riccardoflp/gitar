@@ -241,6 +241,8 @@ export interface RepoState {
   openBranches: 'checkout' | 'worktree';
   /** Whether the graph shows the stashes, each above the commit it was made on, as the settings say. */
   showStashes: boolean;
+  /** Whether the history of the commit selected in the graph stands out, as the settings say. */
+  traceSelected: boolean;
   /**
    * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
@@ -649,6 +651,7 @@ export type WebviewMessage =
   | { type: 'setBranchesFollowScope'; follow: boolean }
   /** Shows the stashes in the graph, or no longer. */
   | { type: 'setShowStashes'; show: boolean }
+  | { type: 'setTraceSelected'; trace: boolean }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }

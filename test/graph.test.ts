@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, fitGraph, laneCount, reachedFrom, traceGraph, unpushedCommits } from '../src/shared/graph';
+import { GraphLayout, fitGraph, laneCount, reachedFrom, reaching, traceGraph, unpushedCommits } from '../src/shared/graph';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -140,6 +140,24 @@ describe('traceGraph', () => {
     const listed = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
     const traced = traceGraph(listed, reachedFrom(listed, 'm'));
     expect(traced.every((row) => row.node && row.top.every(Boolean) && row.bottom.every(Boolean))).toBe(true);
+  });
+
+  it('finds the commits made on top of a commit up the rows, and nothing below it', () => {
+    const listed = rows([['d', 'm'], ['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
+    expect([...reaching(listed, 'b')].sort()).toEqual(['b', 'd', 'm']);
+    expect([...reaching(listed, 'c')].sort()).toEqual(['a', 'b', 'c', 'd', 'm']);
+  });
+
+  it('lights the line from a merge to the branch it merged, and not the one to its other parent', () => {
+    const listed = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
+    const [merge, main, feature, base] = traceGraph(listed, new Set([...reachedFrom(listed, 'b'), ...reaching(listed, 'b')]));
+    expect(edges(listed[0].graph.bottom)).toEqual(['0>0', '0>1']);
+    expect(merge).toEqual({ node: true, top: [], bottom: [false, true] });
+    expect(main.node).toBe(false);
+    expect(main.bottom.every((lit, index) => lit === (listed[1].graph.bottom[index].from === 1))).toBe(true);
+    expect(feature.node).toBe(true);
+    expect(base.node).toBe(true);
+    expect(base.top).toEqual(listed[3].graph.top.map((line) => line.from === 1));
   });
 });
 

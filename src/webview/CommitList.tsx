@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { fitGraph, laneCount, reachedFrom, traceGraph, type GraphTrace } from '../shared/graph';
+import { fitGraph, laneCount, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
 import { WORKTREE, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
 import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
@@ -72,6 +72,8 @@ interface Props {
   onTrace(hash: string | null): void;
   /** The commits a branch has that its upstream has not yet, with the upstream they would be pushed to. */
   unpushed: ReadonlyMap<string, string>;
+  /** Whether the history of the selected commit stands out, what it comes from and what was made on top of it. */
+  traceSelected: boolean;
 }
 
 const ROW_HEIGHT = 24;
@@ -200,7 +202,7 @@ function Unpushed({ upstream }: { upstream: string }) {
 
 export function CommitList(props: Props) {
   const { rows, empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
-  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed } = props;
+  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed, traceSelected } = props;
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -235,11 +237,15 @@ export function CommitList(props: Props) {
   }, [rows]);
   const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
-  // What the history of the commit traced does not reach fades.
+  // What the history of the commit traced does not reach fades. Without one, what the selected commit comes from and
+  // what was made on top of it stand out, less: it stays while the commits are read.
+  const hovered = traced !== null && rows.some((row) => row.hash === traced);
+  const chosen = traceSelected && !hovered && marked.size < 2 && selected !== null && selected !== WORKTREE ? selected : null;
   const trace = useMemo(() => {
-    if (!traced || !rows.some((row) => row.hash === traced)) return null;
-    return traceGraph(rows, reachedFrom(rows, traced));
-  }, [rows, traced]);
+    if (hovered) return traceGraph(rows, reachedFrom(rows, traced));
+    if (!chosen || !rows.some((row) => row.hash === chosen)) return null;
+    return traceGraph(rows, new Set([...reachedFrom(rows, chosen), ...reaching(rows, chosen)]));
+  }, [rows, traced, hovered, chosen]);
 
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const end = Math.min(rows.length, Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN);
@@ -286,6 +292,7 @@ export function CommitList(props: Props) {
   if (fit.cut) listClasses.push('cut');
   // The commits of the filter before stay until those of the new one come, but they are no longer what is asked for.
   if (loading === 'filter') listClasses.push('stale');
+  if (trace && !hovered) listClasses.push('selection-traced');
 
   return (
     <div

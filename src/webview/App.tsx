@@ -424,6 +424,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           traced={traced}
           onTrace={trace}
           unpushed={unpushed}
+          traceSelected={state.traceSelected}
         />
         {hasDetail && !compact && (
           <Sash

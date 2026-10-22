@@ -402,6 +402,7 @@ export class Controller implements vscode.Disposable {
           worktreesRoot: worktreesFolder(state),
           openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
           branchesFollowScope: vscode.workspace.getConfiguration('gitardo').get('branches.followGraphFilter') !== false,
+          traceSelected: vscode.workspace.getConfiguration('gitardo').get('graph.traceSelected') !== false,
           resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
@@ -1939,6 +1940,8 @@ export class Controller implements vscode.Disposable {
         return vscode.workspace.getConfiguration('gitardo').update('branches.followGraphFilter', message.follow === true, vscode.ConfigurationTarget.Global);
       case 'setShowStashes':
         return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
+      case 'setTraceSelected':
+        return vscode.workspace.getConfiguration('gitardo').update('graph.traceSelected', message.trace === true, vscode.ConfigurationTarget.Global);
       case 'setFavorite':
         return this.setFavorite(message.ref, message.favorite === true);
       case 'goTo':

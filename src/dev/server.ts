@@ -198,9 +198,10 @@ async function main() {
   let limit = PAGE_SIZE;
   let filter: Filter | null = null;
   let scope: Scope | null = null;
-  /** What `gitardo.branches.followGraphFilter` and `gitardo.graph.showStashes` would say, kept while the server runs. */
+  /** What `gitardo.branches.followGraphFilter`, `gitardo.graph.showStashes` and `gitardo.graph.traceSelected` would say, kept while the server runs. */
   let branchesFollowScope = true;
   let showStashes = true;
+  let traceSelected = true;
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
   /** The worktrees of the repository shown, which the views can be pointed at, and the repository to go back to. */
@@ -299,7 +300,7 @@ async function main() {
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, resolveWithAI: true, home: away } }];
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, traceSelected, resolveWithAI: true, home: away } }];
   }
 
   /** `light` for a page in the light theme, which can have other file icons. */
@@ -329,6 +330,9 @@ async function main() {
         return state();
       case 'setShowStashes':
         showStashes = message.show === true;
+        return state();
+      case 'setTraceSelected':
+        traceSelected = message.trace === true;
         return state();
       case 'setFavorite': {
         if (!repo) return [];

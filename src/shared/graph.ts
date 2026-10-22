@@ -112,20 +112,35 @@ export interface GraphTrace {
   bottom: boolean[];
 }
 
+/** The commits among the rows that reach a commit, itself included: the ones made on top of it, as far as they are loaded. */
+export function reaching(rows: Pick<Row, 'hash' | 'parents'>[], base: string): Set<string> {
+  const found = new Set([base]);
+  // Parents come after their children, so one pass up the rows finds them all.
+  for (let index = rows.length - 1; index >= 0; index--) {
+    if (rows[index].parents.some((parent) => found.has(parent))) found.add(rows[index].hash);
+  }
+  return found;
+}
+
 /**
  * For each row, which parts of its graph cell lead along the history of the commits reached: a line belongs to it when
- * the commit it comes down from does. Where two lines run into one lane, the lane belongs to it if either does.
+ * the commit it comes down from does, and so does the parent it goes to. Where two lines run into one lane, the lane
+ * belongs to it if either does.
  */
-export function traceGraph(rows: Pick<Row, 'hash' | 'graph'>[], reached: ReadonlySet<string>): GraphTrace[] {
+export function traceGraph(rows: Pick<Row, 'hash' | 'graph' | 'parents'>[], reached: ReadonlySet<string>): GraphTrace[] {
   // For each lane, whether what runs down it comes from a commit reached.
   const lit: boolean[] = [];
-  return rows.map(({ hash, graph }) => {
+  return rows.map(({ hash, graph, parents }) => {
     const node = reached.has(hash);
     const top = graph.top.map((line) => !!lit[line.from]);
     // The lines that end at this commit leave their lanes free.
     for (const line of graph.top) if (line.to === graph.col) lit[line.from] = false;
-    const bottom = graph.bottom.map((line) => (line.from === graph.col ? node : !!lit[line.from]));
-    for (const line of graph.bottom) if (line.from === graph.col) lit[line.to] = !!lit[line.to] || node;
+    // The lines that leave the commit go to its parents in their order, after the ones that only pass by.
+    let parent = 0;
+    const bottom = graph.bottom.map((line) => (line.from === graph.col ? node && reached.has(parents[parent++]) : !!lit[line.from]));
+    graph.bottom.forEach((line, index) => {
+      if (line.from === graph.col) lit[line.to] = !!lit[line.to] || bottom[index];
+    });
     return { node, top, bottom };
   });
 }

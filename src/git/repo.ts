@@ -590,6 +590,7 @@ export class Repo {
       worktreesRoot: null,
       openBranches: 'checkout',
       showStashes: stashes,
+      traceSelected: true,
       branchesFollowScope: true,
       resolveWithAI: false,
       home: null,
