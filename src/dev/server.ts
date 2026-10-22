@@ -10,7 +10,18 @@ import { Repo } from '../git/repo';
 import { fingerprint, reviewFiles, type Answer } from '../git/review';
 import { previewSetup, scanIgnored } from '../git/worktreeSetup';
 import { addressed, languageMap, readFileIconTheme } from '../extension/fileIconTheme';
-import { GRAPH_COLUMNS, WORKTREE, type CompareMode, type Filter, type HostMessage, type Scope, type ViewKind, type WebviewMessage } from '../shared/protocol';
+import {
+  GRAPH_COLUMNS,
+  WORKTREE,
+  type BranchSort,
+  type CompareMode,
+  type Filter,
+  type HostMessage,
+  type Scope,
+  type ViewKind,
+  type WebviewMessage,
+} from '../shared/protocol';
+import { sortRefs } from '../shared/refs';
 import type { Asking } from '../shared/resolution';
 import { cleanPatterns, type SetupLayer, type SetupSource } from '../shared/worktreeSetup';
 
@@ -205,6 +216,7 @@ async function main() {
   let firstParent = false;
   let graphColumns = GRAPH_COLUMNS;
   let dateSeparators = true;
+  let branchSort: BranchSort = 'name';
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
   /** The worktrees of the repository shown, which the views can be pointed at, and the repository to go back to. */
@@ -304,7 +316,7 @@ async function main() {
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, traceSelected, graphColumns, dateSeparators, resolveWithAI: true, home: away } }];
+    return [{ type: 'state', state: { ...sortRefs(read, branchSort), favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, branchSort, traceSelected, graphColumns, dateSeparators, resolveWithAI: true, home: away } }];
   }
 
   /** `light` for a page in the light theme, which can have other file icons. */
@@ -337,6 +349,9 @@ async function main() {
         return state();
       case 'setDateSeparators':
         dateSeparators = message.show === true;
+        return state();
+      case 'setBranchSort':
+        branchSort = message.sort === 'date' ? 'date' : 'name';
         return state();
       case 'setGraphColumns':
         graphColumns = GRAPH_COLUMNS.filter((column) => message.columns.includes(column));

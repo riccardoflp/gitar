@@ -600,6 +600,7 @@ export class Repo {
       dateSeparators: true,
       traceSelected: true,
       branchesFollowScope: true,
+      branchSort: 'name',
       resolveWithAI: false,
       home: null,
     };

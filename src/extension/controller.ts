@@ -29,7 +29,7 @@ import { allChanges, samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
 import { changeSetup, previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSetup';
 import { GRAPH_COLUMNS, WORKTREE, showsGraph } from '../shared/protocol';
-import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
+import { changesText, sortRefs, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { cleanPatterns, type IgnoredEntry, type SetupChoice, type SetupPatterns, type SetupTarget } from '../shared/worktreeSetup';
 import { submoduleFolder } from '../shared/submodules';
 import { Activity } from './activity';
@@ -42,6 +42,7 @@ import type {
   DiffSource,
   FileChange,
   FilesLayout,
+  BranchSort,
   Filter,
   GraphColumn,
   HostMessage,
@@ -196,6 +197,14 @@ function graphColumns(): GraphColumn[] {
   return Array.isArray(wanted) ? GRAPH_COLUMNS.filter((column) => wanted.includes(column)) : GRAPH_COLUMNS;
 }
 
+/** How branches and tags are listed, as `gitardo.branches.sortOrder` asks, or else as VS Code's `git.branchSortOrder` does. */
+function branchSort(): BranchSort {
+  const set = vscode.workspace.getConfiguration('gitardo').inspect<unknown>('branches.sortOrder');
+  const ours = set?.workspaceFolderValue ?? set?.workspaceValue ?? set?.globalValue;
+  if (ours === 'name' || ours === 'date') return ours;
+  return vscode.workspace.getConfiguration('git').get('branchSortOrder') === 'committerdate' ? 'date' : 'name';
+}
+
 /** How many commits the graph reads at a time, as `gitardo.graph.pageSize` asks. */
 function pageSize(): number {
   const wanted = Math.trunc(Number(vscode.workspace.getConfiguration('gitardo').get('graph.pageSize')));
@@ -309,7 +318,7 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidRenameFiles(schedule('files were renamed')),
       vscode.window.onDidChangeWindowState((window) => window.focused && this.scheduleRefresh('VS Code got the focus')),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        const sections = ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches', 'gitardo.graph'];
+        const sections = ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches', 'gitardo.graph', 'git.branchSortOrder'];
         if (sections.some((section) => event.affectsConfiguration(section))) {
           this.scheduleRefresh('the settings changed');
         }
@@ -399,8 +408,9 @@ export class Controller implements vscode.Disposable {
         }
         // Unless another was chosen while this one was read.
         if (scope === this.scope) this.settleScope(state.root, state.scope);
+        const sort = branchSort();
         this.setState({
-          ...state,
+          ...sortRefs(state, sort),
           favorites: this.favorites(state),
           defaultPull: this.defaultPull(),
           repos: this.repos,
@@ -410,6 +420,7 @@ export class Controller implements vscode.Disposable {
           worktreesRoot: worktreesFolder(state),
           openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
           branchesFollowScope: vscode.workspace.getConfiguration('gitardo').get('branches.followGraphFilter') !== false,
+          branchSort: sort,
           traceSelected: vscode.workspace.getConfiguration('gitardo').get('graph.traceSelected') !== false,
           graphColumns: graphColumns(),
           dateSeparators: vscode.workspace.getConfiguration('gitardo').get('graph.dateSeparators') !== false,
@@ -1953,6 +1964,10 @@ export class Controller implements vscode.Disposable {
         return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
       case 'setDateSeparators':
         return vscode.workspace.getConfiguration('gitardo').update('graph.dateSeparators', message.show === true, vscode.ConfigurationTarget.Global);
+      case 'setBranchSort': {
+        const sort = message.sort === 'date' ? 'date' : 'name';
+        return vscode.workspace.getConfiguration('gitardo').update('branches.sortOrder', sort, vscode.ConfigurationTarget.Global);
+      }
       case 'setGraphColumns': {
         const columns = GRAPH_COLUMNS.filter((column) => message.columns.includes(column));
         return vscode.workspace.getConfiguration('gitardo').update('graph.columns', columns, vscode.ConfigurationTarget.Global);

@@ -70,7 +70,7 @@ import {
   workingChanges,
 } from '../src/git/parse';
 import type { Branch, RepoState, Upstream, WorkingState, Worktree } from '../src/shared/protocol';
-import { canFastForward } from '../src/shared/refs';
+import { canFastForward, sortRefs } from '../src/shared/refs';
 
 const F = '\x1f';
 
@@ -100,25 +100,49 @@ describe('parsers', () => {
     const line = (...fields: string[]) => fields.join(F);
     const refs = parseRefs(
       [
-        line('refs/heads/main', 'aaa', '', 'refs/remotes/origin/main', 'origin', 'refs/heads/main', '[ahead 3, behind 2]', '*'),
-        line('refs/heads/old', 'bbb', '', 'refs/remotes/origin/old', 'origin', 'refs/heads/old', '[gone]', ' '),
-        line('refs/heads/local', 'ccc', '', '', '', '', '', ' '),
-        line('refs/remotes/origin/HEAD', 'aaa', '', '', '', '', '', ' '),
-        line('refs/remotes/origin/main', 'ddd', '', '', '', '', '', ' '),
-        line('refs/tags/v1', 'tagobj', 'eee', '', '', '', '', ' '),
-        line('refs/stash', 'fff', '', '', '', '', '', ' '),
+        line('refs/heads/main', 'aaa', '', 'refs/remotes/origin/main', 'origin', 'refs/heads/main', '[ahead 3, behind 2]', '*', '1700000000'),
+        line('refs/heads/old', 'bbb', '', 'refs/remotes/origin/old', 'origin', 'refs/heads/old', '[gone]', ' ', '1600000000'),
+        line('refs/heads/local', 'ccc', '', '', '', '', '', ' ', '1650000000'),
+        line('refs/remotes/origin/HEAD', 'aaa', '', '', '', '', '', ' ', '1700000000'),
+        line('refs/remotes/origin/main', 'ddd', '', '', '', '', '', ' ', '1690000000'),
+        line('refs/tags/v1', 'tagobj', 'eee', '', '', '', '', ' ', '1680000000'),
+        line('refs/stash', 'fff', '', '', '', '', '', ' ', '1710000000'),
       ].join('\n') + '\n',
     );
     expect(refs.branches[0]).toEqual({
       name: 'main',
       hash: 'aaa',
+      date: 1700000000,
       current: true,
       upstream: { name: 'origin/main', remote: 'origin', branch: 'main', ahead: 3, behind: 2, gone: false },
     });
     expect(refs.branches[1].upstream?.gone).toBe(true);
     expect(refs.branches[2].upstream).toBeUndefined();
-    expect(refs.remoteBranches).toEqual([{ name: 'origin/main', hash: 'ddd' }]);
-    expect(refs.tags).toEqual([{ name: 'v1', hash: 'eee' }]);
+    expect(refs.remoteBranches).toEqual([{ name: 'origin/main', hash: 'ddd', date: 1690000000 }]);
+    expect(refs.tags).toEqual([{ name: 'v1', hash: 'eee', date: 1680000000 }]);
+
+    // By date the latest come first; by name they stay as git lists them.
+    expect(sortRefs(refs, 'date').branches.map((branch) => branch.name)).toEqual(['main', 'local', 'old']);
+    expect(sortRefs(refs, 'name').branches.map((branch) => branch.name)).toEqual(['main', 'old', 'local']);
+  });
+
+  it('keeps the order of the names among branches committed to at the same time', () => {
+    const refs = {
+      branches: [
+        { name: 'a', hash: '1', date: 5, current: false },
+        { name: 'b', hash: '2', date: 9, current: false },
+        { name: 'c', hash: '3', date: 5, current: true },
+      ],
+      remoteBranches: [],
+      tags: [
+        { name: 'v1', hash: '4', date: 1 },
+        { name: 'v2', hash: '5', date: 2 },
+      ],
+    };
+    const sorted = sortRefs(refs, 'date');
+    expect(sorted.branches.map((branch) => branch.name)).toEqual(['b', 'a', 'c']);
+    expect(sorted.tags.map((tag) => tag.name)).toEqual(['v2', 'v1']);
+    expect(refs.branches[0].name).toBe('a');
   });
 
   it('parses name-status output with renames', () => {

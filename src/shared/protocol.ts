@@ -49,6 +49,8 @@ export interface Upstream {
 export interface Branch {
   name: string;
   hash: string;
+  /** When the commit it points at was committed, in seconds. */
+  date?: number;
   current: boolean;
   upstream?: Upstream;
 }
@@ -56,6 +58,8 @@ export interface Branch {
 export interface NamedRef {
   name: string;
   hash: string;
+  /** When the commit it points at was committed, or for an annotated tag when the tag was made, in seconds. */
+  date?: number;
 }
 
 export interface Stash {
@@ -135,18 +139,21 @@ export type Filter =
 /** The kinds of references whose histories the graph can show: local branches, remote branches and tags. */
 export type RefKind = 'branch' | 'remote' | 'tag';
 
-/**
- * Which histories the graph shows, when not those of every branch, remote branch and tag: of what is checked out, of
- * some kinds of references, or of the references chosen one by one, by their full names (`refs/heads/main`). It is
- * apart from the filter, which narrows what is left of it.
- */
 /** What the graph can show of a commit beside its message. */
 export type GraphColumn = 'author' | 'date' | 'hash';
 
 /** Every one of them, in the order they are shown. */
 export const GRAPH_COLUMNS: GraphColumn[] = ['author', 'date', 'hash'];
 
-/** `upstream` with what is checked out: its upstream too, to see what is ahead of it and what is behind. */
+/** How branches and tags are listed: by name, or the one committed to last first. */
+export type BranchSort = 'name' | 'date';
+
+/**
+ * Which histories the graph shows, when not those of every branch, remote branch and tag: of what is checked out, of
+ * some kinds of references, or of the references chosen one by one, by their full names (`refs/heads/main`). It is
+ * apart from the filter, which narrows what is left of it. `upstream` with what is checked out shows its upstream too,
+ * to see what is ahead of it and what is behind.
+ */
 export type Scope = { kind: 'current'; upstream?: true } | { kind: 'kinds'; kinds: RefKind[] } | { kind: 'refs'; refs: string[] };
 
 /** What the graph waits for: the commits of another filter, scope or repository, or the ones after the last that is loaded. */
@@ -261,6 +268,8 @@ export interface RepoState {
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
    */
   branchesFollowScope: boolean;
+  /** How the branches, remote branches and tags are listed everywhere, as the settings say: by name, or the latest first. */
+  branchSort: BranchSort;
   /** Whether a language model can be asked how to resolve the conflicts, as the settings say. */
   resolveWithAI: boolean;
   /**
@@ -668,6 +677,7 @@ export type WebviewMessage =
   | { type: 'setFirstParent'; only: boolean }
   | { type: 'setGraphColumns'; columns: GraphColumn[] }
   | { type: 'setDateSeparators'; show: boolean }
+  | { type: 'setBranchSort'; sort: BranchSort }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }

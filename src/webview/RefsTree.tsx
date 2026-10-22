@@ -304,6 +304,17 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
       branches.find((item) => item.key === name),
     ),
   );
+  // Branches and tags are listed in the same order, which the menu of each of their sections chooses.
+  const sorting = (what: string): SectionAction[] => [
+    {
+      icon: 'ellipsis',
+      title: `More actions for ${what}`,
+      menu: () => [
+        { label: 'Sort by name', checked: state.branchSort === 'name', run: () => post({ type: 'setBranchSort', sort: 'name' }) },
+        { label: 'Sort by date', checked: state.branchSort === 'date', run: () => post({ type: 'setBranchSort', sort: 'date' }) },
+      ],
+    },
+  ];
   // Only the names that are listed here count towards having a filter.
   const shown = (id: SectionId, count: number) => (!sections || sections.includes(id) ? count : 0);
   const names =
@@ -355,8 +366,8 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
       )}
       {section('favorites', 'Favorites', 'star-full', favoriteItems, true)}
       {section('recent', 'Recent', 'history', recentItems, true)}
-      {section('branches', 'Local', 'git-branch', branches)}
-      {section('remotes', 'Remotes', 'cloud', remotes)}
+      {section('branches', 'Local', 'git-branch', branches, false, sorting('branches'))}
+      {section('remotes', 'Remotes', 'cloud', remotes, false, sorting('remote branches'))}
       {section(
         'tags',
         'Tags',
@@ -370,6 +381,8 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
             label: ref.name,
             menu: () => tagMenu(ref, state, onCompare, onReveal),
           })),
+        false,
+        sorting('tags'),
       )}
       {section(
         'stashes',

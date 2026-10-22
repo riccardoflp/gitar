@@ -29,6 +29,8 @@ export const REF_FORMAT = [
   '%(upstream:remoteref)',
   '%(upstream:track)',
   '%(HEAD)',
+  // The date of the commit, or of the tag for an annotated tag.
+  '%(creatordate:unix)',
 ].join('%1f');
 
 const records = (out: string) => out.split('\0').filter(Boolean);
@@ -52,9 +54,10 @@ export function parseRefs(out: string): Refs {
   const refs: Refs = { branches: [], remoteBranches: [], tags: [] };
   for (const line of out.split('\n')) {
     if (!line) continue;
-    const [refname, hash, peeled, upstream, remote, remoteRef, track, head] = line.split(FIELD);
+    const [refname, hash, peeled, upstream, remote, remoteRef, track, head, created] = line.split(FIELD);
+    const date = Number(created) || 0;
     if (refname.startsWith('refs/heads/')) {
-      const branch: Branch = { name: refname.slice('refs/heads/'.length), hash, current: head === '*' };
+      const branch: Branch = { name: refname.slice('refs/heads/'.length), hash, date, current: head === '*' };
       if (upstream) {
         branch.upstream = {
           name: upstream.replace(/^refs\/(remotes|heads)\//, ''),
@@ -68,10 +71,10 @@ export function parseRefs(out: string): Refs {
       refs.branches.push(branch);
     } else if (refname.startsWith('refs/remotes/')) {
       const name = refname.slice('refs/remotes/'.length);
-      if (!name.endsWith('/HEAD')) refs.remoteBranches.push({ name, hash });
+      if (!name.endsWith('/HEAD')) refs.remoteBranches.push({ name, hash, date });
     } else if (refname.startsWith('refs/tags/')) {
       // Annotated tags point at a tag object; the commit is the peeled hash.
-      refs.tags.push({ name: refname.slice('refs/tags/'.length), hash: peeled || hash });
+      refs.tags.push({ name: refname.slice('refs/tags/'.length), hash: peeled || hash, date });
     }
   }
   return refs;

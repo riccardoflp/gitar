@@ -1174,6 +1174,18 @@
           "default": true,
           "description": "Whether the history of the commit selected in the graph stands out, the commits it comes from and the ones made on top of it, while the rest is dimmed. The menu of the toolbar of the graph has the same switch."
         },
+        "gitardo.branches.sortOrder": {
+          "type": "string",
+          "enum": [
+            "name",
+            "date"
+          ],
+          "enumDescriptions": [
+            "In the order of their names.",
+            "The one committed to last first. For an annotated tag, when the tag was made."
+          ],
+          "markdownDescription": "How branches, remote branches and tags are listed beside the graph, in the Branches view and wherever one is chosen from a list. The menu of their sections switches it too. Not set, they are listed as `#git.branchSortOrder#` of VS Code lists them."
+        },
         "gitardo.branches.followGraphFilter": {
           "type": "boolean",
           "default": true,

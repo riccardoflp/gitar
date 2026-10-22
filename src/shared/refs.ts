@@ -1,4 +1,4 @@
-import type { Branch, PullRequest, RepoState, Worktree } from './protocol';
+import type { Branch, BranchSort, NamedRef, PullRequest, RepoState, Worktree } from './protocol';
 
 const KINDS = { branch: 'refs/heads/', remote: 'refs/remotes/', tag: 'refs/tags/' } as const;
 
@@ -10,6 +10,16 @@ export function refArg(kind: keyof typeof KINDS, name: string, state: RepoState)
   const lists = [state.branches, state.remoteBranches, state.tags];
   const namesakes = lists.filter((list) => list.some((ref) => ref.name === name)).length;
   return namesakes > 1 ? `${KINDS[kind]}${name}` : name;
+}
+
+/**
+ * The branches, remote branches and tags in the order the settings ask for: by name, as git lists them, or the one
+ * committed to last first, and by name among those of the same time.
+ */
+export function sortRefs<T extends Pick<RepoState, 'branches' | 'remoteBranches' | 'tags'>>(refs: T, sort: BranchSort): T {
+  if (sort === 'name') return refs;
+  const latest = <R extends NamedRef>(list: R[]) => [...list].sort((one, other) => (other.date ?? 0) - (one.date ?? 0));
+  return { ...refs, branches: latest(refs.branches), remoteBranches: latest(refs.remoteBranches), tags: latest(refs.tags) };
 }
 
 /** A worktree where new ones go by its path from there, slashes and all; any other by the name of its folder. */

@@ -343,10 +343,14 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     const head = await commitAll('First commit');
     await run(createTagOp('v1', 'HEAD', 'First release'));
     await run(createTagOp('light', 'HEAD', ''));
-    expect((await state()).tags).toEqual([
+    const { tags, branches } = await state();
+    expect(tags).toMatchObject([
       { name: 'light', hash: head },
       { name: 'v1', hash: head },
     ]);
+    // When they were made, to list them by date.
+    const now = Date.now() / 1000;
+    for (const ref of [...tags, ...branches]) expect(Math.abs(ref.date! - now)).toBeLessThan(600);
   });
 
   it('stages, unstages and discards single hunks', async () => {
