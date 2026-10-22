@@ -8,23 +8,30 @@ export class GraphLayout {
   /** For each lane, the hash it is waiting to reach, or null when the lane is free. */
   private lanes: (string | null)[] = [];
   private colors: number[] = [];
+  /** For each lane, whether it is drawn dashed down to the commit it waits for. */
+  private dashed: boolean[] = [];
   private nextColor = 0;
 
-  next(hash: string, parents: string[]): GraphRow {
+  /** `dashed` for what is not part of the history, the uncommitted changes and the stashes: their line is dashed. */
+  next(hash: string, parents: string[], dashed = false): GraphRow {
     const top: GraphLine[] = [];
     const bottom: GraphLine[] = [];
 
-    let col = this.lanes.indexOf(hash);
+    // The commit goes on a lane of the history that waits for it rather than on the dashed one of a stash, which ends there.
+    let col = this.lanes.findIndex((awaited, lane) => awaited === hash && !this.dashed[lane]);
+    if (col === -1) col = this.lanes.indexOf(hash);
     const isTip = col === -1;
     if (isTip) col = this.alloc(hash);
     const color = this.colors[col];
 
     this.lanes.forEach((awaited, lane) => {
       if (awaited === null || (isTip && lane === col)) return;
-      const line = { from: lane, to: lane, color: this.colors[lane] };
+      const line: GraphLine = { from: lane, to: lane, color: this.colors[lane] };
+      if (this.dashed[lane]) line.dashed = true;
       if (awaited === hash) {
         top.push({ ...line, to: col });
         this.lanes[lane] = null;
+        this.dashed[lane] = false;
       } else {
         top.push(line);
         bottom.push(line);
@@ -37,7 +44,8 @@ export class GraphLayout {
         // The first parent continues straight down, even if another lane already waits for it:
         // the two lanes join at the parent's row, so a branch visibly forks from its base commit.
         this.lanes[col] = parent;
-        bottom.push({ from: col, to: col, color });
+        this.dashed[col] = dashed;
+        bottom.push(dashed ? { from: col, to: col, color, dashed } : { from: col, to: col, color });
         return;
       }
       let lane = this.lanes.indexOf(parent);
@@ -54,6 +62,7 @@ export class GraphLayout {
     if (lane === -1) lane = this.lanes.length;
     this.lanes[lane] = hash;
     this.colors[lane] = this.nextColor++;
+    this.dashed[lane] = false;
     return lane;
   }
 }

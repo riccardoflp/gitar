@@ -10,6 +10,8 @@ export interface GraphLine {
   from: number;
   to: number;
   color: number;
+  /** A line that is not history: from the uncommitted changes or a stash down to the commit they are made on. */
+  dashed?: boolean;
 }
 
 /** What to draw in the graph cell of one row: `top` runs from the row's top edge to its middle, `bottom` from the middle down. */
@@ -31,6 +33,8 @@ export interface Commit {
 
 export interface Row extends Commit {
   graph: GraphRow;
+  /** The name of the stash the row is, `stash@{0}`, when it is one rather than a commit of the history. */
+  stash?: string;
 }
 
 export interface Upstream {
@@ -235,6 +239,8 @@ export interface RepoState {
   worktreesRoot: string | null;
   /** What a double click on a branch does, as the settings say: check it out here, or open its worktree. */
   openBranches: 'checkout' | 'worktree';
+  /** Whether the graph shows the stashes, each above the commit it was made on, as the settings say. */
+  showStashes: boolean;
   /**
    * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
@@ -636,6 +642,8 @@ export type WebviewMessage =
   | { type: 'setScope'; scope: Scope | null }
   /** Lists only the branches the graph is narrowed to beside it and in the Branches view, or all of them. */
   | { type: 'setBranchesFollowScope'; follow: boolean }
+  /** Shows the stashes in the graph, or no longer. */
+  | { type: 'setShowStashes'; show: boolean }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }

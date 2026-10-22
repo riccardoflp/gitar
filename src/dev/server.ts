@@ -198,8 +198,9 @@ async function main() {
   let limit = PAGE_SIZE;
   let filter: Filter | null = null;
   let scope: Scope | null = null;
-  /** What `gitardo.branches.followGraphFilter` would say, kept while the server runs. */
+  /** What `gitardo.branches.followGraphFilter` and `gitardo.graph.showStashes` would say, kept while the server runs. */
   let branchesFollowScope = true;
+  let showStashes = true;
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
   /** The worktrees of the repository shown, which the views can be pointed at, and the repository to go back to. */
@@ -294,7 +295,7 @@ async function main() {
   async function state(): Promise<HostMessage[]> {
     if (!repo) return [{ type: 'state', state: null }];
     const github = parseGitHubRemote(await repo.remoteUrl('origin'));
-    const read = await repo.state(limit, filter, scope, true);
+    const read = await repo.state(limit, filter, scope, true, showStashes);
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
@@ -325,6 +326,9 @@ async function main() {
         return state();
       case 'setBranchesFollowScope':
         branchesFollowScope = message.follow === true;
+        return state();
+      case 'setShowStashes':
+        showStashes = message.show === true;
         return state();
       case 'setFavorite': {
         if (!repo) return [];

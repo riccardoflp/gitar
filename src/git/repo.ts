@@ -5,6 +5,7 @@ import {
   WORKTREE,
   type Bisect,
   type BranchLog,
+  type Commit,
   type CommitDetail,
   type CompareMode,
   type CompareView,
@@ -18,6 +19,7 @@ import {
   type Row,
   type Scope,
   type Search,
+  type Stash,
   type Submodule,
   type WorkingState,
   type Worktree,
@@ -124,6 +126,9 @@ function blameArgs({ contents, revision, ignoreWhitespace }: BlameOptions): stri
 }
 
 /** Read-only view of one repository. Everything that changes the repository goes through `ops.ts` instead. */
+/** A commit of the graph, or a stash among them. */
+type Listed = Commit & Pick<Row, 'stash'>;
+
 export class Repo {
   private gitDir?: string;
 
@@ -486,8 +491,11 @@ export class Repo {
     return found.flat();
   }
 
-  /** With `resolve`, the files with conflicts are read to say which of the conflicts need no choice between the two sides. */
-  async state(limit: number, filter: Filter | null = null, scope: Scope | null = null, resolve = false): Promise<RepoState> {
+  /**
+   * With `resolve`, the files with conflicts are read to say which of the conflicts need no choice between the two
+   * sides. With `stashes`, the stashes are among the commits.
+   */
+  async state(limit: number, filter: Filter | null = null, scope: Scope | null = null, resolve = false, stashes = false): Promise<RepoState> {
     const [refsOut, headOut, branchOut, stashOut, worktreeOut, remoteOut, identityOut, movesOut, working, operation, bisect, submodules] = await Promise.all([
       this.read(['for-each-ref', `--format=${REF_FORMAT}`]),
       this.read(['rev-parse', '--verify', '--quiet', 'HEAD'], true),
@@ -517,6 +525,9 @@ export class Repo {
     const commits = parseLog(await this.read(['log', '-z', `--format=${LOG_FORMAT}`, `--max-count=${limit + 1}`, ...args], !filter));
     const hasMore = commits.length > limit;
     if (hasMore) commits.length = limit;
+    const stashList = parseStashes(stashOut);
+    // Not among the results of a search, nor in the history of a file or of a commit, which they are no part of.
+    const listed: Listed[] = stashes && !filter && stashList.length ? await this.withStashes(commits, stashList) : commits;
 
     const layout = new GraphLayout();
     const rows: Row[] = [];
@@ -534,11 +545,11 @@ export class Repo {
         email: '',
         date: 0,
         subject: `Uncommitted changes (${changes.length})`,
-        graph: layout.next(WORKTREE, parents),
+        graph: layout.next(WORKTREE, parents, true),
       });
     }
-    for (const commit of commits) {
-      rows.push({ ...commit, graph: layout.next(commit.hash, connected ? commit.parents : []) });
+    for (const commit of listed) {
+      rows.push({ ...commit, graph: layout.next(commit.hash, connected ? commit.parents : [], commit.stash !== undefined) });
     }
 
     return {
@@ -547,7 +558,7 @@ export class Repo {
       head,
       branch,
       ...refs,
-      stashes: parseStashes(stashOut),
+      stashes: stashList,
       worktrees: await this.worktreeChanges(parseWorktrees(worktreeOut, this.root), changes.length),
       submodules,
       remotes: remoteOut.split('\n').filter(Boolean),
@@ -578,6 +589,7 @@ export class Repo {
       agentsWindow: false,
       worktreesRoot: null,
       openBranches: 'checkout',
+      showStashes: stashes,
       branchesFollowScope: true,
       resolveWithAI: false,
       home: null,
@@ -624,6 +636,25 @@ export class Repo {
     const names = filter?.kind === 'path' ? await this.pathNames(filter.path) : [];
     if (names.length) args.push('--', ...names.map((name) => `:(literal)${name}`));
     return { args, names };
+  }
+
+  /**
+   * The commits with the stashes among them, each above the commit it was made on and where its date puts it, when
+   * that commit is listed. A stash is a commit whose other parents keep the index and the untracked files it took:
+   * they are left out, as the stash stands for them.
+   */
+  private async withStashes(commits: Commit[], stashes: Stash[]): Promise<Listed[]> {
+    const names = new Map(stashes.map((stash) => [stash.hash, stash.ref]));
+    const found = parseLog(await this.read(['log', '--no-walk=unsorted', '-z', `--format=${LOG_FORMAT}`, ...names.keys(), '--'], true));
+    const listed: Listed[] = [...commits];
+    // The newest first: the stashes made on the same commit are listed as they were made.
+    for (const commit of found.sort((one, other) => other.date - one.date)) {
+      const base = listed.findIndex((other) => other.hash === commit.parents[0]);
+      if (base < 0) continue;
+      const newer = listed.findIndex((other) => other.date <= commit.date);
+      listed.splice(newer < 0 ? base : Math.min(newer, base), 0, { ...commit, parents: [commit.parents[0]], stash: names.get(commit.hash) });
+    }
+    return listed;
   }
 
   private async head(): Promise<string | null> {

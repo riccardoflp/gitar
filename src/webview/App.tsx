@@ -26,6 +26,7 @@ import {
   openRemoteBranch,
   remoteBranchMenu,
   selectionMenu,
+  stashMenu,
   tagMenu,
   type Comparing,
 } from './menus';
@@ -43,7 +44,7 @@ const WIDTHS: { refsWidth: number; detailWidth: number; graphWidth: number | nul
   detailHeight: null,
 };
 
-/** The branches, tags and bisect marks of each commit that has some. */
+/** The branches, tags, stashes and bisect marks of each commit that has some. */
 export function buildLabels(state: RepoState): Map<string, Label[]> {
   const labels = new Map<string, Label[]>();
   const add = (hash: string, label: Label) => {
@@ -57,6 +58,7 @@ export function buildLabels(state: RepoState): Map<string, Label[]> {
   }
   for (const remote of state.remoteBranches) add(remote.hash, { kind: 'remote', name: remote.name });
   for (const tag of state.tags) add(tag.hash, { kind: 'tag', name: tag.name });
+  for (const stash of state.stashes) add(stash.hash, { kind: 'stash', name: stash.ref });
   if (state.bisect) {
     const { good, bad, skipped } = state.bisect;
     for (const hash of good) add(hash, { kind: 'good', name: 'good' });
@@ -284,14 +286,15 @@ export function App({ compact = false }: { compact?: boolean }) {
   const hasDetail = !!(selected || comparing);
 
   const onRowSelect = (hash: string, mode: SelectMode) => {
-    // The uncommitted changes are not a commit, and cannot be selected along with some.
-    const anchor = selected === WORKTREE ? null : selected;
-    if (mode === 'single' || hash === WORKTREE || !anchor) return select(hash);
+    // The uncommitted changes and the stashes are not commits of the history, and cannot be selected along with some.
+    const apart = (one: string | null) => one === WORKTREE || state.rows.some((row) => row.hash === one && row.stash);
+    const anchor = apart(selected) ? null : selected;
+    if (mode === 'single' || apart(hash) || !anchor) return select(hash);
     if (mode === 'range') {
       const from = state.rows.findIndex((row) => row.hash === anchor);
       const to = state.rows.findIndex((row) => row.hash === hash);
       if (from < 0 || to < 0) return select(hash);
-      const range = state.rows.slice(Math.min(from, to), Math.max(from, to) + 1).filter((row) => row.hash !== WORKTREE);
+      const range = state.rows.slice(Math.min(from, to), Math.max(from, to) + 1).filter((row) => row.hash !== WORKTREE && !row.stash);
       setMarked(range.length > 1 ? new Set(range.map((row) => row.hash)) : NONE);
       return;
     }
@@ -307,6 +310,9 @@ export function App({ compact = false }: { compact?: boolean }) {
     if (markedRows.length > 1 && marked.has(row.hash)) return openMenu(event, selectionMenu(markedRows, state, compare));
     const before = selected;
     select(row.hash);
+    // A stash is applied, popped or dropped, as where it is listed; it is no commit to rebase or cherry-pick.
+    const stash = row.stash !== undefined && state.stashes.find((candidate) => candidate.ref === row.stash);
+    if (stash) return openMenu(event, stashMenu(stash));
     openMenu(
       event,
       commitMenu(row, state, {
@@ -422,11 +428,11 @@ export function App({ compact = false }: { compact?: boolean }) {
           onRowMenu={onRowMenu}
           onLabelMenu={onLabelMenu}
           dragSource={(label, row) => {
-            if (!label) return row.hash === WORKTREE ? null : { kind: 'commit', hash: row.hash, isMerge: row.parents.length > 1 };
+            if (!label) return row.hash === WORKTREE || row.stash ? null : { kind: 'commit', hash: row.hash, isMerge: row.parents.length > 1 };
             if (label.kind !== 'branch' && label.kind !== 'remote') return null;
             return { kind: 'branch', name: label.name, hash: row.hash, local: label.kind === 'branch', current: !!label.current };
           }}
-          canDrop={(row) => dropEntries(row).length > 0}
+          canDrop={(row) => !row.stash && dropEntries(row).length > 0}
           onDrop={(event, row) => openMenu(event, dropEntries(row))}
         />
         {hasDetail && !compact && (

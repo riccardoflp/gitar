@@ -21,7 +21,7 @@ import { post } from './vscode';
 
 export interface Label {
   /** `good`, `bad` and `skipped` are the marks of a bisect in progress. */
-  kind: 'head' | 'branch' | 'remote' | 'tag' | 'good' | 'bad' | 'skipped';
+  kind: 'head' | 'branch' | 'remote' | 'tag' | 'stash' | 'good' | 'bad' | 'skipped';
   name: string;
   current?: boolean;
   /** For a branch: the folder of the other worktree that has it checked out. */
@@ -75,6 +75,7 @@ export const LABEL_ICONS = {
   branch: 'git-branch',
   remote: 'cloud',
   tag: 'tag',
+  stash: 'git-stash',
   good: 'check',
   bad: 'close',
   skipped: 'debug-step-over',
@@ -86,10 +87,11 @@ interface GraphProps {
   height: number;
   /** The room each lane has: less than usual when the graph is squeezed. */
   lane: number;
-  hollow: boolean;
+  /** A dot for a commit, a ring for the uncommitted changes, a square for a stash. */
+  node: 'commit' | 'worktree' | 'stash';
 }
 
-const Graph = memo(function Graph({ graph, width, height, lane, hollow }: GraphProps) {
+const Graph = memo(function Graph({ graph, width, height, lane, node }: GraphProps) {
   const mid = height / 2;
   const laneX = (index: number) => lane / 2 + 3 + index * lane;
   const x = laneX(graph.col);
@@ -101,7 +103,7 @@ const Graph = memo(function Graph({ graph, width, height, lane, hollow }: GraphP
         const from = laneX(line.from);
         const to = laneX(line.to);
         const d = from === to ? `M${from} 0V${mid}` : `M${from} 0C${from} ${mid} ${to} 0 ${to} ${mid}`;
-        return <path key={`t${index}`} d={d} stroke={laneColor(line.color)} />;
+        return <path key={`t${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
       })}
       {graph.bottom.map((line, index) => {
         const from = laneX(line.from);
@@ -110,13 +112,13 @@ const Graph = memo(function Graph({ graph, width, height, lane, hollow }: GraphP
           from === to
             ? `M${from} ${mid}V${height}`
             : `M${from} ${mid}C${from} ${height} ${to} ${mid} ${to} ${height}`;
-        return <path key={`b${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={hollow ? '3 3' : undefined} />;
+        return <path key={`b${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
       })}
-      {hollow ? (
-        <circle className="hollow" cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} />
-      ) : (
-        <circle cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />
+      {node === 'worktree' && <circle className="hollow" cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} />}
+      {node === 'stash' && (
+        <rect className="hollow" x={x - radius + 0.5} y={mid - radius + 0.5} width={radius * 2 - 1} height={radius * 2 - 1} rx={1} stroke={laneColor(graph.color)} />
       )}
+      {node === 'commit' && <circle cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />}
     </svg>
   );
 });
@@ -238,6 +240,7 @@ export function CommitList(props: Props) {
           const isSelected = row.hash === selected || marked.has(row.hash);
           if (isSelected) classes.push('selected');
           if (worktree) classes.push('worktree');
+          if (row.stash) classes.push('stash');
           if (matchSet && !matchSet.has(row.hash)) classes.push('dimmed');
           if (row.hash === dropTarget) classes.push('drop-target');
           const all = labels.get(row.hash) ?? [];
@@ -295,7 +298,7 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
-              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} hollow={worktree} />
+              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} />
               {tall ? (
                 <div className="lines">
                   <span className="subject">{row.subject}</span>

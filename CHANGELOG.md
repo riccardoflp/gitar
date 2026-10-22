@@ -7,6 +7,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 ### Added
 
 - **Show local branches**, **Show remote branches** and **Show tags** in the **…** menu of the toolbar switch each kind of reference on and off in the graph. The list of the branches shown has **Remotes** beside **Local**, for the remote branches alone. What is checked out stays in the graph either way.
+- The stashes in the graph, each above the commit it was made on while that commit is shown: a square with no fill, a dashed line down to the commit, and a label with a dotted border. Their context menu applies, pops, drops them or makes a branch of them. **Show stashes** in the **…** menu of the toolbar, or the setting `gitardo.graph.showStashes`, takes them out.
 - The references beside the graph and the Branches view can list every branch while the graph is narrowed, with the ones it leaves out dimmed and an eye on each that adds its history to the graph: **Filter the list of branches too** at the bottom of the list of the branches shown, the button on the line above the references, or the setting `gitardo.branches.followGraphFilter`.
 
 ### Fixed

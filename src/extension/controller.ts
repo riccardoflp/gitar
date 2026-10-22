@@ -291,7 +291,8 @@ export class Controller implements vscode.Disposable {
       vscode.workspace.onDidRenameFiles(schedule('files were renamed')),
       vscode.window.onDidChangeWindowState((window) => window.focused && this.scheduleRefresh('VS Code got the focus')),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches'].some((section) => event.affectsConfiguration(section))) {
+        const sections = ['gitardo.conflicts', 'gitardo.pull', 'gitardo.worktrees', 'gitardo.branches', 'gitardo.graph'];
+        if (sections.some((section) => event.affectsConfiguration(section))) {
           this.scheduleRefresh('the settings changed');
         }
         if (event.affectsConfiguration('gitardo.conflicts')) void this.reviewTab?.reload();
@@ -489,15 +490,16 @@ export class Controller implements vscode.Disposable {
   /** A search git cannot run, such as an invalid regular expression, is reported and dropped rather than taking the graph down. */
   private async readState(repo: Repo): Promise<RepoState> {
     const resolve = this.autoResolve();
-    if (!this.filter) return repo.state(this.limit, null, this.scope, resolve);
+    const stashes = vscode.workspace.getConfiguration('gitardo').get('graph.showStashes') !== false;
+    if (!this.filter) return repo.state(this.limit, null, this.scope, resolve, stashes);
     try {
-      return await repo.state(this.limit, this.filter, this.scope, resolve);
+      return await repo.state(this.limit, this.filter, this.scope, resolve, stashes);
     } catch (error) {
       this.filter = null;
       const text = error instanceof GitError ? error.result.stderr.trim() : errorText(error);
       this.log.error(text);
       void vscode.window.showErrorMessage(`Gitardo: the search failed. ${text.split('\n')[0]}`);
-      return repo.state(this.limit, null, this.scope, resolve);
+      return repo.state(this.limit, null, this.scope, resolve, stashes);
     }
   }
 
@@ -1915,6 +1917,8 @@ export class Controller implements vscode.Disposable {
       case 'setBranchesFollowScope':
         // For the user wherever they work. The views are told when the settings change.
         return vscode.workspace.getConfiguration('gitardo').update('branches.followGraphFilter', message.follow === true, vscode.ConfigurationTarget.Global);
+      case 'setShowStashes':
+        return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
       case 'setFavorite':
         return this.setFavorite(message.ref, message.favorite === true);
       case 'goTo':

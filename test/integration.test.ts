@@ -1785,6 +1785,34 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     expect((await repo.commitDetail((await state()).stashes[0].hash))!.untracked).toBeUndefined();
   });
 
+  it('shows the stashes in the graph, each above the commit it was made on, when that commit is shown', async () => {
+    const other = await divergent();
+    write('a.txt', 'set aside\n');
+    write('new.txt', 'new\n');
+    await run(stashPushOp('with a new file'));
+    const [stash] = (await state()).stashes;
+    const main = (await state()).head!;
+
+    const rows = (await repo.state(100, null, null, false, true)).rows;
+    const at = rows.findIndex((row) => row.hash === stash.hash);
+    expect(rows[at]).toMatchObject({ stash: 'stash@{0}', parents: [main], subject: 'On main: with a new file' });
+    expect(at).toBeLessThan(rows.findIndex((row) => row.hash === main));
+    // The commits that keep its index and its untracked files are not shown: the stash stands for them.
+    expect(rows.map((row) => row.subject).sort()).toEqual(['On main: with a new file', 'base', 'main change', 'other change']);
+    // Its line down to its commit is dashed.
+    expect(rows[at].graph.bottom).toEqual([expect.objectContaining({ dashed: true })]);
+
+    // Without them asked for, not there.
+    expect((await repo.state(100)).rows.some((row) => row.stash)).toBe(false);
+    // Nor on a branch that does not have its commit, nor among what a search finds.
+    const shown = async (scope: Scope | null, filter: Filter | null = null) =>
+      (await repo.state(100, filter, scope, false, true)).rows.some((row) => row.hash === stash.hash);
+    expect(await shown({ kind: 'refs', refs: ['refs/heads/other'] })).toBe(false);
+    expect(await shown({ kind: 'current' })).toBe(true);
+    expect(await shown(null, { kind: 'message', query: 'with a new file' })).toBe(false);
+    expect(await shown(null, { kind: 'ref', ref: other })).toBe(false);
+  });
+
   it('adds, repoints, renames, fetches and removes remotes', async () => {
     write('a.txt', 'one\n');
     await commitAll('base');

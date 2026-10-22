@@ -1137,6 +1137,11 @@
           "default": "checkout",
           "description": "What a double click on a local branch does. A branch that another worktree has always opens that worktree, and the context menu of a branch has both, whatever is set here."
         },
+        "gitardo.graph.showStashes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the graph shows the stashes, each above the commit it was made on, while that commit is in the graph. The menu of the toolbar of the graph has the same switch."
+        },
         "gitardo.branches.followGraphFilter": {
           "type": "boolean",
           "default": true,

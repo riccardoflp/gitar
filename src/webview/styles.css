@@ -841,7 +841,8 @@ input:focus-visible,
   opacity: 0.35;
 }
 
-.row.worktree .subject {
+.row.worktree .subject,
+.row.stash .subject {
   font-style: italic;
   color: var(--vscode-descriptionForeground);
 }
@@ -1008,6 +1009,11 @@ input:focus-visible,
 
 .message .label.tag {
   border-style: dashed;
+}
+
+/* Set aside rather than part of the history, as its line is. */
+.message .label.stash {
+  border-style: dotted;
 }
 
 /* The marks of a bisect say good or bad, which is not about the line they are on. */

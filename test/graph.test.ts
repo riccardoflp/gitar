@@ -54,6 +54,24 @@ describe('GraphLayout', () => {
     expect(rows[3].color).not.toBe(rows[1].color);
   });
 
+  it('dashes the line of a stash down to its commit, and keeps that commit on the lane of the history', () => {
+    const graph = new GraphLayout();
+    const stash = graph.next('stash', ['base'], true);
+    const tip = graph.next('tip', ['base']);
+    const between = graph.next('other', ['base']);
+    const base = graph.next('base', ['root']);
+    expect(stash.bottom).toEqual([{ from: 0, to: 0, color: stash.color, dashed: true }]);
+    expect(tip.col).toBe(1);
+    expect(between.top.find((line) => line.from === 0)?.dashed).toBe(true);
+    // The commit goes where its branch is, and the dashed line comes to it.
+    expect(base.col).toBe(1);
+    expect(base.color).toBe(tip.color);
+    expect(base.top.filter((line) => line.dashed).map((line) => `${line.from}>${line.to}`)).toEqual(['0>1']);
+    // Below it the line is history again.
+    expect(base.bottom.every((line) => !line.dashed)).toBe(true);
+    expect(graph.next('root', []).top.every((line) => !line.dashed)).toBe(true);
+  });
+
   it('draws nothing above a branch tip', () => {
     const [tip] = layout([['tip', 'parent']]);
     expect(tip.top).toEqual([]);
