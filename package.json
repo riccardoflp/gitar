@@ -1149,6 +1149,16 @@
           "default": true,
           "description": "Whether the graph shows the stashes, each above the commit it was made on, while that commit is in the graph. The menu of the toolbar of the graph has the same switch."
         },
+        "gitardo.graph.columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["author", "date", "hash"]
+          },
+          "uniqueItems": true,
+          "default": ["author", "date", "hash"],
+          "description": "What the graph shows of each commit beside its message: who made it, when, and its hash. The menu of the toolbar of the graph switches each of them on and off."
+        },
         "gitardo.graph.firstParent": {
           "type": "boolean",
           "default": false,

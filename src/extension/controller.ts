@@ -28,7 +28,7 @@ import {
 import { allChanges, samePath } from '../git/parse';
 import { Repo, isHash } from '../git/repo';
 import { changeSetup, previewSetup, scanIgnored, unlinkFolderLinks } from '../git/worktreeSetup';
-import { WORKTREE, showsGraph } from '../shared/protocol';
+import { GRAPH_COLUMNS, WORKTREE, showsGraph } from '../shared/protocol';
 import { changesText, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { cleanPatterns, type IgnoredEntry, type SetupChoice, type SetupPatterns, type SetupTarget } from '../shared/worktreeSetup';
 import { submoduleFolder } from '../shared/submodules';
@@ -43,6 +43,7 @@ import type {
   FileChange,
   FilesLayout,
   Filter,
+  GraphColumn,
   HostMessage,
   Loading,
   PullAction,
@@ -187,6 +188,12 @@ function rowsKey(state: RepoState, filter: Filter | null, count = state.rows.len
   hash.update(`${state.root}\0${JSON.stringify(filter)}\0${state.firstParent}\0`);
   for (let index = 0; index < count; index++) hash.update(state.rows[index].hash);
   return hash.digest('hex');
+}
+
+/** What the graph shows of each commit beside its message, as `gitardo.graph.columns` asks: all of it when that is not a list. */
+function graphColumns(): GraphColumn[] {
+  const wanted = vscode.workspace.getConfiguration('gitardo').get('graph.columns');
+  return Array.isArray(wanted) ? GRAPH_COLUMNS.filter((column) => wanted.includes(column)) : GRAPH_COLUMNS;
 }
 
 /** How many commits the graph reads at a time, as `gitardo.graph.pageSize` asks. */
@@ -404,6 +411,7 @@ export class Controller implements vscode.Disposable {
           openBranches: vscode.workspace.getConfiguration('gitardo').get('branches.openIn') === 'worktree' ? 'worktree' : 'checkout',
           branchesFollowScope: vscode.workspace.getConfiguration('gitardo').get('branches.followGraphFilter') !== false,
           traceSelected: vscode.workspace.getConfiguration('gitardo').get('graph.traceSelected') !== false,
+          graphColumns: graphColumns(),
           resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
@@ -1942,6 +1950,10 @@ export class Controller implements vscode.Disposable {
         return vscode.workspace.getConfiguration('gitardo').update('branches.followGraphFilter', message.follow === true, vscode.ConfigurationTarget.Global);
       case 'setShowStashes':
         return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
+      case 'setGraphColumns': {
+        const columns = GRAPH_COLUMNS.filter((column) => message.columns.includes(column));
+        return vscode.workspace.getConfiguration('gitardo').update('graph.columns', columns, vscode.ConfigurationTarget.Global);
+      }
       case 'setFirstParent':
         return vscode.workspace.getConfiguration('gitardo').update('graph.firstParent', message.only === true, vscode.ConfigurationTarget.Global);
       case 'setTraceSelected':

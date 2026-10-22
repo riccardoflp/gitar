@@ -6,6 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- **Show the author**, **Show the date** and **Show the hash** in the **…** menu of the toolbar of the graph, or the setting `gitardo.graph.columns`, switch each of them on and off beside the messages of the commits.
 - **Show only the first parent of merges** in the **…** menu of the toolbar of the graph, or the setting `gitardo.graph.firstParent`: each branch along its own line, a merge as one commit without what it brought in.
 - **Upstream** in the list of the branches shown in the graph: what is checked out and its upstream, to see what is ahead of it and what is behind. It follows you as you switch branch.
 - The commit selected in the graph brings out its history, the commits it comes from and the ones made on top of it, and dims the rest, less than the pointer on a label does. **Bring out the history of the selected commit** in the **…** menu of the toolbar, or the setting `gitardo.graph.traceSelected`, switches it off.

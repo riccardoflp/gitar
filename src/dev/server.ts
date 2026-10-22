@@ -10,7 +10,7 @@ import { Repo } from '../git/repo';
 import { fingerprint, reviewFiles, type Answer } from '../git/review';
 import { previewSetup, scanIgnored } from '../git/worktreeSetup';
 import { addressed, languageMap, readFileIconTheme } from '../extension/fileIconTheme';
-import { WORKTREE, type CompareMode, type Filter, type HostMessage, type Scope, type ViewKind, type WebviewMessage } from '../shared/protocol';
+import { GRAPH_COLUMNS, WORKTREE, type CompareMode, type Filter, type HostMessage, type Scope, type ViewKind, type WebviewMessage } from '../shared/protocol';
 import type { Asking } from '../shared/resolution';
 import { cleanPatterns, type SetupLayer, type SetupSource } from '../shared/worktreeSetup';
 
@@ -203,6 +203,7 @@ async function main() {
   let showStashes = true;
   let traceSelected = true;
   let firstParent = false;
+  let graphColumns = GRAPH_COLUMNS;
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
   /** The worktrees of the repository shown, which the views can be pointed at, and the repository to go back to. */
@@ -302,7 +303,7 @@ async function main() {
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
-    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, traceSelected, resolveWithAI: true, home: away } }];
+    return [{ type: 'state', state: { ...read, favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, traceSelected, graphColumns, resolveWithAI: true, home: away } }];
   }
 
   /** `light` for a page in the light theme, which can have other file icons. */
@@ -332,6 +333,9 @@ async function main() {
         return state();
       case 'setShowStashes':
         showStashes = message.show === true;
+        return state();
+      case 'setGraphColumns':
+        graphColumns = GRAPH_COLUMNS.filter((column) => message.columns.includes(column));
         return state();
       case 'setFirstParent':
         firstParent = message.only === true;

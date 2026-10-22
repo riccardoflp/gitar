@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GraphLayout } from '../shared/graph';
 import {
+  GRAPH_COLUMNS,
   WORKTREE,
   type Bisect,
   type BranchLog,
@@ -595,6 +596,7 @@ export class Repo {
       openBranches: 'checkout',
       showStashes: stashes,
       firstParent: this.firstParent,
+      graphColumns: GRAPH_COLUMNS,
       traceSelected: true,
       branchesFollowScope: true,
       resolveWithAI: false,

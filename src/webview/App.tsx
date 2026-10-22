@@ -425,6 +425,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           onTrace={trace}
           unpushed={unpushed}
           traceSelected={state.traceSelected}
+          columns={state.graphColumns}
         />
         {hasDetail && !compact && (
           <Sash

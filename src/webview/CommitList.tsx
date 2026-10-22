@@ -12,7 +12,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { fitGraph, laneCount, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
-import { WORKTREE, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
+import { WORKTREE, type GraphColumn, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
 import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
 import { Progress } from './Progress';
@@ -74,6 +74,8 @@ interface Props {
   unpushed: ReadonlyMap<string, string>;
   /** Whether the history of the selected commit stands out, what it comes from and what was made on top of it. */
   traceSelected: boolean;
+  /** What is shown of each commit beside its message. */
+  columns: GraphColumn[];
 }
 
 const ROW_HEIGHT = 24;
@@ -197,7 +199,8 @@ function PullBadge({ request, branch }: { request: PullRequest; branch: string }
 
 export function CommitList(props: Props) {
   const { rows, empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
-  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed, traceSelected } = props;
+  const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed, traceSelected, columns } = props;
+  const shows = (column: GraphColumn) => columns.includes(column);
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -397,10 +400,12 @@ export function CommitList(props: Props) {
                       <span className="who">Not committed yet</span>
                     ) : (
                       <>
-                        <span className="who">{row.author}</span>
-                        <span className="when" title={fullDate(row.date)}>
-                          {relativeTime(row.date)}
-                        </span>
+                        {shows('author') && <span className="who">{row.author}</span>}
+                        {shows('date') && (
+                          <span className="when" title={fullDate(row.date)}>
+                            {relativeTime(row.date)}
+                          </span>
+                        )}
                       </>
                     )}
                   </div>
@@ -413,11 +418,13 @@ export function CommitList(props: Props) {
               )}
               {!worktree && !tall && (
                 <>
-                  <div className="author">{row.author}</div>
-                  <div className="date" title={fullDate(row.date)}>
-                    {relativeTime(row.date)}
-                  </div>
-                  <div className="hash">{shortHash(row.hash)}</div>
+                  {shows('author') && <div className="author">{row.author}</div>}
+                  {shows('date') && (
+                    <div className="date" title={fullDate(row.date)}>
+                      {relativeTime(row.date)}
+                    </div>
+                  )}
+                  {shows('hash') && <div className="hash">{shortHash(row.hash)}</div>}
                 </>
               )}
             </div>

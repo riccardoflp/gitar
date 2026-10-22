@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import type { PullAction, RefKind, RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
+import type { GraphColumn, PullAction, RefKind, RepoState, Search, SyncAction, UiCommand } from '../shared/protocol';
 import { kindsScope, scopeKinds } from '../shared/scope';
 import { useMenu, type MenuEntry } from './ContextMenu';
 import { Icon } from './Icon';
@@ -171,6 +171,11 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
       run: () => kinds && post({ type: 'setScope', scope: kindsScope(on ? kinds.filter((each) => each !== kind) : [...kinds, kind]) }),
     };
   };
+  const showColumn = (column: GraphColumn, label: string): MenuEntry => {
+    const on = state.graphColumns.includes(column);
+    const columns = on ? state.graphColumns.filter((each) => each !== column) : [...state.graphColumns, column];
+    return { label, checked: on, run: () => post({ type: 'setGraphColumns', columns }) };
+  };
   const more: MenuEntry[] = [
     // Its button is the first to go when the toolbar is short of room.
     !compact && { label: 'Refresh', run: () => post({ type: 'refresh' }) },
@@ -189,6 +194,10 @@ export function Toolbar({ state, busy, compact, matches, searching, refsHidden, 
       checked: state.traceSelected,
       run: () => post({ type: 'setTraceSelected', trace: !state.traceSelected }),
     },
+    'separator',
+    showColumn('author', 'Show the author'),
+    showColumn('date', 'Show the date'),
+    showColumn('hash', 'Show the hash'),
     'separator',
     { label: 'Compare branches, tags or commits…', run: () => post({ type: 'compare' }) },
     { label: 'Go to commit…', run: run('goToCommit') },

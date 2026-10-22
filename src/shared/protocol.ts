@@ -140,6 +140,12 @@ export type RefKind = 'branch' | 'remote' | 'tag';
  * some kinds of references, or of the references chosen one by one, by their full names (`refs/heads/main`). It is
  * apart from the filter, which narrows what is left of it.
  */
+/** What the graph can show of a commit beside its message. */
+export type GraphColumn = 'author' | 'date' | 'hash';
+
+/** Every one of them, in the order they are shown. */
+export const GRAPH_COLUMNS: GraphColumn[] = ['author', 'date', 'hash'];
+
 /** `upstream` with what is checked out: its upstream too, to see what is ahead of it and what is behind. */
 export type Scope = { kind: 'current'; upstream?: true } | { kind: 'kinds'; kinds: RefKind[] } | { kind: 'refs'; refs: string[] };
 
@@ -246,6 +252,8 @@ export interface RepoState {
   traceSelected: boolean;
   /** Whether the graph follows only the first parent of each merge, as the settings say. */
   firstParent: boolean;
+  /** What the graph shows of each commit beside its message, as the settings say. */
+  graphColumns: GraphColumn[];
   /**
    * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
@@ -656,6 +664,7 @@ export type WebviewMessage =
   | { type: 'setShowStashes'; show: boolean }
   | { type: 'setTraceSelected'; trace: boolean }
   | { type: 'setFirstParent'; only: boolean }
+  | { type: 'setGraphColumns'; columns: GraphColumn[] }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */
   | { type: 'goTo'; revision: string }
