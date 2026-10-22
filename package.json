@@ -1137,6 +1137,13 @@
           "default": "checkout",
           "description": "What a double click on a local branch does. A branch that another worktree has always opens that worktree, and the context menu of a branch has both, whatever is set here."
         },
+        "gitardo.graph.pageSize": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 100,
+          "maximum": 10000,
+          "markdownDescription": "How many commits the graph reads at a time. The next ones are read while you scroll, long before you get to the end of those shown. Fewer make each read quicker, on a slow machine or in a very large repository; more make the reads fewer."
+        },
         "gitardo.graph.showStashes": {
           "type": "boolean",
           "default": true,

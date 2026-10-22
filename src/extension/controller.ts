@@ -64,7 +64,10 @@ import { INDEX, contentUri, proposalUri } from './content';
 import { fetchPulls, githubSession } from './github';
 import { editSetupJson, savePatterns, saveSetup, setupChangeText, setupPatterns, worktreeSetupInfo } from './worktreeSettings';
 
+/** How many commits the graph reads at a time, unless the settings ask for another number between the two after it. */
 const PAGE_SIZE = 1000;
+const SMALLEST_PAGE = 100;
+const LARGEST_PAGE = 10_000;
 /** The most commits a search is told about, to highlight them in the graph. */
 const FOUND_LIMIT = 5000;
 
@@ -185,12 +188,18 @@ function rowsKey(state: RepoState, filter: Filter | null, count = state.rows.len
   return hash.digest('hex');
 }
 
+/** How many commits the graph reads at a time, as `gitardo.graph.pageSize` asks. */
+function pageSize(): number {
+  const wanted = Math.trunc(Number(vscode.workspace.getConfiguration('gitardo').get('graph.pageSize')));
+  return Number.isFinite(wanted) ? Math.min(Math.max(wanted, SMALLEST_PAGE), LARGEST_PAGE) : PAGE_SIZE;
+}
+
 /** Owns the repository state and serves every Gitardo webview, wherever the user has placed it. */
 export class Controller implements vscode.Disposable {
   private repo?: Repo;
   private state: RepoState | null = null;
   private located = false;
-  private limit = PAGE_SIZE;
+  private limit = pageSize();
   /** The read of the repository under way, if any. */
   private loading?: Promise<void>;
   /** Who waits for a read that starts after they asked: each is let go once one is done, or when reading stops. */
@@ -509,7 +518,7 @@ export class Controller implements vscode.Disposable {
     if (!this.located) await this.locate();
     // As it is given: reading the repository leaves out what is not a branch of it.
     this.scope = scope && typeof scope === 'object' ? scope : null;
-    this.limit = PAGE_SIZE;
+    this.limit = pageSize();
     await this.reload('filter');
   }
 
@@ -564,7 +573,7 @@ export class Controller implements vscode.Disposable {
   async setFilter(filter: Filter | null): Promise<void> {
     if (!this.located) await this.locate();
     this.filter = filter;
-    this.limit = PAGE_SIZE;
+    this.limit = pageSize();
     // Searching inside the changes of every commit can take a while on a large repository.
     const slow = filter?.kind === 'pickaxe' || filter?.kind === 'regex';
     if (slow) this.post({ type: 'busy', title: 'Searching' });
@@ -655,9 +664,10 @@ export class Controller implements vscode.Disposable {
       this.filter = { kind: 'ref', ref: hash, lost: true };
       index = 0;
     }
-    const pages = Math.floor(index / PAGE_SIZE) + 1;
+    const page = pageSize();
+    const pages = Math.floor(index / page) + 1;
     const same = this.filter === shown && this.scope === scope;
-    this.limit = Math.max(same ? this.limit : PAGE_SIZE, pages * PAGE_SIZE);
+    this.limit = Math.max(same ? this.limit : page, pages * page);
     await this.reload(same ? 'more' : 'filter');
   }
 
@@ -1612,7 +1622,7 @@ export class Controller implements vscode.Disposable {
     this.watcher?.dispose();
     this.watcher = undefined;
     this.repo = undefined;
-    this.limit = PAGE_SIZE;
+    this.limit = pageSize();
     this.filter = null;
     this.scope = null;
     this.github = null;
@@ -1985,7 +1995,7 @@ export class Controller implements vscode.Disposable {
       case 'refresh':
         return this.refresh();
       case 'loadMore':
-        this.limit += PAGE_SIZE;
+        this.limit += pageSize();
         return this.reload('more');
       case 'getLog': {
         const limit = Math.min(Math.max(Math.trunc(Number(message.limit)) || 1, 1), LOG_LIMIT);

@@ -35,7 +35,7 @@ Reload the VS Code window afterwards. To update, run the last two commands again
 
 ### Graph
 
-- Commit graph of all branches, remote branches and tags, loaded progressively: the next commits are read while you scroll, long before you get to the end of those shown, so that scrolling does not stop to wait for them.
+- Commit graph of all branches, remote branches and tags, loaded progressively: the next commits are read while you scroll, long before you get to the end of those shown, so that scrolling does not stop to wait for them. `gitardo.graph.pageSize` says how many are read at a time, 1,000 unless set otherwise.
 - The labels of a commit are outlined in the color of its line in the graph; the branch that is checked out is the one filled in.
 - Drag the line between the references and the commits, or between the commits and the details, to change their widths; double-click it to go back to the default. In a panel too narrow to have them side by side the details go under the commits, and the line between the two is dragged up and down the same way, as it is in the Commits view of the side bar. The sizes are remembered per workspace.
 - The first button of the toolbar puts the references away, to leave their room to the commits, and brings them back. It is remembered too.
