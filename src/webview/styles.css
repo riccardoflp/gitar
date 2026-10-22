@@ -841,6 +841,11 @@ input:focus-visible,
   opacity: 0.35;
 }
 
+/* While the pointer rests on a label, the commits its history does not reach step back; their lines fade in the graph. */
+.row.unreached > :not(.graph) {
+  opacity: 0.35;
+}
+
 .row.worktree .subject,
 .row.stash .subject {
   font-style: italic;
@@ -949,6 +954,10 @@ input:focus-visible,
 .graph .hollow {
   fill: none;
   stroke-width: 2;
+}
+
+.graph .faded {
+  opacity: 0.2;
 }
 
 .message {

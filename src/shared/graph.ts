@@ -1,4 +1,4 @@
-import type { GraphLine, GraphRow } from './protocol';
+import type { GraphLine, GraphRow, Row } from './protocol';
 
 /**
  * Assigns commits to lanes one row at a time. Feed it commits in an order where
@@ -65,6 +65,39 @@ export class GraphLayout {
     this.dashed[lane] = false;
     return lane;
   }
+}
+
+/** The commits a commit reaches among the rows, itself included: its history, as far as it is loaded. */
+export function reachedFrom(rows: Pick<Row, 'hash' | 'parents'>[], tip: string): Set<string> {
+  const reached = new Set([tip]);
+  // Children come before their parents, so one pass down the rows finds them all.
+  for (const row of rows) if (reached.has(row.hash)) for (const parent of row.parents) reached.add(parent);
+  return reached;
+}
+
+/** Which parts of the graph cell of a row belong to a history: its commit, and each of its lines on top and at the bottom. */
+export interface GraphTrace {
+  node: boolean;
+  top: boolean[];
+  bottom: boolean[];
+}
+
+/**
+ * For each row, which parts of its graph cell lead along the history of the commits reached: a line belongs to it when
+ * the commit it comes down from does. Where two lines run into one lane, the lane belongs to it if either does.
+ */
+export function traceGraph(rows: Pick<Row, 'hash' | 'graph'>[], reached: ReadonlySet<string>): GraphTrace[] {
+  // For each lane, whether what runs down it comes from a commit reached.
+  const lit: boolean[] = [];
+  return rows.map(({ hash, graph }) => {
+    const node = reached.has(hash);
+    const top = graph.top.map((line) => !!lit[line.from]);
+    // The lines that end at this commit leave their lanes free.
+    for (const line of graph.top) if (line.to === graph.col) lit[line.from] = false;
+    const bottom = graph.bottom.map((line) => (line.from === graph.col ? node : !!lit[line.from]));
+    for (const line of graph.bottom) if (line.from === graph.col) lit[line.to] = !!lit[line.to] || node;
+    return { node, top, bottom };
+  });
 }
 
 export function laneCount(row: GraphRow): number {

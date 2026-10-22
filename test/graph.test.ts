@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, fitGraph, laneCount } from '../src/shared/graph';
+import { GraphLayout, fitGraph, laneCount, reachedFrom, traceGraph } from '../src/shared/graph';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -104,5 +104,41 @@ describe('fitGraph', () => {
     expect(fitGraph(2, 286, 900)).toEqual({ width: 34, lane: 14, cut: false, natural: 34 });
     // Nor more than the list can spare, however wide it was dragged when the view was larger.
     expect(fitGraph(40, 500, 400).width).toBe(240);
+  });
+});
+
+describe('traceGraph', () => {
+  function rows(commits: [hash: string, ...parents: string[]][]) {
+    const graph = new GraphLayout();
+    return commits.map(([hash, ...parents]) => ({ hash, parents, graph: graph.next(hash, parents) }));
+  }
+
+  it('reaches the parents of a commit down the rows, and nothing above it', () => {
+    const listed = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
+    expect([...reachedFrom(listed, 'b')].sort()).toEqual(['b', 'c']);
+    expect([...reachedFrom(listed, 'm')].sort()).toEqual(['a', 'b', 'c', 'm']);
+  });
+
+  it('lights the lines of a branch down to where it forks, and the main line only from there', () => {
+    // main: d - a - c, feature: b - c, both tips shown.
+    const listed = rows([['d', 'a'], ['a', 'c'], ['b', 'c'], ['c']]);
+    const [tip, main, feature, base] = traceGraph(listed, reachedFrom(listed, 'b'));
+
+    expect(tip).toEqual({ node: false, top: [], bottom: [false] });
+    expect(main.node).toBe(false);
+    expect(main.bottom).toEqual([false]);
+    // The branch starts on its own lane, the main line still passing beside it.
+    expect(feature.node).toBe(true);
+    expect(edges(listed[2].graph.bottom)).toEqual(['0>0', '1>1']);
+    expect(feature.bottom).toEqual([false, true]);
+    // At the fork point the main line arrives unlit and the branch lit; below it, all is history.
+    expect(edges(listed[3].graph.top)).toEqual(['0>0', '1>0']);
+    expect(base).toEqual({ node: true, top: [false, true], bottom: [] });
+  });
+
+  it('lights a merged branch from the merge down', () => {
+    const listed = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
+    const traced = traceGraph(listed, reachedFrom(listed, 'm'));
+    expect(traced.every((row) => row.node && row.top.every(Boolean) && row.bottom.every(Boolean))).toBe(true);
   });
 });

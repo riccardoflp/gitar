@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { fitGraph, laneCount } from '../shared/graph';
+import { fitGraph, laneCount, reachedFrom, traceGraph, type GraphTrace } from '../shared/graph';
 import { WORKTREE, type GraphRow, type Loading, type Row } from '../shared/protocol';
 import { Icon } from './Icon';
 import { Progress } from './Progress';
@@ -75,6 +75,10 @@ const OVERSCAN = 8;
  * second or two, about as long as reading the next ones takes in a large repository: it should never catch up.
  */
 const AHEAD = 500;
+/** How long the pointer rests on a label before its history stands out, so that passing over labels does not flash the graph. */
+const TRACE_DELAY = 150;
+/** How long the history stays after the pointer leaves, so that going from one label to the next does not flash it either. */
+const UNTRACE_DELAY = 100;
 export const LABEL_ICONS = {
   head: 'target',
   branch: 'git-branch',
@@ -94,21 +98,24 @@ interface GraphProps {
   lane: number;
   /** A dot for a commit, a ring for the uncommitted changes, a square for a stash. */
   node: 'commit' | 'worktree' | 'stash';
+  /** While the history of a label stands out: which parts of the cell are in it. The others fade. */
+  trace?: GraphTrace;
 }
 
-const Graph = memo(function Graph({ graph, width, height, lane, node }: GraphProps) {
+const Graph = memo(function Graph({ graph, width, height, lane, node, trace }: GraphProps) {
   const mid = height / 2;
   const laneX = (index: number) => lane / 2 + 3 + index * lane;
   const x = laneX(graph.col);
   // Smaller dots where the lines are close, or they would sit on the lines beside them.
   const radius = lane < 11 ? 3 : 4;
+  const nodeClass = trace && !trace.node ? ' faded' : '';
   return (
     <svg className="graph" width={width} height={height} aria-hidden="true">
       {graph.top.map((line, index) => {
         const from = laneX(line.from);
         const to = laneX(line.to);
         const d = from === to ? `M${from} 0V${mid}` : `M${from} 0C${from} ${mid} ${to} 0 ${to} ${mid}`;
-        return <path key={`t${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
+        return <path key={`t${index}`} className={trace && !trace.top[index] ? 'faded' : undefined} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
       })}
       {graph.bottom.map((line, index) => {
         const from = laneX(line.from);
@@ -117,13 +124,13 @@ const Graph = memo(function Graph({ graph, width, height, lane, node }: GraphPro
           from === to
             ? `M${from} ${mid}V${height}`
             : `M${from} ${mid}C${from} ${height} ${to} ${mid} ${to} ${height}`;
-        return <path key={`b${index}`} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
+        return <path key={`b${index}`} className={trace && !trace.bottom[index] ? 'faded' : undefined} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
       })}
-      {node === 'worktree' && <circle className="hollow" cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} />}
+      {node === 'worktree' && <circle className={`hollow${nodeClass}`} cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} />}
       {node === 'stash' && (
-        <rect className="hollow" x={x - radius + 0.5} y={mid - radius + 0.5} width={radius * 2 - 1} height={radius * 2 - 1} rx={1} stroke={laneColor(graph.color)} />
+        <rect className={`hollow${nodeClass}`} x={x - radius + 0.5} y={mid - radius + 0.5} width={radius * 2 - 1} height={radius * 2 - 1} rx={1} stroke={laneColor(graph.color)} />
       )}
-      {node === 'commit' && <circle cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />}
+      {node === 'commit' && <circle className={nodeClass.trim() || undefined} cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />}
     </svg>
   );
 });
@@ -165,6 +172,20 @@ export function CommitList(props: Props) {
   }, [rows]);
   const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
+
+  // The commit of the label the pointer rests on: its history stands out in the graph, and what it does not reach fades.
+  const [traced, setTraced] = useState<string | null>(null);
+  const traceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(traceTimer.current), []);
+  const traceLater = (hash: string | null) => {
+    clearTimeout(traceTimer.current);
+    if (hash && traced) setTraced(hash);
+    else traceTimer.current = setTimeout(() => setTraced(hash), hash ? TRACE_DELAY : UNTRACE_DELAY);
+  };
+  const trace = useMemo(() => {
+    if (!traced || !rows.some((row) => row.hash === traced)) return null;
+    return traceGraph(rows, reachedFrom(rows, traced));
+  }, [rows, traced]);
 
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const end = Math.min(rows.length, Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN);
@@ -248,6 +269,7 @@ export function CommitList(props: Props) {
           if (worktree) classes.push('worktree');
           if (row.stash) classes.push('stash');
           if (matchSet && !matchSet.has(row.hash)) classes.push('dimmed');
+          if (trace && !trace[index].node) classes.push('unreached');
           if (row.hash === dropTarget) classes.push('drop-target');
           const all = labels.get(row.hash) ?? [];
           // Squeezed side by side, many labels would be left with a letter each: a few keep their names, what is
@@ -260,6 +282,8 @@ export function CommitList(props: Props) {
               className={`label ${label.kind}${label.current ? ' current' : ''}`}
               title={label.worktree ? `${label.name}\nIn the worktree ${label.worktree}` : label.name}
               onContextMenu={(event) => onLabelMenu(event, label, row)}
+              onMouseEnter={() => traceLater(row.hash)}
+              onMouseLeave={() => traceLater(null)}
               onDoubleClick={(event) => {
                 const open = labelOpen(label);
                 if (!open) return;
@@ -304,7 +328,7 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
-              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} />
+              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} trace={trace?.[index]} />
               {tall ? (
                 <div className="lines">
                   <span className="subject">{row.subject}</span>
