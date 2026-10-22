@@ -934,6 +934,33 @@ input:focus-visible,
   opacity: 0.35;
 }
 
+/* The fold of a merge, after its message: in sight while the pointer is on its row, while it is selected or folded. */
+.message .fold {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.row:hover .message .fold,
+.row.selected .message .fold,
+.message .fold.folded {
+  visibility: visible;
+}
+
+.message .fold:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
 /* The row of the commits a merge brought in, folded: it opens them with a click. */
 .row.folded .message {
   gap: 4px;

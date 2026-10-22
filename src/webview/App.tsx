@@ -299,6 +299,7 @@ export function App({ compact = false }: { compact?: boolean }) {
 
   // Only a history with its lines has merges to fold: not what a search finds.
   const connected = !state.filter || state.filter.kind === 'path' || state.filter.kind === 'ref';
+  const fold = (merge: string) => setFolded((previous) => new Set(previous).add(merge));
 
   const onRowMenu = (event: MouseEvent, row: Row) => {
     if (markedRows.length > 1 && marked.has(row.hash)) return openMenu(event, selectionMenu(markedRows, state, compare));
@@ -317,7 +318,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           select(row.hash);
           setEditing(row.hash);
         },
-        onFold: connected && mergedCommits(state.rows, row.hash).size ? () => setFolded((previous) => new Set(previous).add(row.hash)) : undefined,
+        onFold: connected && mergedCommits(state.rows, row.hash).size ? () => fold(row.hash) : undefined,
       }),
     );
   };
@@ -437,6 +438,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           head={state.head}
           dateSeparators={state.dateSeparators}
           folded={connected ? folded : NONE}
+          onFold={connected ? fold : undefined}
           onUnfold={(merge) =>
             setFolded((previous) => {
               const next = new Set(previous);

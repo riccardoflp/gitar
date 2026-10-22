@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { fitGraph, foldMerges, laneCount, laneTips, mergedBranch, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
+import { fitGraph, foldMerges, laneCount, laneTips, mergedBranch, mergedCommits, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
 import { WORKTREE, type GraphColumn, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
 import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
@@ -84,6 +84,8 @@ interface Props {
   folded: ReadonlySet<string>;
   /** The row of the commits of a merge was clicked, or one of them is to be shown: they are shown again. */
   onUnfold(merge: string): void;
+  /** Folds the commits a merge brought in into one row. Missing where nothing can be folded, among what a search finds. */
+  onFold?(merge: string): void;
 }
 
 const ROW_HEIGHT = 24;
@@ -280,6 +282,35 @@ export function CommitList(props: Props) {
   const { empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu, onUnfold } = props;
   // The commits a folded merge brought in have one row for them all.
   const { rows, hiddenBy } = useMemo(() => foldMerges(props.rows, props.folded), [props.rows, props.folded]);
+  const foldedNow = useMemo(() => new Set(hiddenBy.values()), [hiddenBy]);
+  // Whether a merge brought in commits among those loaded, found out for each merge as it comes into sight.
+  const foldable = useMemo(() => new Map<string, boolean>(), [props.rows]);
+  const canFold = (row: Row) => {
+    if (!props.onFold || row.parents.length < 2) return false;
+    let known = foldable.get(row.hash);
+    if (known === undefined) foldable.set(row.hash, (known = mergedCommits(props.rows, row.hash).size > 0));
+    return known;
+  };
+  const foldButton = (row: Row) => {
+    const folded = foldedNow.has(row.hash);
+    if (!folded && !canFold(row)) return null;
+    return (
+      <button
+        className={folded ? 'fold folded' : 'fold'}
+        title={folded ? 'Show the commits it merged again' : 'Fold the commits it merged into one row'}
+        aria-label={folded ? 'Show the commits it merged again' : 'Fold the commits it merged into one row'}
+        onClick={(event) => {
+          // Not the selection of the commit as well.
+          event.stopPropagation();
+          if (folded) onUnfold(row.hash);
+          else props.onFold!(row.hash);
+        }}
+        onDoubleClick={(event) => event.stopPropagation()}
+      >
+        <Icon name={folded ? 'chevron-right' : 'chevron-down'} />
+      </button>
+    );
+  };
   const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed, traceSelected, columns } = props;
   const shows = (column: GraphColumn) => columns.includes(column);
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
@@ -396,6 +427,14 @@ export function CommitList(props: Props) {
     if (event.key === 'Enter' && selected && selected !== WORKTREE) return onOpen(selected);
     if (!rows.length) return;
     const current = rows.findIndex((row) => row.hash === selected);
+    // On a merge, the arrow to the left folds what it brought in and the one to the right shows it again.
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && current >= 0 && !event.altKey) {
+      const row = rows[current];
+      if (event.key === 'ArrowLeft' && !foldedNow.has(row.hash) && canFold(row)) props.onFold!(row.hash);
+      else if (event.key === 'ArrowRight' && foldedNow.has(row.hash)) onUnfold(row.hash);
+      else return;
+      return event.preventDefault();
+    }
     if (event.key === 'Home' && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       return go(rows.findIndex((row) => row.hash === props.head));
@@ -588,6 +627,7 @@ export function CommitList(props: Props) {
                   {/* Under the message the labels have the room to keep their names. */}
                   <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                     {chips}
+                    {foldButton(row)}
                     {worktree ? (
                       <span className="who">Not committed yet</span>
                     ) : (
@@ -606,6 +646,7 @@ export function CommitList(props: Props) {
                 <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                   {chips}
                   <span className="subject">{row.subject}</span>
+                  {foldButton(row)}
                 </div>
               )}
               {!worktree && !tall && (
