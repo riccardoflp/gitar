@@ -6,7 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
-- **Sort by name** and **Sort by date** in the **…** on the title of the Local, Remotes and Tags sections beside the graph and in the Branches view, or the setting `gitardo.branches.sortOrder`: branches, remote branches and tags by name, as before, or the one committed to last first, wherever they are listed. Not set, it follows VS Code's `git.branchSortOrder`.
+- **Sort by name** and **Sort by date** in the **…** on the title of the Local, Remotes and Tags sections beside the graph and in the Branches view, or the setting `gitardo.branches.sortOrder`: branches, remote branches and tags by name, as before, or the one committed to last first, wherever they are listed. Not set, it is by name, or by date when you set VS Code's `git.branchSortOrder` to `committerdate`.
 - **Fold the commits it merged into one row** in the context menu of a merge in the graph, on the arrow after its message and with `←` while it is selected: "3 commits of feature" in their place, which a click, the arrow or `→` opens again. **Fold all merges** and **Unfold all merges** in the **…** menu do it for every merge loaded.
 - The names of the branches whose tips are scrolled out of the top of the graph, while their lines go on down it, stay at the top in the colors of their lines. A click goes back up to the tip.
 - Marks beside the scroll bar of the graph for the commit checked out, the one selected and what a search found.

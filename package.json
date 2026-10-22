@@ -1184,7 +1184,7 @@
             "In the order of their names.",
             "The one committed to last first. For an annotated tag, when the tag was made."
           ],
-          "markdownDescription": "How branches, remote branches and tags are listed beside the graph, in the Branches view and wherever one is chosen from a list. The menu of their sections switches it too. Not set, they are listed as `#git.branchSortOrder#` of VS Code lists them."
+          "markdownDescription": "How branches, remote branches and tags are listed beside the graph, in the Branches view and wherever one is chosen from a list. The menu of their sections switches it too. Not set, they are listed by name, or by date when `#git.branchSortOrder#` of VS Code is set to `committerdate`."
         },
         "gitardo.branches.followGraphFilter": {
           "type": "boolean",

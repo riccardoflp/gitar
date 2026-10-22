@@ -197,12 +197,16 @@ function graphColumns(): GraphColumn[] {
   return Array.isArray(wanted) ? GRAPH_COLUMNS.filter((column) => wanted.includes(column)) : GRAPH_COLUMNS;
 }
 
-/** How branches and tags are listed, as `gitardo.branches.sortOrder` asks, or else as VS Code's `git.branchSortOrder` does. */
+/**
+ * How branches and tags are listed, as `gitardo.branches.sortOrder` asks, or else as VS Code's `git.branchSortOrder`
+ * does when it was set. Its default is by date, and Gitardo lists them by name unless asked otherwise.
+ */
 function branchSort(): BranchSort {
   const set = vscode.workspace.getConfiguration('gitardo').inspect<unknown>('branches.sortOrder');
   const ours = set?.workspaceFolderValue ?? set?.workspaceValue ?? set?.globalValue;
   if (ours === 'name' || ours === 'date') return ours;
-  return vscode.workspace.getConfiguration('git').get('branchSortOrder') === 'committerdate' ? 'date' : 'name';
+  const git = vscode.workspace.getConfiguration('git').inspect<unknown>('branchSortOrder');
+  return (git?.workspaceFolderValue ?? git?.workspaceValue ?? git?.globalValue) === 'committerdate' ? 'date' : 'name';
 }
 
 /** How many commits the graph reads at a time, as `gitardo.graph.pageSize` asks. */
