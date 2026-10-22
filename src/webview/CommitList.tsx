@@ -112,8 +112,8 @@ interface GraphProps {
   node: 'commit' | 'worktree' | 'stash';
   /** While the history of a label stands out: which parts of the cell are in it. The others fade. */
   trace?: GraphTrace;
-  /** A commit not pushed yet, which has a ring around its dot. */
-  unpushed: boolean;
+  /** For a commit not pushed yet, the upstream it would be pushed to: its dot has a ring around it. */
+  unpushed?: string;
 }
 
 /**
@@ -166,7 +166,11 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace, unp
         <rect className={`hollow${nodeClass}`} x={x - radius + 0.5} y={mid - radius + 0.5} width={radius * 2 - 1} height={radius * 2 - 1} rx={1} stroke={laneColor(graph.color)} />
       )}
       {node === 'commit' && <circle className={nodeClass.trim() || undefined} cx={x} cy={mid} r={radius} fill={laneColor(graph.color)} />}
-      {node === 'commit' && unpushed && <circle className={`unpushed${nodeClass}`} cx={x} cy={mid} r={radius + 2.5} stroke={laneColor(graph.color)} />}
+      {node === 'commit' && unpushed && (
+        <circle className={`unpushed${nodeClass}`} cx={x} cy={mid} r={radius + 2.5} stroke={laneColor(graph.color)}>
+          <title>{`Not pushed to ${unpushed}`}</title>
+        </circle>
+      )}
     </svg>
   );
 });
@@ -187,15 +191,6 @@ function PullBadge({ request, branch }: { request: PullRequest; branch: string }
     >
       <Icon name={request.draft ? 'git-pull-request-draft' : 'git-pull-request'} />
       {request.number}
-    </span>
-  );
-}
-
-/** Said of a commit that pushing its branch would send, as the Commits view says it. */
-function Unpushed({ upstream }: { upstream: string }) {
-  return (
-    <span className="unpushed" title={`Not pushed to ${upstream}`} aria-label={`Not pushed to ${upstream}`}>
-      <Icon name="cloud-upload" />
     </span>
   );
 }
@@ -391,14 +386,13 @@ export function CommitList(props: Props) {
                 endDrag();
               }}
             >
-              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} trace={trace?.[index]} unpushed={pushTo !== undefined} />
+              <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node={worktree ? 'worktree' : row.stash ? 'stash' : 'commit'} trace={trace?.[index]} unpushed={pushTo} />
               {tall ? (
                 <div className="lines">
                   <span className="subject">{row.subject}</span>
                   {/* Under the message the labels have the room to keep their names. */}
                   <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                     {chips}
-                    {pushTo && <Unpushed upstream={pushTo} />}
                     {worktree ? (
                       <span className="who">Not committed yet</span>
                     ) : (
@@ -414,7 +408,6 @@ export function CommitList(props: Props) {
               ) : (
                 <div className="message" style={{ '--lane': laneColor(row.graph.color) } as CSSProperties}>
                   {chips}
-                  {pushTo && <Unpushed upstream={pushTo} />}
                   <span className="subject">{row.subject}</span>
                 </div>
               )}

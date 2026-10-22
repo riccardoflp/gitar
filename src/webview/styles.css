@@ -1059,17 +1059,6 @@ input:focus-visible,
   color: inherit;
 }
 
-/* Beside the message of a commit not pushed yet, in the color the Commits view gives the ones still to push. */
-.message .unpushed {
-  flex: none;
-  display: flex;
-  color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
-}
-
-.row.selected .message .unpushed {
-  color: inherit;
-}
-
 /* The marks of a bisect say good or bad, which is not about the line they are on. */
 .message .label.good,
 .message .label.bad,
