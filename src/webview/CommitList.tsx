@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { fitGraph, laneCount, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
+import { fitGraph, laneCount, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
 import { WORKTREE, type GraphColumn, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
 import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
@@ -118,6 +118,28 @@ interface GraphProps {
   trace?: GraphTrace;
   /** For a commit not pushed yet, the upstream it would be pushed to: its dot has a ring around it. */
   unpushed?: string;
+}
+
+/** Whether Shift is held down, wherever the focus is in the page. */
+function useShiftKey(): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    const key = (event: globalThis.KeyboardEvent) => setHeld(event.shiftKey);
+    const pointer = (event: PointerEvent) => setHeld(event.shiftKey);
+    // Let go of while the page had not the focus, it would otherwise stay held.
+    const release = () => setHeld(false);
+    window.addEventListener('keydown', key);
+    window.addEventListener('keyup', key);
+    window.addEventListener('pointerover', pointer);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', key);
+      window.removeEventListener('pointerover', pointer);
+      window.removeEventListener('blur', release);
+    };
+  }, []);
+  return held;
 }
 
 /**
@@ -246,12 +268,15 @@ export function CommitList(props: Props) {
   // What the history of the commit traced does not reach fades. Without one, what the selected commit comes from and
   // what was made on top of it stand out, less: it stays while the commits are read.
   const hovered = traced !== null && rows.some((row) => row.hash === traced);
+  // With Shift held, only what it would bring to what is checked out.
+  const shift = useShiftKey();
+  const own = useMemo(() => (hovered && shift ? ownCommits(rows, traced, props.head) : null), [rows, traced, hovered, shift, props.head]);
   const chosen = traceSelected && !hovered && marked.size < 2 && selected !== null && selected !== WORKTREE ? selected : null;
   const trace = useMemo(() => {
-    if (hovered) return traceGraph(rows, reachedFrom(rows, traced));
+    if (hovered) return traceGraph(rows, own?.size ? own : reachedFrom(rows, traced));
     if (!chosen || !rows.some((row) => row.hash === chosen)) return null;
     return traceGraph(rows, new Set([...reachedFrom(rows, chosen), ...reaching(rows, chosen)]));
-  }, [rows, traced, hovered, chosen]);
+  }, [rows, traced, hovered, chosen, own]);
 
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const end = Math.min(rows.length, Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN);

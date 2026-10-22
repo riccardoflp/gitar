@@ -75,6 +75,17 @@ export function reachedFrom(rows: Pick<Row, 'hash' | 'parents'>[], tip: string):
   return reached;
 }
 
+/**
+ * The commits among the rows that `tip` reaches and `base` does not: what a branch would bring to the one checked
+ * out, as a pull request would. Null when `base` is not among the rows, and what it reaches is not known.
+ */
+export function ownCommits(rows: Pick<Row, 'hash' | 'parents'>[], tip: string, base: string | null): Set<string> | null {
+  if (!base || !rows.some((row) => row.hash === base)) return null;
+  const own = reachedFrom(rows, tip);
+  for (const hash of reachedFrom(rows, base)) own.delete(hash);
+  return own;
+}
+
 /** A local branch with commits its upstream has not, as far as the last fetch saw. */
 export interface Ahead {
   tip: string;

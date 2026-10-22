@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, fitGraph, laneCount, reachedFrom, reaching, traceGraph, unpushedCommits } from '../src/shared/graph';
+import { GraphLayout, fitGraph, laneCount, ownCommits, reachedFrom, reaching, traceGraph, unpushedCommits } from '../src/shared/graph';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -140,6 +140,16 @@ describe('traceGraph', () => {
     const listed = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
     const traced = traceGraph(listed, reachedFrom(listed, 'm'));
     expect(traced.every((row) => row.node && row.top.every(Boolean) && row.bottom.every(Boolean))).toBe(true);
+  });
+
+  it('finds the commits a branch would bring to the one checked out, when that one is among the rows', () => {
+    // main: d - a - c, feature: b - c.
+    const listed = rows([['d', 'a'], ['a', 'c'], ['b', 'c'], ['c']]);
+    expect([...ownCommits(listed, 'b', 'd')!]).toEqual(['b']);
+    expect([...ownCommits(listed, 'd', 'b')!].sort()).toEqual(['a', 'd']);
+    expect(ownCommits(listed, 'a', 'd')!.size).toBe(0);
+    expect(ownCommits(listed, 'b', 'gone')).toBeNull();
+    expect(ownCommits(listed, 'b', null)).toBeNull();
   });
 
   it('finds the commits made on top of a commit up the rows, and nothing below it', () => {
