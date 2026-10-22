@@ -1166,6 +1166,19 @@ export async function run(): Promise<void> {
       { type: 'reveal', hash: hashOf('feature') },
     ]);
     assert.deepEqual(addressed.map((webview) => internals.views.get(webview)).sort(), ['graph', 'sideGraph']);
+
+    // A branch the pointer rests on in the side bar has its history brought out where the commits are, until it leaves.
+    forget();
+    await internals.onMessage(view('branches'), { type: 'trace', hash: hashOf('feature') });
+    await internals.onMessage(view('branches'), { type: 'trace', hash: null });
+    await internals.onMessage(view('branches'), { type: 'trace', hash: 'not a hash' });
+    assert.deepEqual(posted, [
+      { type: 'trace', hash: hashOf('feature') },
+      { type: 'trace', hash: hashOf('feature') },
+      { type: 'trace', hash: null },
+      { type: 'trace', hash: null },
+    ]);
+    assert.deepEqual(addressed.map((webview) => internals.views.get(webview)).sort(), ['graph', 'graph', 'sideGraph', 'sideGraph']);
   });
 
   await step('compares a file with the working tree from the Explorer, takes it from the other side, copies a patch, opens GitHub and the comparisons opened before', async () => {

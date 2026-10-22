@@ -38,6 +38,9 @@ export function BranchesApp() {
     post({ type: 'reveal', hash });
   }, []);
 
+  /** The graph is in another view: it brings out the history of the branch the pointer rests on, if it is open. */
+  const trace = useCallback((hash: string | null) => post({ type: 'trace', hash }), []);
+
   useEffect(() => {
     const stop = onMessage((message) => {
       if (message.type === 'state') {
@@ -64,7 +67,7 @@ export function BranchesApp() {
   return (
     <div className="side">
       <WorktreeBanner state={state} busy={false} />
-      <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} onReveal={reveal} sections={SECTIONS} />
+      <RefsTree state={state} selected={selected} onSelect={show} onCompare={compare} onReveal={reveal} sections={SECTIONS} onTrace={trace} />
       {comparing && (
         <Compare
           comparing={comparing}

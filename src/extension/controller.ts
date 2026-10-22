@@ -806,6 +806,12 @@ export class Controller implements vscode.Disposable {
     for (const [view, kind] of this.views) if (showsGraph(kind)) this.post({ type: 'reveal', hash }, view);
   }
 
+  /** Brings out the history of a commit in the views of the graph, or no longer, while the pointer rests on its branch. */
+  private trace(hash: string | null): void {
+    if (hash !== null && !isHash(hash)) return;
+    for (const [view, kind] of this.views) if (showsGraph(kind)) this.post({ type: 'trace', hash }, view);
+  }
+
   /** Hands over what was waiting for a graph view to be there. */
   private flushPending(): void {
     const views = (wanted: (kind: ViewKind) => boolean) => [...this.views].filter(([, kind]) => wanted(kind)).map(([view]) => view);
@@ -2047,6 +2053,8 @@ export class Controller implements vscode.Disposable {
         return compareTab ? this.openCompareOnGitHub(compareTab) : undefined;
       case 'show':
         return this.show(message.hash);
+      case 'trace':
+        return this.trace(message.hash);
       case 'getComparison': {
         const comparison = await this.repo?.compare(message.from, message.to).catch(() => null);
         return comparison ? this.post({ type: 'comparison', comparison }, webview) : undefined;

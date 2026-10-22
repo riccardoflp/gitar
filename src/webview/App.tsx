@@ -150,6 +150,9 @@ export function App({ compact = false }: { compact?: boolean }) {
     post({ type: 'getComparison', from: next.from, to: next.to });
   }, []);
 
+  // The history the graph brings out, of the label, the branch beside it or the branch in the side bar the pointer rests on.
+  const [traced, trace] = useTrace();
+
   useEffect(() => {
     const stop = onMessage((message) => {
       if (message.type === 'state') {
@@ -181,6 +184,8 @@ export function App({ compact = false }: { compact?: boolean }) {
       } else if (message.type === 'reveal') {
         select(message.hash);
         setReveal({ hash: message.hash });
+      } else if (message.type === 'trace') {
+        trace(message.hash);
       } else if (message.type === 'found') {
         const asked = findRef.current?.search;
         if (asked && sameSearch(asked, message.search)) {
@@ -190,15 +195,13 @@ export function App({ compact = false }: { compact?: boolean }) {
     });
     post({ type: 'ready' });
     return stop;
-  }, [select]);
+  }, [select, trace]);
 
   useEffect(() => {
     saveUiState({ refsWidth, detailWidth, graphWidth, detailHeight, refsHidden });
   }, [refsWidth, detailWidth, graphWidth, detailHeight, refsHidden]);
 
   const labels = useMemo(() => (state ? buildLabels(state) : new Map<string, Label[]>()), [state]);
-  // The history the graph brings out, of the label or the branch beside it the pointer rests on.
-  const [traced, trace] = useTrace();
 
   const highlighted = useMemo(() => {
     const needle = query.trim().toLowerCase();

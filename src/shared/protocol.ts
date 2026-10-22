@@ -558,6 +558,8 @@ export type HostMessage =
   | { type: 'unsaved'; paths: string[] }
   /** Select a commit and scroll to it. */
   | { type: 'reveal'; hash: string }
+  /** Bring out the history of a commit in the graph while the pointer rests on its branch in another view; null when it leaves. */
+  | { type: 'trace'; hash: string | null }
   /**
    * The commits a search found in the history that is shown, newest first. `more` when there are others after the last,
    * `failed` when git refused the search.
@@ -625,6 +627,8 @@ export type WebviewMessage =
   | { type: 'openCompareOnGitHub' }
   /** Selects a commit in the views that list commits and are open, without opening one. */
   | { type: 'show'; hash: string }
+  /** The pointer came to a branch, with its commit, whose history the views of the graph bring out; or left it, with null. */
+  | { type: 'trace'; hash: string | null }
   | { type: 'selectRepo'; root: string }
   | { type: 'openDiff'; source: DiffSource; file: FileChange }
   /** Opens the file as it is in the working tree; one that is deleted opens its diff instead. */

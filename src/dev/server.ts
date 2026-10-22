@@ -387,6 +387,9 @@ async function main() {
       }
       case 'show':
         return [{ type: 'reveal', hash: message.hash }];
+      case 'trace':
+        // A page of the preview is one view: there is no graph beside the branches to bring the history out in.
+        return [];
       case 'goTo': {
         const hash = await repo?.resolve(message.revision);
         if (!repo || !hash) return [];
