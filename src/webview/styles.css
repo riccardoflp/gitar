@@ -1031,6 +1031,25 @@ input:focus-visible,
   border-style: dotted;
 }
 
+/* The pull request of a branch, at the end of its label, in the color of its checks. */
+.message .label .pull {
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.message .label .pull .codicon {
+  color: inherit;
+}
+
+.message .label .pull:hover {
+  text-decoration: underline;
+}
+
+/* On the filled label of what is checked out the colors of the checks would not read. */
+.message .label.current .pull {
+  color: inherit;
+}
+
 /* Beside the message of a commit not pushed yet, in the color the Commits view gives the ones still to push. */
 .message .unpushed {
   flex: none;

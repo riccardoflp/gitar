@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { WORKTREE, type CommitDetail, type Comparison, type Loading, type RepoState, type Row, type Search } from '../shared/protocol';
-import { unpushedCommits, type Ahead } from '../shared/graph';
-import { worktreeOf } from '../shared/refs';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, useTrace, type Label, type SelectMode } from './CommitList';
+import { buildLabels, unpushedOf } from './labels';
 import { Compare } from './Compare';
 import { useMenu } from './ContextMenu';
 import { Detail } from './Detail';
@@ -44,41 +43,6 @@ const WIDTHS: { refsWidth: number; detailWidth: number; graphWidth: number | nul
   graphWidth: null,
   detailHeight: null,
 };
-
-/** The branches, tags, stashes and bisect marks of each commit that has some. */
-export function buildLabels(state: RepoState): Map<string, Label[]> {
-  const labels = new Map<string, Label[]>();
-  const add = (hash: string, label: Label) => {
-    const list = labels.get(hash);
-    if (list) list.push(label);
-    else labels.set(hash, [label]);
-  };
-  if (state.head && !state.branch) add(state.head, { kind: 'head', name: 'HEAD', current: true });
-  for (const branch of state.branches) {
-    add(branch.hash, { kind: 'branch', name: branch.name, current: branch.current, worktree: worktreeOf(branch.name, state)?.path });
-  }
-  for (const remote of state.remoteBranches) add(remote.hash, { kind: 'remote', name: remote.name });
-  for (const tag of state.tags) add(tag.hash, { kind: 'tag', name: tag.name });
-  for (const stash of state.stashes) add(stash.hash, { kind: 'stash', name: stash.ref });
-  if (state.bisect) {
-    const { good, bad, skipped } = state.bisect;
-    for (const hash of good) add(hash, { kind: 'good', name: 'good' });
-    if (bad) add(bad, { kind: 'bad', name: 'bad' });
-    for (const hash of skipped) add(hash, { kind: 'skipped', name: 'skipped' });
-  }
-  return labels;
-}
-
-/** The commits of each local branch that its upstream has not yet, by hash, with the upstream they would be pushed to. */
-export function unpushedOf(state: RepoState): Map<string, string> {
-  const ahead: Ahead[] = [];
-  for (const branch of state.branches) {
-    const upstream = branch.upstream;
-    const tip = upstream && !upstream.gone && upstream.ahead ? state.remoteBranches.find((ref) => ref.name === upstream.name) : undefined;
-    if (upstream && tip) ahead.push({ tip: branch.hash, upstream: upstream.name, upstreamTip: tip.hash, ahead: upstream.ahead });
-  }
-  return ahead.length ? unpushedCommits(state.rows, ahead) : new Map();
-}
 
 /** A state that came without the commits this view already has, given those of the state before. */
 function withRowsOf(previous: RepoState | null, next: RepoState, kept: number): RepoState {

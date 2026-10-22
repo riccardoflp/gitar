@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState, Submodule } from '../shared/protocol';
-import { changesText, pullOf, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
+import { changesText, pullOf, pullTitle, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { scopeLabel, scopeRefs, toggleScopeRef } from '../shared/scope';
 import { submoduleDepth, submoduleStatus, submoduleStatusText } from '../shared/submodules';
 import { useMenu, type MenuEntry } from './ContextMenu';
@@ -85,16 +85,10 @@ interface SectionAction {
   menu?(): MenuEntry[];
 }
 
-const CHECKS = { success: 'checks passed', failure: 'checks failed', pending: 'checks running' };
 /** How many entries of a section are listed before asking. */
 const SECTION_LIMIT = 100;
 /** With fewer names than this there is nothing to look for, and the box would only take room. */
 const FILTER_FROM = 15;
-
-function pullTitle(pull: PullRequest): string {
-  const checks = pull.checks ? ` · ${CHECKS[pull.checks]}` : '';
-  return `${pull.draft ? 'Draft pull' : 'Pull'} request #${pull.number}: ${pull.title}${checks}`;
-}
 
 function submoduleBadge(submodule: Submodule): Badge {
   const text = submoduleStatusText(submodule);

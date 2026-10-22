@@ -57,6 +57,14 @@ export function pullOf(name: string | null, state: RepoState): PullRequest | und
   return name !== null && Object.hasOwn(state.pulls, name) ? state.pulls[name] : undefined;
 }
 
+const CHECKS = { success: 'checks passed', failure: 'checks failed', pending: 'checks running' };
+
+/** A pull request in a line: `Pull request #12: Add the parser · checks passed`. */
+export function pullTitle(pull: PullRequest): string {
+  const checks = pull.checks ? ` · ${CHECKS[pull.checks]}` : '';
+  return `${pull.draft ? 'Draft pull' : 'Pull'} request #${pull.number}: ${pull.title}${checks}`;
+}
+
 /** `↑1 ↓2` for the commits a branch and its upstream have that the other has not, or `gone` when the upstream was deleted. */
 export function upstreamHint(branch: Branch): string | undefined {
   const upstream = branch.upstream;

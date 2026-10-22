@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { said } from '../shared/message';
 import type { CommitDetail, DiffSource, FilePatch, FilesLayout, RepoState } from '../shared/protocol';
-import { buildLabels } from './App';
+import { buildLabels } from './labels';
 import { BackToTop } from './BackToTop';
 import { LABEL_ICONS } from './CommitList';
 import { FileChanges } from './FileChanges';

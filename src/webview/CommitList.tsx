@@ -12,7 +12,8 @@ import {
   type MouseEvent,
 } from 'react';
 import { fitGraph, laneCount, reachedFrom, traceGraph, type GraphTrace } from '../shared/graph';
-import { WORKTREE, type GraphRow, type Loading, type Row } from '../shared/protocol';
+import { WORKTREE, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
+import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
 import { Progress } from './Progress';
 import { Sash } from './Sash';
@@ -27,6 +28,8 @@ export interface Label {
   current?: boolean;
   /** For a branch: the folder of the other worktree that has it checked out. */
   worktree?: string;
+  /** For a branch: its open pull request, and the name of the branch on GitHub. */
+  pull?: { request: PullRequest; branch: string };
 }
 
 /** A plain click selects one commit; with Ctrl or Cmd it adds or removes one; with Shift it selects up to the clicked one. */
@@ -165,6 +168,26 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace, unp
     </svg>
   );
 });
+
+/** The open pull request of a branch, on its label: its number, in the color of its checks. A click opens it. */
+function PullBadge({ request, branch }: { request: PullRequest; branch: string }) {
+  return (
+    <span
+      className={`pull ${request.checks ?? ''}`}
+      role="link"
+      title={`${pullTitle(request)}\nClick to open it on GitHub`}
+      onClick={(event) => {
+        // Not the selection of the commit as well.
+        event.stopPropagation();
+        post({ type: 'pullRequest', branch });
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      <Icon name={request.draft ? 'git-pull-request-draft' : 'git-pull-request'} />
+      {request.number}
+    </span>
+  );
+}
 
 /** Said of a commit that pushing its branch would send, as the Commits view says it. */
 function Unpushed({ upstream }: { upstream: string }) {
@@ -326,6 +349,7 @@ export function CommitList(props: Props) {
             >
               <Icon name={label.worktree ? 'worktree' : LABEL_ICONS[label.kind]} />
               <span className="text">{label.name}</span>
+              {label.pull && <PullBadge {...label.pull} />}
             </span>
           ));
           const pushTo = unpushed.get(row.hash);
