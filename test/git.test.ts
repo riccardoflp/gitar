@@ -70,7 +70,7 @@ import {
   workingChanges,
 } from '../src/git/parse';
 import type { Branch, RepoState, Upstream, WorkingState, Worktree } from '../src/shared/protocol';
-import { canFastForward, sortRefs } from '../src/shared/refs';
+import { byMatch, canFastForward, sortRefs } from '../src/shared/refs';
 
 const F = '\x1f';
 
@@ -143,6 +143,13 @@ describe('parsers', () => {
     expect(sorted.branches.map((branch) => branch.name)).toEqual(['b', 'a', 'c']);
     expect(sorted.tags.map((tag) => tag.name)).toEqual(['v2', 'v1']);
     expect(refs.branches[0].name).toBe('a');
+  });
+
+  it('lists the names that match what was typed best first', () => {
+    const names = ['feature/main-menu', 'maintenance', 'origin/main', 'domain', 'main', 'fix', 'origin/maintenance'];
+    expect(byMatch(names, (name) => name, 'main')).toEqual(['main', 'origin/main', 'maintenance', 'feature/main-menu', 'origin/maintenance', 'domain']);
+    expect(byMatch(names, (name) => name, '')).toBe(names);
+    expect(byMatch(['Main', 'xmain'], (name) => name, 'main')).toEqual(['Main', 'xmain']);
   });
 
   it('parses name-status output with renames', () => {

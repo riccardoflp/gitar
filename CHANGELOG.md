@@ -27,6 +27,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Changed
 
+- The filter of the references beside the graph, of the Branches view and of the list of the branches shown in the graph lists the names that match best first: the name itself, then a remote branch of that name, then the names that start with it, then those with a part that does, then the rest.
 - Scrolling down the graph no longer stops at the end of the commits loaded to wait for the next: they are read while there are still hundreds to scroll through. Only the commits that are new are sent to the graph, so the next ones come as quickly however far down it is.
 
 ### Fixed

@@ -22,6 +22,32 @@ export function sortRefs<T extends Pick<RepoState, 'branches' | 'remoteBranches'
   return { ...refs, branches: latest(refs.branches), remoteBranches: latest(refs.remoteBranches), tags: latest(refs.tags) };
 }
 
+/**
+ * How well a name matches what was typed, the best first: the whole name, its last part after a slash, as
+ * `origin/main` for `main`, the start of the name, the start of one of its parts, then anywhere in it. Null when it
+ * does not have it at all. Neither the name nor `needle`, already in lower case, cares about case.
+ */
+export function matchRank(name: string, needle: string): number | null {
+  const lower = name.toLowerCase();
+  const at = lower.indexOf(needle);
+  if (at < 0) return null;
+  if (lower === needle) return 0;
+  if (lower.endsWith(`/${needle}`)) return 1;
+  if (at === 0) return 2;
+  if (lower.split(/[/._-]/).some((part) => part.startsWith(needle))) return 3;
+  return 4;
+}
+
+/** The items whose names have what was typed, the best matches first and in their own order among equals. */
+export function byMatch<T>(items: T[], nameOf: (item: T) => string, needle: string): T[] {
+  if (!needle) return items;
+  return items
+    .map((item) => ({ item, rank: matchRank(nameOf(item), needle) }))
+    .filter((each): each is { item: T; rank: number } => each.rank !== null)
+    .sort((one, other) => one.rank - other.rank)
+    .map((each) => each.item);
+}
+
 /** A worktree where new ones go by its path from there, slashes and all; any other by the name of its folder. */
 export function worktreeLabel(dir: string, root: string | null): string {
   if (root && dir.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return dir.slice(root.length + 1);

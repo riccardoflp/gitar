@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { PullRequest, RepoState, Submodule } from '../shared/protocol';
-import { changesText, pullOf, pullTitle, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
+import { byMatch, changesText, pullOf, pullTitle, pushedName, upstreamHint, worktreeLabel, worktreeOf, worktreeStatus } from '../shared/refs';
 import { scopeLabel, scopeRefs, toggleScopeRef } from '../shared/scope';
 import { submoduleDepth, submoduleStatus, submoduleStatusText } from '../shared/submodules';
 import { useMenu, type MenuEntry } from './ContextMenu';
@@ -142,7 +142,8 @@ export const RefsTree = memo(function RefsTree({ state, selected, onSelect, onCo
   const section = (id: SectionId, title: string, icon: string, all: Item[], optional = false, actions: SectionAction[] = []): ReactNode => {
     if (sections && !sections.includes(id)) return null;
     if (optional && !all.length) return null;
-    const items = needle ? all.filter((item) => item.label.toLowerCase().includes(needle)) : all;
+    // The names that match best come first: `main` before `origin/main` before `maintenance`.
+    const items = byMatch(all, (item) => item.label, needle);
     // A filter is there to find something: what it finds shows, whether the section was closed or not.
     const open = needle ? items.length > 0 : !!opened[id];
     const listed = full[id] ? items : items.slice(0, SECTION_LIMIT);

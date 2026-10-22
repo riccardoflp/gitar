@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { RepoState, Scope } from '../shared/protocol';
+import { byMatch } from '../shared/refs';
 import { scopeChoices, scopeLabel, scopeRefName, scopeRefs, toggleScopeRef, type ScopeChoice } from '../shared/scope';
 import { Icon } from './Icon';
 import { post } from './vscode';
@@ -85,7 +86,8 @@ function Picker({ state, anchor, onClose }: { state: RepoState; anchor: HTMLElem
 
   const chosen = new Set(scope ? scopeRefs(scope, state) : []);
   const needle = text.trim().toLowerCase();
-  const choices = scopeChoices(state).filter((choice) => choice.name.toLowerCase().includes(needle));
+  // The names that match best come first in each group.
+  const choices = byMatch(scopeChoices(state), (choice) => choice.name, needle);
 
   return createPortal(
     <div className="popover scope-picker" role="dialog" aria-label="Branches shown in the graph" ref={element} style={place}>
