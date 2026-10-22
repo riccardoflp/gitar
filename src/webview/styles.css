@@ -538,6 +538,55 @@ input:focus-visible,
   height: 0;
 }
 
+/* The names of the branches whose tips are above the top of the list, at its top, in the colors of their lines. */
+.lane-names {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 0;
+}
+
+.lane-names > div {
+  position: absolute;
+  top: 3px;
+  left: calc(var(--graph) + 4px);
+  right: 12px;
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lane-name {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 180px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--lane);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 0.9em;
+  color: inherit;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  box-shadow: 0 1px 4px var(--vscode-widget-shadow, rgb(0 0 0 / 35%));
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.lane-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-name .codicon {
+  font-size: 12px;
+  color: var(--lane);
+}
+
 /* Beside the scroll bar, it stays where it is while the commits scroll under it. */
 .scroll-marks {
   position: sticky;

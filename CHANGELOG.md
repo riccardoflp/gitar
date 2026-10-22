@@ -6,6 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
+- The names of the branches whose tips are scrolled out of the top of the graph, while their lines go on down it, stay at the top in the colors of their lines. A click goes back up to the tip.
 - Marks beside the scroll bar of the graph for the commit checked out, the one selected and what a search found.
 - A line in the graph before the first commit of yesterday, of this week, of last week and of each month before, with its name. **Separate the days, weeks and months** in the **…** menu of the toolbar, or the setting `gitardo.graph.dateSeparators`, takes them away.
 - `Shift` held with the pointer on a label in the graph brings out only the commits that branch has and the one checked out has not: what merging it would bring.

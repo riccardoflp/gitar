@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, fitGraph, laneCount, ownCommits, reachedFrom, reaching, traceGraph, unpushedCommits } from '../src/shared/graph';
+import { GraphLayout, fitGraph, laneCount, laneTips, ownCommits, reachedFrom, reaching, traceGraph, unpushedCommits } from '../src/shared/graph';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -168,6 +168,26 @@ describe('traceGraph', () => {
     expect(feature.node).toBe(true);
     expect(base.node).toBe(true);
     expect(base.top).toEqual(listed[3].graph.top.map((line) => line.from === 1));
+  });
+});
+
+describe('laneTips', () => {
+  const rows = (commits: [hash: string, ...parents: string[]][]) => layout(commits).map((graph) => ({ graph }));
+
+  it('says of each line coming into a row the tip of the branch it comes from', () => {
+    // main: d - a - c, feature: b - c, both tips shown.
+    const tips = laneTips(rows([['d', 'a'], ['a', 'c'], ['b', 'c'], ['c']]), () => true);
+    expect(tips[0]).toEqual([]);
+    expect(tips[1]).toEqual([0]);
+    // The branch starts on its own lane, the main line passing beside it.
+    expect(tips[2]).toEqual([0]);
+    expect(tips[3]).toEqual([0, 2]);
+  });
+
+  it('leaves the line to a branch merged without a tip until a named commit is on it', () => {
+    const merged = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
+    expect(laneTips(merged, (index) => index === 0)).toEqual([[], [0, null], [0, null], [0, null]]);
+    expect(laneTips(merged, (index) => index === 0 || index === 2)[3]).toEqual([0, 2]);
   });
 });
 

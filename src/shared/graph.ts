@@ -156,6 +156,33 @@ export function traceGraph(rows: Pick<Row, 'hash' | 'graph' | 'parents'>[], reac
   });
 }
 
+/**
+ * For each row, and each line that comes down into it from above, the row of the tip of the branch that line is the
+ * history of: the first commit up the line that has a name, `named` says which, or that nothing comes down to. A
+ * line to the other parent of a merge has none, until a named commit is on it: which branch was merged is not known.
+ */
+export function laneTips(rows: Pick<Row, 'graph'>[], named: (index: number) => boolean): (number | null)[][] {
+  // For each lane, the tip of what runs down it.
+  const lanes: (number | null)[] = [];
+  return rows.map(({ graph }, index) => {
+    const above = graph.top.map((line) => lanes[line.from] ?? null);
+    // The line it comes down on, the one of its own lane first.
+    const into = graph.top.find((line) => line.to === graph.col && line.from === graph.col) ?? graph.top.find((line) => line.to === graph.col);
+    const incoming = into ? (lanes[into.from] ?? null) : null;
+    const tip = incoming ?? (into && !named(index) ? null : index);
+    for (const line of graph.top) if (line.to === graph.col) lanes[line.from] = null;
+    let first = true;
+    for (const line of graph.bottom) {
+      if (line.from !== graph.col) continue;
+      if (first) lanes[line.to] = tip;
+      // Another lane may already wait for that parent, and keeps what it is.
+      else if (lanes[line.to] === undefined) lanes[line.to] = null;
+      first = false;
+    }
+    return above;
+  });
+}
+
 export function laneCount(row: GraphRow): number {
   let max = row.col;
   for (const line of row.top) max = Math.max(max, line.from, line.to);

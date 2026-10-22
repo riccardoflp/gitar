@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { fitGraph, laneCount, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
+import { fitGraph, laneCount, laneTips, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
 import { WORKTREE, type GraphColumn, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
 import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
@@ -85,6 +85,9 @@ interface Props {
 const ROW_HEIGHT = 24;
 /** With the author and the date under the message, as in the side bar. */
 const TALL_ROW_HEIGHT = 42;
+/** What names a line of the graph after the tip it comes from: not the marks of a bisect. */
+const LANE_NAMES = new Set<Label['kind']>(['head', 'branch', 'remote', 'tag', 'stash']);
+
 /** How many labels a commit shows there, the last of which counts the others when there are more. */
 const TALL_LABELS = 3;
 const OVERSCAN = 8;
@@ -305,6 +308,9 @@ export function CommitList(props: Props) {
   const fit = fitGraph(lanes, props.graphWidth, width);
   const matchSet = useMemo(() => (matches ? new Set(matches) : null), [matches]);
   const periods = useMemo(() => (props.dateSeparators ? datePeriods(rows) : null), [rows, props.dateSeparators]);
+  // The branches whose tips are above the top of the list, on the lines that go on down it.
+  const laneName = (row: Row) => labels.get(row.hash)?.find((label) => LANE_NAMES.has(label.kind))?.name ?? row.stash ?? null;
+  const tips = useMemo(() => laneTips(rows, (index) => laneName(rows[index]) !== null), [rows, labels]);
   // What the history of the commit traced does not reach fades. Without one, what the selected commit comes from and
   // what was made on top of it stand out, less: it stays while the commits are read.
   const hovered = traced !== null && rows.some((row) => row.hash === traced);
@@ -346,6 +352,16 @@ export function CommitList(props: Props) {
     if (reveal) scrollTo(rows.findIndex((row) => row.hash === reveal.hash), true);
     // Only a new reveal request should move the scroll position, not every refresh of the rows.
   }, [reveal]);
+
+  const first = Math.floor(scrollTop / rowHeight);
+  const offscreen: { tip: number; name: string; color: number }[] = [];
+  if (first > 0 && first < rows.length) {
+    rows[first].graph.top.forEach((line, index) => {
+      const tip = tips[first][index];
+      const name = tip === null ? null : laneName(rows[tip]);
+      if (tip !== null && name && !offscreen.some((other) => other.tip === tip)) offscreen.push({ tip, name, color: line.color });
+    });
+  }
 
   const go = (index: number) => {
     if (index < 0) return;
@@ -409,6 +425,29 @@ export function CommitList(props: Props) {
       )}
       {rows.length > 0 && height > 0 && (
         <ScrollMarks rows={rows} total={rows.length + (hasMore ? 1 : 0)} height={height} head={props.head} selected={selected} matches={matchSet} />
+      )}
+      {offscreen.length > 0 && (
+        <div className="lane-names" style={{ '--graph': `${fit.width}px` } as CSSProperties}>
+          <div>
+            {offscreen.map(({ tip, name, color }) => (
+              <button
+                key={tip}
+                className="lane-name"
+                style={{ '--lane': laneColor(color) } as CSSProperties}
+                title={`Go up to ${name}`}
+                onClick={() => {
+                  onSelect(rows[tip].hash, 'single');
+                  scrollTo(tip, true);
+                }}
+                onMouseEnter={() => onTrace(rows[tip].hash)}
+                onMouseLeave={() => onTrace(null)}
+              >
+                <Icon name="arrow-up" />
+                <span>{name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       {/* With more to load, one more row says so at the end, where scrolling gets before they come. */}
       <div className="spacer" style={{ height: (rows.length + (hasMore ? 1 : 0)) * rowHeight }}>
