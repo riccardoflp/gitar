@@ -107,6 +107,8 @@ interface CommitMenuTools {
   onCompare(comparing: Comparing): void;
   /** Opens the message of the commit in the details, to change it. */
   onEditMessage(): void;
+  /** For a merge whose commits can be folded into one row in the graph: folds them. */
+  onFold?(): void;
 }
 
 /**
@@ -139,7 +141,7 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
   if (row.hash === WORKTREE) return changesMenu(state);
 
   const { hash } = row;
-  const { selected, onInteractiveRebase, onCompare, onEditMessage } = tools;
+  const { selected, onInteractiveRebase, onCompare, onEditMessage, onFold } = tools;
   const short = shortHash(hash);
   const isMerge = row.parents.length > 1;
   const isHead = hash === state.head;
@@ -152,6 +154,7 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
   });
   return [
     { label: 'Open in an editor tab', run: () => post({ type: 'openCommit', hash }) },
+    onFold && { label: 'Fold the commits it merged into one row', run: onFold },
     'separator',
     !isHead && { label: 'Check out commit (detached)', run: () => act({ kind: 'checkout', target: 'detached', ref: hash }) },
     { label: 'Create branch here…', run: () => act({ kind: 'createBranch', at: hash }) },

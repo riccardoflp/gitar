@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { GraphLayout, fitGraph, laneCount, laneTips, ownCommits, reachedFrom, reaching, traceGraph, unpushedCommits } from '../src/shared/graph';
+import {
+  GraphLayout,
+  fitGraph,
+  foldMerges,
+  laneCount,
+  laneTips,
+  mergedBranch,
+  mergedCommits,
+  ownCommits,
+  reachedFrom,
+  reaching,
+  traceGraph,
+  unpushedCommits,
+} from '../src/shared/graph';
+import type { Row } from '../src/shared/protocol';
 
 function layout(commits: [hash: string, ...parents: string[]][]) {
   const graph = new GraphLayout();
@@ -188,6 +202,48 @@ describe('laneTips', () => {
     const merged = rows([['m', 'a', 'b'], ['a', 'c'], ['b', 'c'], ['c']]);
     expect(laneTips(merged, (index) => index === 0)).toEqual([[], [0, null], [0, null], [0, null]]);
     expect(laneTips(merged, (index) => index === 0 || index === 2)[3]).toEqual([0, 2]);
+  });
+});
+
+describe('foldMerges', () => {
+  function rows(commits: [hash: string, ...parents: string[]][]): Row[] {
+    const graph = new GraphLayout();
+    return commits.map(([hash, ...parents], index) => ({ hash, parents, author: 'A', email: '', date: 100 - index, subject: hash, graph: graph.next(hash, parents) }));
+  }
+  const shape = (shown: { hash: string; parents: string[] }[]) => shown.map((row) => `${row.hash}<${row.parents.join(',')}`);
+
+  // main: l - m1 - x - b, with feature: f2 - f1 - b merged by m1.
+  const merged = rows([['l', 'm1'], ['m1', 'x', 'f2'], ['x', 'b'], ['f2', 'f1'], ['f1', 'b'], ['b']]);
+
+  it('says which commits a merge brought in, and the branch its message names', () => {
+    expect([...mergedCommits(merged, 'm1')].sort()).toEqual(['f1', 'f2']);
+    expect(mergedCommits(merged, 'x').size).toBe(0);
+    expect(mergedBranch("Merge branch 'feature' into main")).toBe('feature');
+    expect(mergedBranch("Merge remote-tracking branch 'origin/fix'")).toBe('origin/fix');
+    expect(mergedBranch('Merge pull request #12 from someone/topic')).toBe('someone/topic');
+    expect(mergedBranch('Fix the parser')).toBeNull();
+  });
+
+  it('puts the commits a merge brought in under one row, where the first of them was, and draws the graph again', () => {
+    const { rows: shown, hiddenBy } = foldMerges(merged, new Set(['m1']));
+    expect(shape(shown)).toEqual(['l<m1', 'm1<x,fold:m1', 'x<b', 'fold:m1<b', 'b<']);
+    expect(shown[3].folded).toEqual({ merge: 'm1', count: 2 });
+    expect([...hiddenBy.keys()].sort()).toEqual(['f1', 'f2']);
+    expect(edges(shown[1].graph.bottom)).toEqual(['0>0', '0>1']);
+    // Nothing folded, the rows are the same.
+    expect(foldMerges(merged, new Set()).rows).toBe(merged);
+  });
+
+  it('puts the row under a commit made on top of one of them that is further down', () => {
+    const listed = rows([['m', 'a', 's2'], ['s2', 's1'], ['y', 's1'], ['s1', 'b'], ['a', 'b'], ['b']]);
+    expect(shape(foldMerges(listed, new Set(['m'])).rows)).toEqual(['m<a,fold:m', 'y<fold:m', 'fold:m<b', 'a<b', 'b<']);
+  });
+
+  it('leaves a merge unfolded when the row cannot go under what is made on top and above what it comes from', () => {
+    const listed = rows([['m', 'a', 's2'], ['s2', 's1', 'a2'], ['a', 'a2'], ['a2', 'b'], ['y', 's1'], ['s1', 'b'], ['b']]);
+    const { rows: shown, hiddenBy } = foldMerges(listed, new Set(['m']));
+    expect(hiddenBy.size).toBe(0);
+    expect(shape(shown)).toEqual(shape(listed));
   });
 });
 

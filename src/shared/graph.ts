@@ -1,4 +1,4 @@
-import type { GraphLine, GraphRow, Row } from './protocol';
+import { WORKTREE, type GraphLine, type GraphRow, type Row } from './protocol';
 
 /**
  * Assigns commits to lanes one row at a time. Feed it commits in an order where
@@ -181,6 +181,75 @@ export function laneTips(rows: Pick<Row, 'graph'>[], named: (index: number) => b
     }
     return above;
   });
+}
+
+/** The commits among the rows that a merge brought in: what its other parents reach and its first parent does not. */
+export function mergedCommits(rows: Pick<Row, 'hash' | 'parents'>[], merge: string): Set<string> {
+  const row = rows.find((candidate) => candidate.hash === merge);
+  const merged = new Set<string>();
+  if (!row || row.parents.length < 2) return merged;
+  const listed = new Set(rows.map((candidate) => candidate.hash));
+  const main = reachedFrom(rows, row.parents[0]);
+  for (const parent of row.parents.slice(1)) {
+    for (const hash of reachedFrom(rows, parent)) if (listed.has(hash) && !main.has(hash)) merged.add(hash);
+  }
+  return merged;
+}
+
+/** The name of the branch a merge brought in, as git writes it in the message of the merge. */
+export function mergedBranch(subject: string): string | null {
+  const found = /^Merge (?:remote-tracking )?branch '([^']+)'/.exec(subject) ?? /^Merge pull request #\d+ from (\S+)/.exec(subject);
+  return found ? found[1] : null;
+}
+
+/** A row of the graph, or one that stands for the commits a merge brought in, folded. */
+export interface ShownRow extends Row {
+  folded?: { merge: string; count: number };
+}
+
+/**
+ * The rows with the commits the merges in `folded` brought in each put away under one row, and the lines of the graph
+ * drawn again for what is left. The folded row goes where the first of its commits was, or under the commits made on
+ * top of them when some are further down; a merge whose commits cannot have one row there, with the history they
+ * come from above it, stays unfolded. `hiddenBy` says which merge put away each commit.
+ */
+export function foldMerges(rows: Row[], folded: ReadonlySet<string>): { rows: ShownRow[]; hiddenBy: Map<string, string> } {
+  const hiddenBy = new Map<string, string>();
+  if (!folded.size) return { rows, hiddenBy };
+  const at = new Map(rows.map((row, index) => [row.hash, index]));
+  // The row of each merge, before the row at its index.
+  const holders = new Map<number, ShownRow[]>();
+  for (const row of rows) {
+    if (!folded.has(row.hash) || hiddenBy.has(row.hash)) continue;
+    const merged = [...mergedCommits(rows, row.hash)].filter((hash) => !hiddenBy.has(hash));
+    if (!merged.length) continue;
+    const inside = new Set(merged);
+    const first = Math.min(...merged.map((hash) => at.get(hash)!));
+    let lowestChild = -1;
+    rows.forEach((other, index) => {
+      if (!inside.has(other.hash) && other.parents.some((parent) => inside.has(parent))) lowestChild = Math.max(lowestChild, index);
+    });
+    // What the commits come from, in the order of the rows.
+    const parents = [...new Set(merged.flatMap((hash) => rows[at.get(hash)!].parents.filter((parent) => !inside.has(parent) && at.has(parent))))];
+    parents.sort((one, other) => at.get(one)! - at.get(other)!);
+    const place = Math.max(first, lowestChild + 1);
+    if (parents.length && place > at.get(parents[0])!) continue;
+    for (const hash of merged) hiddenBy.set(hash, row.hash);
+    const holder: ShownRow = { ...rows[first], hash: `fold:${row.hash}`, parents, author: '', email: '', subject: '', stash: undefined };
+    holder.folded = { merge: row.hash, count: merged.length };
+    holders.set(place, [...(holders.get(place) ?? []), holder]);
+  }
+
+  const standFor = (hash: string) => (hiddenBy.has(hash) ? `fold:${hiddenBy.get(hash)}` : hash);
+  const shown: ShownRow[] = [];
+  rows.forEach((row, index) => {
+    for (const holder of holders.get(index) ?? []) shown.push({ ...holder, parents: [...new Set(holder.parents.map(standFor))] });
+    if (!hiddenBy.has(row.hash)) shown.push({ ...row, parents: [...new Set(row.parents.map(standFor))] });
+  });
+
+  const layout = new GraphLayout();
+  for (const row of shown) row.graph = layout.next(row.hash, row.parents, row.hash === WORKTREE || row.stash !== undefined);
+  return { rows: shown, hiddenBy };
 }
 
 export function laneCount(row: GraphRow): number {

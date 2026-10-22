@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { mergedCommits } from '../shared/graph';
 import { WORKTREE, type CommitDetail, type Comparison, type Loading, type RepoState, type Row, type Search } from '../shared/protocol';
 import { BisectBanner } from './BisectBanner';
 import { CommitList, useTrace, type Label, type SelectMode } from './CommitList';
@@ -128,6 +129,8 @@ export function App({ compact = false }: { compact?: boolean }) {
 
   // The history the graph brings out, of the label, the branch beside it or the branch in the side bar the pointer rests on.
   const [traced, trace] = useTrace();
+  // The merges whose commits the graph folds into one row, until another repository is shown.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(NONE);
 
   useEffect(() => {
     const stop = onMessage((message) => {
@@ -141,6 +144,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           // Another repository: what was selected or being edited belongs to the previous one.
           rootRef.current = root;
           select(null);
+          setFolded(NONE);
           setRebase(null);
           setFind(null);
         } else if (selectedRef.current === WORKTREE) {
@@ -293,6 +297,9 @@ export function App({ compact = false }: { compact?: boolean }) {
     if (added || hash === selected) show(added ? hash : [...next][0]);
   };
 
+  // Only a history with its lines has merges to fold: not what a search finds.
+  const connected = !state.filter || state.filter.kind === 'path' || state.filter.kind === 'ref';
+
   const onRowMenu = (event: MouseEvent, row: Row) => {
     if (markedRows.length > 1 && marked.has(row.hash)) return openMenu(event, selectionMenu(markedRows, state, compare));
     const before = selected;
@@ -310,6 +317,7 @@ export function App({ compact = false }: { compact?: boolean }) {
           select(row.hash);
           setEditing(row.hash);
         },
+        onFold: connected && mergedCommits(state.rows, row.hash).size ? () => setFolded((previous) => new Set(previous).add(row.hash)) : undefined,
       }),
     );
   };
@@ -428,6 +436,14 @@ export function App({ compact = false }: { compact?: boolean }) {
           columns={state.graphColumns}
           head={state.head}
           dateSeparators={state.dateSeparators}
+          folded={connected ? folded : NONE}
+          onUnfold={(merge) =>
+            setFolded((previous) => {
+              const next = new Set(previous);
+              next.delete(merge);
+              return next;
+            })
+          }
         />
         {hasDetail && !compact && (
           <Sash

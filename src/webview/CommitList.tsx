@@ -11,7 +11,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import { fitGraph, laneCount, laneTips, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
+import { fitGraph, foldMerges, laneCount, laneTips, mergedBranch, ownCommits, reachedFrom, reaching, traceGraph, type GraphTrace } from '../shared/graph';
 import { WORKTREE, type GraphColumn, type GraphRow, type Loading, type PullRequest, type Row } from '../shared/protocol';
 import { pullTitle } from '../shared/refs';
 import { Icon } from './Icon';
@@ -80,6 +80,10 @@ interface Props {
   head: string | null;
   /** Whether a line with the name of a time further back, a day, a week or a month, comes before its first commit. */
   dateSeparators: boolean;
+  /** The merges whose commits are folded into one row. */
+  folded: ReadonlySet<string>;
+  /** The row of the commits of a merge was clicked, or one of them is to be shown: they are shown again. */
+  onUnfold(merge: string): void;
 }
 
 const ROW_HEIGHT = 24;
@@ -118,7 +122,7 @@ interface GraphProps {
   /** The room each lane has: less than usual when the graph is squeezed. */
   lane: number;
   /** A dot for a commit, a ring for the uncommitted changes, a square for a stash. */
-  node: 'commit' | 'worktree' | 'stash';
+  node: 'commit' | 'worktree' | 'stash' | 'folded';
   /** While the history of a label stands out: which parts of the cell are in it. The others fade. */
   trace?: GraphTrace;
   /** For a commit not pushed yet, the upstream it would be pushed to: its dot has a ring around it. */
@@ -193,6 +197,9 @@ const Graph = memo(function Graph({ graph, width, height, lane, node, trace, unp
         return <path key={`b${index}`} className={trace && !trace.bottom[index] ? 'faded' : undefined} d={d} stroke={laneColor(line.color)} strokeDasharray={line.dashed ? '3 3' : undefined} />;
       })}
       {node === 'worktree' && <circle className={`hollow${nodeClass}`} cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} />}
+      {node === 'folded' && (
+        <circle className={`hollow${nodeClass}`} cx={x} cy={mid} r={radius - 0.5} stroke={laneColor(graph.color)} strokeDasharray="2 1.5" />
+      )}
       {node === 'stash' && (
         <rect className={`hollow${nodeClass}`} x={x - radius + 0.5} y={mid - radius + 0.5} width={radius * 2 - 1} height={radius * 2 - 1} rx={1} stroke={laneColor(graph.color)} />
       )}
@@ -270,7 +277,9 @@ function PullBadge({ request, branch }: { request: PullRequest; branch: string }
 }
 
 export function CommitList(props: Props) {
-  const { rows, empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu } = props;
+  const { empty, hasMore, loading, labels, matches, selected, marked, reveal, onSelect, onRowMenu, onLabelMenu, onUnfold } = props;
+  // The commits a folded merge brought in have one row for them all.
+  const { rows, hiddenBy } = useMemo(() => foldMerges(props.rows, props.folded), [props.rows, props.folded]);
   const { dragSource, canDrop, onDrop, onOpen, labelOpen, tall, traced, onTrace, unpushed, traceSelected, columns } = props;
   const shows = (column: GraphColumn) => columns.includes(column);
   const rowHeight = tall ? TALL_ROW_HEIGHT : ROW_HEIGHT;
@@ -331,11 +340,12 @@ export function CommitList(props: Props) {
   // one follows the other until there are enough ahead.
   const requestedAt = useRef(0);
   useEffect(() => {
-    if (hasMore && end >= rows.length - AHEAD && requestedAt.current !== rows.length) {
-      requestedAt.current = rows.length;
+    // Counted in the commits loaded: those of a folded merge are not in the rows.
+    if (hasMore && end >= rows.length - AHEAD && requestedAt.current !== props.rows.length) {
+      requestedAt.current = props.rows.length;
       post({ type: 'loadMore' });
     }
-  }, [hasMore, end, rows.length]);
+  }, [hasMore, end, rows.length, props.rows.length]);
 
   const scrollTo = (index: number, center: boolean) => {
     const element = scroller.current;
@@ -348,10 +358,23 @@ export function CommitList(props: Props) {
     }
   };
 
+  // A commit to show that a folded merge put away is shown once the merge is unfolded.
+  const revealing = useRef<string | null>(null);
   useEffect(() => {
-    if (reveal) scrollTo(rows.findIndex((row) => row.hash === reveal.hash), true);
+    if (!reveal) return;
+    const merge = hiddenBy.get(reveal.hash);
+    if (merge) {
+      revealing.current = reveal.hash;
+      onUnfold(merge);
+    } else scrollTo(rows.findIndex((row) => row.hash === reveal.hash), true);
     // Only a new reveal request should move the scroll position, not every refresh of the rows.
   }, [reveal]);
+  useEffect(() => {
+    const index = revealing.current ? rows.findIndex((row) => row.hash === revealing.current) : -1;
+    if (index < 0) return;
+    revealing.current = null;
+    scrollTo(index, true);
+  }, [rows]);
 
   const first = Math.floor(scrollTop / rowHeight);
   const offscreen: { tip: number; name: string; color: number }[] = [];
@@ -364,7 +387,7 @@ export function CommitList(props: Props) {
   }
 
   const go = (index: number) => {
-    if (index < 0) return;
+    if (index < 0 || rows[index].folded) return;
     onSelect(rows[index].hash, 'single');
     scrollTo(index, false);
   };
@@ -389,7 +412,11 @@ export function CommitList(props: Props) {
       const child = nearest(rows, current, -1, (other) => other.parents[0] === row.hash);
       return go(child >= 0 ? child : nearest(rows, current, -1, (other) => other.parents.includes(row.hash)));
     }
-    go(Math.min(rows.length - 1, Math.max(0, current + step)));
+    // The row of a folded merge is no commit to select: it is passed over.
+    let next = current + step;
+    while (rows[next]?.folded) next += step;
+    if (next >= 0 && next < rows.length) go(next);
+    else if (current < 0) go(0);
   };
 
   const listClasses = ['commits'];
@@ -453,6 +480,34 @@ export function CommitList(props: Props) {
       <div className="spacer" style={{ height: (rows.length + (hasMore ? 1 : 0)) * rowHeight }}>
         {rows.slice(start, end).map((row, offset) => {
           const index = start + offset;
+          if (row.folded) {
+            const { merge, count } = row.folded;
+            const mergeRow = props.rows.find((other) => other.hash === merge);
+            const tip = mergeRow && labels.get(mergeRow.parents[1])?.find((label) => label.kind === 'branch' || label.kind === 'remote');
+            const name = tip?.name ?? (mergeRow && mergedBranch(mergeRow.subject));
+            const what = `${count} ${count === 1 ? 'commit' : 'commits'}${name ? ` of ${name}` : ' merged'}`;
+            const rowClasses = ['row', 'folded'];
+            if (tall) rowClasses.push('tall');
+            if (trace && !trace[index].node) rowClasses.push('unreached');
+            return (
+              <div
+                key={row.hash}
+                className={rowClasses.join(' ')}
+                style={{ top: index * rowHeight, height: rowHeight }}
+                role="option"
+                aria-selected={false}
+                title="Click to show them again"
+                onClick={() => onUnfold(merge)}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                <Graph graph={row.graph} width={fit.width} height={rowHeight} lane={fit.lane} node="folded" trace={trace?.[index]} />
+                <div className="message">
+                  <Icon name="unfold" />
+                  <span className="subject">{what}</span>
+                </div>
+              </div>
+            );
+          }
           const worktree = row.hash === WORKTREE;
           const classes = tall ? ['row', 'tall'] : ['row'];
           const isSelected = row.hash === selected || marked.has(row.hash);

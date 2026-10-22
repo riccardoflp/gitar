@@ -934,6 +934,17 @@ input:focus-visible,
   opacity: 0.35;
 }
 
+/* The row of the commits a merge brought in, folded: it opens them with a click. */
+.row.folded .message {
+  gap: 4px;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.row.folded:hover .message {
+  color: var(--vscode-foreground);
+}
+
 /* A line before the first commit of a day, a week or a month further back, with its name at the end. */
 .row .period {
   position: absolute;
