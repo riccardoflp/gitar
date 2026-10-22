@@ -6,7 +6,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 
 ### Added
 
-- **Fold the commits it merged into one row** in the context menu of a merge in the graph, on the arrow after its message and with `←` while it is selected: "3 commits of feature" in their place, which a click, the arrow or `→` opens again.
+- **Fold the commits it merged into one row** in the context menu of a merge in the graph, on the arrow after its message and with `←` while it is selected: "3 commits of feature" in their place, which a click, the arrow or `→` opens again. **Fold all merges** and **Unfold all merges** in the **…** menu do it for every merge loaded.
 - The names of the branches whose tips are scrolled out of the top of the graph, while their lines go on down it, stay at the top in the colors of their lines. A click goes back up to the tip.
 - Marks beside the scroll bar of the graph for the commit checked out, the one selected and what a search found.
 - A line in the graph before the first commit of yesterday, of this week, of last week and of each month before, with its name. **Separate the days, weeks and months** in the **…** menu of the toolbar, or the setting `gitardo.graph.dateSeparators`, takes them away.

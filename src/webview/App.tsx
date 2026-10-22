@@ -355,6 +355,10 @@ export function App({ compact = false }: { compact?: boolean }) {
         searching={!!find && !find.hashes}
         refsHidden={refsHidden}
         onToggleRefs={() => setRefsHidden((hidden) => !hidden)}
+        onFoldAll={
+          connected ? (fold) => setFolded(fold ? new Set(state.rows.filter((row) => row.parents.length > 1).map((row) => row.hash)) : NONE) : undefined
+        }
+        someFolded={folded.size > 0}
         onQuery={setQuery}
         onSearch={search}
         onStep={step}
