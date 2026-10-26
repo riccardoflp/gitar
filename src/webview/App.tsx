@@ -20,6 +20,7 @@ import {
   branchMenu,
   canCherryPick,
   canReword,
+  canSquash,
   cherryPickMany,
   commitMenu,
   dropMenu,
@@ -27,6 +28,7 @@ import {
   openRemoteBranch,
   remoteBranchMenu,
   selectionMenu,
+  squash,
   stashMenu,
   tagMenu,
   type Comparing,
@@ -375,6 +377,12 @@ export function App({ compact = false }: { compact?: boolean }) {
             {markedRows.length} commits selected
             <span className="muted"> · Ctrl+click adds or removes one, Shift+click selects up to there</span>
           </span>
+          {canSquash(markedRows, state) && (
+            <button className="button" disabled={busy !== null} title="Makes them one commit, with a message you give" onClick={() => squash(markedRows)}>
+              <Icon name="combine" />
+              Squash into one
+            </button>
+          )}
           {canCherryPick(markedRows, state) && (
             <button
               className="button"

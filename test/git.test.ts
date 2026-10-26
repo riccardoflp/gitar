@@ -23,6 +23,8 @@ import {
   rebaseInteractiveOp,
   rebaseOp,
   rebaseTodo,
+  splitMessage,
+  squashMessage,
   refNameProblem,
   undoOp,
   worktreeAddOp,
@@ -619,6 +621,16 @@ describe('operations', () => {
     expect(() => rebaseTodo([{ action: 'drop', hash: 'c1' }, { action: 'squash', hash: 'c2' }], String)).toThrow(/nothing before it/);
     expect(() => rebaseTodo([{ action: 'drop', hash: 'c1' }], String)).toThrow(/dropped/);
     expect(rebaseInteractiveOp(null, '/tmp/todo', todo, 'work').commands[0].slice(-3)).toEqual(['rebase', '-i', '--root']);
+  });
+
+  it('puts together the message of squashed commits under the subject given', () => {
+    const messages = ['Add login\n\nWith a form.', 'Fix typo', 'Check the password\n\nAt least 8 characters.'];
+    expect(squashMessage('Add login', messages)).toBe('Add login\n\nWith a form.\n\nFix typo\n\nCheck the password\n\nAt least 8 characters.');
+    expect(squashMessage(' Log in with a password ', messages)).toBe(
+      'Log in with a password\n\nAdd login\n\nWith a form.\n\nFix typo\n\nCheck the password\n\nAt least 8 characters.',
+    );
+    expect(squashMessage('Fix typo', ['Fix typo', 'Fix typo'])).toBe('Fix typo');
+    expect(splitMessage('Subject\nstill subject\n\nBody\n\nMore')).toEqual({ subject: 'Subject still subject', body: 'Body\n\nMore' });
   });
 
   it('creates worktrees for an existing branch, a new branch or a detached commit', () => {

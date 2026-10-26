@@ -120,6 +120,18 @@ export function canReword(hash: string, state: RepoState): boolean {
   return hash === state.head || rebaseRange(hash, state) !== null;
 }
 
+/**
+ * Whether these commits can be squashed into one: they follow one another on the line before HEAD, without merges,
+ * while nothing else is going on. `rows` are in the order of the graph, newest first.
+ */
+export function canSquash(rows: Row[], state: RepoState): boolean {
+  if (rows.length < 2 || state.operation || state.bisect) return false;
+  const range = rebaseRange(rows[rows.length - 1].hash, state);
+  return !!range && rows.every((row, index) => range[range.length - rows.length + index].hash === row.hash);
+}
+
+export const squash = (rows: Row[]) => act({ kind: 'squash', hashes: rows.map((row) => row.hash) });
+
 /** What can be done with the changes that are not committed, all at once. */
 export function changesMenu(state: RepoState): MenuEntry[] {
   const { staged, unstaged, conflicts } = state.working;
@@ -175,6 +187,11 @@ export function commitMenu(row: Row, state: RepoState, tools: CommitMenuTools): 
       label: `Add ${pending} changes to this commit (fixup)`,
       run: () => act({ kind: 'fixup', hash, isRoot: row.parents.length === 0 }),
     },
+    // The commit before it is made again too, so it must be on the same line.
+    range && row.parents.length === 1 && rebaseRange(row.parents[0], state) && {
+      label: 'Squash into the commit before it…',
+      run: () => act({ kind: 'squash', hashes: [row.parents[0], hash] }),
+    },
     { label: `Reset ${state.branch ?? 'HEAD'} to here…`, run: () => act({ kind: 'reset', hash }) },
     'separator',
     compareWithHead(short, hash, state, onCompare),
@@ -223,6 +240,7 @@ export function selectionMenu(rows: Row[], state: RepoState, onCompare: (compari
   const newest = rows[0];
   const oldest = rows[rows.length - 1];
   return [
+    canSquash(rows, state) && { label: `Squash ${rows.length} commits into one…`, run: () => squash(rows) },
     canCherryPick(rows, state) && {
       label: `Cherry-pick ${rows.length} commits onto ${state.branch ?? 'HEAD'}`,
       run: () => cherryPickMany(rows),

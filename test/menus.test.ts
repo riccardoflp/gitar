@@ -5,7 +5,9 @@ import { changesText, upstreamHint, worktreeOf, worktreeStatus } from '../src/sh
 // The menus post what is chosen to the extension; here they are only read.
 const posted = vi.hoisted(() => [] as unknown[]);
 vi.mock('../src/webview/vscode', () => ({ post: (message: unknown) => posted.push(message) }));
-const { branchMenu, canReword, changesMenu, commitMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, worktreeMenu } = await import('../src/webview/menus');
+const { branchMenu, canReword, canSquash, changesMenu, commitMenu, dropMenu, openBranch, openRemoteBranch, remoteBranchMenu, selectionMenu, worktreeMenu } = await import(
+  '../src/webview/menus'
+);
 
 const worktree = (overrides: Partial<Worktree>): Worktree => ({
   path: 'C:/prj/app',
@@ -243,5 +245,32 @@ describe('changing the message of a commit', () => {
     expect(canReword('b', repo({ head: 'b', rows: rows.slice(2) }))).toBe(true);
     expect(labels(commitMenu(rows[1], repo(), tools))).toContain('Edit message…');
     expect(labels(commitMenu(rows[2], repo(), tools))).not.toContain('Edit message…');
+  });
+});
+
+describe('squashing commits', () => {
+  const row = (hash: string, parents: string[]): Row => ({ hash, parents, author: '', email: '', date: 0, subject: hash, graph: [] as never });
+  const rows = [row('e', ['d']), row('d', ['c']), row('c', ['b']), row('b', ['a', 'x']), row('a', [])];
+  const repo = (more: Partial<RepoState> = {}) => ({ ...state([], []), head: 'e', rows, working: { staged: [], unstaged: [], conflicts: [] }, bisect: null, ...more }) as RepoState;
+  const tools = { selected: null, onInteractiveRebase: () => {}, onCompare: () => {}, onEditMessage: () => {} };
+  const pick = (...hashes: string[]) => rows.filter((each) => hashes.includes(each.hash));
+
+  it('is offered for commits that follow one another before HEAD, down to the first merge', () => {
+    expect(canSquash(pick('e', 'd'), repo())).toBe(true);
+    expect(canSquash(pick('d', 'c'), repo())).toBe(true);
+    expect(canSquash(pick('e', 'c'), repo())).toBe(false);
+    expect(canSquash(pick('c', 'b'), repo())).toBe(false);
+    expect(canSquash(pick('e'), repo())).toBe(false);
+    expect(canSquash(pick('e', 'd'), repo({ operation: 'rebase' }))).toBe(false);
+    expect(labels(selectionMenu(pick('e', 'd', 'c'), repo(), () => {}))).toContain('Squash 3 commits into one…');
+  });
+
+  it('squashes a commit into the one before it when that one is on the same line', () => {
+    expect(labels(commitMenu(rows[1], repo(), tools))).toContain('Squash into the commit before it…');
+    expect(labels(commitMenu(rows[2], repo(), tools))).not.toContain('Squash into the commit before it…');
+    posted.length = 0;
+    const entry = commitMenu(rows[0], repo(), tools).find((each) => each && each !== 'separator' && each.label === 'Squash into the commit before it…');
+    if (entry && entry !== 'separator') entry.run();
+    expect(posted).toEqual([{ type: 'action', action: { kind: 'squash', hashes: ['d', 'e'] } }]);
   });
 });

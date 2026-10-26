@@ -477,6 +477,11 @@ export type Action =
    * commits after it again.
    */
   | { kind: 'reword'; hash: string; message: string }
+  /**
+   * Makes one commit of several that follow one another on the line before HEAD, by an interactive rebase that makes
+   * the commits after them again. The message is asked for.
+   */
+  | { kind: 'squash'; hashes: string[] }
   | { kind: 'undo' }
   /** On an existing branch or at a commit, or, without `ref`, on a new branch from a base asked for. */
   | { kind: 'worktreeAdd'; ref?: string; isBranch?: boolean }

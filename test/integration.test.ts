@@ -32,6 +32,7 @@ import {
   rewordHeadOp,
   rebaseOp,
   rebaseTodo,
+  squashMessage,
   remoteAddOp,
   remoteRemoveOp,
   remoteRenameOp,
@@ -546,6 +547,39 @@ describe('against a real repository', { timeout: 60_000 }, () => {
     // One undo takes back the whole rebase.
     await undo();
     expect((await state()).head).toBe(hashes.e);
+  });
+
+  it('squashes commits into one under a new message, makes the ones after them again and keeps what is not committed', async () => {
+    const hashes: Record<string, string> = {};
+    for (const name of ['base', 'b', 'c', 'd', 'e']) {
+      write(`${name}.txt`, `${name}\n`);
+      hashes[name] = await commitAll(name === 'c' ? 'Add c\n\nWith a body.' : `Add ${name}`);
+    }
+    write('e.txt', 'not committed\n');
+
+    // As the squash of b, c and d does it: the oldest gets the message, the others are melded into it.
+    const messages = await Promise.all([hashes.b, hashes.c, hashes.d].map((hash) => repo.commitMessage(hash)));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-todo-'));
+    const file = (name: string) => path.join(dir, name).replace(/\\/g, '/');
+    fs.writeFileSync(file('message-0.txt'), `${squashMessage('Add b, c and d', messages)}\n`);
+    const todo = rebaseTodo(
+      [
+        { action: 'reword', hash: hashes.b },
+        { action: 'fixup', hash: hashes.c },
+        { action: 'fixup', hash: hashes.d },
+        { action: 'pick', hash: hashes.e },
+      ],
+      (index) => file(`message-${index}.txt`),
+    );
+    fs.writeFileSync(file('todo'), todo);
+    await run(rebaseInteractiveOp(hashes.base, file('todo'), todo, 'main', true));
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    expect(await subjects()).toEqual(['Uncommitted changes (1)', 'Add e', 'Add b, c and d', 'Add base']);
+    const squashed = (await state()).rows[2].hash;
+    expect(await repo.commitMessage(squashed)).toBe('Add b, c and d\n\nAdd b\n\nAdd c\n\nWith a body.\n\nAdd d');
+    expect((await repo.commitDetail(squashed))!.files.map((each) => each.path)).toEqual(['b.txt', 'c.txt', 'd.txt']);
+    expect(fs.readFileSync(path.join(root, 'e.txt'), 'utf8')).toBe('not committed\n');
   });
 
   it('adds, lists and removes worktrees', async () => {

@@ -316,6 +316,28 @@ export function rebaseTodo(steps: RebaseStep[], messageFile: (index: number) => 
   return `${lines.join('\n')}\n`;
 }
 
+/** The first paragraph of a commit message, on one line as git takes it for the subject, and what follows it. */
+export function splitMessage(message: string): { subject: string; body: string } {
+  const text = message.trim();
+  const end = text.search(/\n\s*\n/);
+  const line = (paragraph: string) => paragraph.trim().replace(/\s*\n\s*/g, ' ');
+  if (end === -1) return { subject: line(text), body: '' };
+  return { subject: line(text.slice(0, end)), body: text.slice(end).trim() };
+}
+
+/**
+ * The message of the commit that several are squashed into: the subject given, then what the messages of those commits
+ * say, oldest first, as git puts them together. A commit whose subject is the one given adds only its body.
+ */
+export function squashMessage(subject: string, messages: string[]): string {
+  const given = subject.trim();
+  const parts = messages.map((message) => {
+    const split = splitMessage(message);
+    return split.subject === given ? split.body : message.trim();
+  });
+  return [given, ...parts].filter(Boolean).join('\n\n');
+}
+
 /**
  * Runs an interactive rebase with a todo list prepared in advance: git's "editor" for the list is a copy of `todoFile` over it.
  * `base` is the commit the steps sit on, or null to rebase from the root.

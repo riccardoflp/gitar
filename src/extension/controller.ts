@@ -59,7 +59,7 @@ import type {
   WebviewMessage,
 } from '../shared/protocol';
 import { openMergeEditor } from '../flow/merge';
-import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHeldWorktree, refreshVSCodeGit, removeEmptyParents, resolveAction, worktreesFolder } from './actions';
+import { AGENTS_WINDOW, SETUP_OFFERED, closeInVSCodeGit, inVSCodeGit, recoverHeldWorktree, refreshVSCodeGit, removeEmptyParents, resolveAction, squashRange, worktreesFolder } from './actions';
 import { chooseConflictModel, draftCommitMessage } from './ai';
 import { ConflictReviewTab } from './conflictReview';
 import { INDEX, contentUri, proposalUri } from './content';
@@ -1484,8 +1484,14 @@ export class Controller implements vscode.Disposable {
 
       // Git can mark the conflicts of a file again only while it has both of its sides.
       const sides = action.kind === 'takeSide' ? await repo.conflictStages(action.path) : [];
-      // A commit given a new message is made again, with the ones after it: the new one is that many before HEAD.
-      const after = action.kind === 'reword' && action.hash !== state.head ? ((await repo.lineAfter(action.hash))?.length ?? 0) : 0;
+      // A commit given a new message, or made of several, is made again with the ones after it: the new one is that many
+      // before HEAD.
+      const after =
+        action.kind === 'reword' && action.hash !== state.head
+          ? ((await repo.lineAfter(action.hash))?.length ?? 0)
+          : action.kind === 'squash'
+            ? ((await squashRange(action.hashes, state, repo).catch(() => null))?.after.length ?? 0)
+            : 0;
       const op = await resolveAction(action, state, repo, this.memento);
       if (!op) return;
       // What is about to be written can be looked at first.
@@ -1502,7 +1508,7 @@ export class Controller implements vscode.Disposable {
 
       if (action.kind === 'commit') this.post({ type: 'committed' });
       if (action.kind === 'bisect') this.reportBisect();
-      if (action.kind === 'reword') this.show((await git(repo.root, ['rev-parse', `HEAD~${after}`])).stdout.trim());
+      if (action.kind === 'reword' || action.kind === 'squash') this.show((await git(repo.root, ['rev-parse', `HEAD~${after}`])).stdout.trim());
       this.undoable = undefined;
       const branch = action.kind === 'deleteBranch' && state.branches.find((candidate) => candidate.name === action.name);
       const stash = action.kind === 'stashDrop' && state.stashes.find((candidate) => candidate.ref === action.ref);

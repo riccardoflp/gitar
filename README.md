@@ -80,7 +80,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 | On | Operations |
 | --- | --- |
 | Uncommitted changes | Stash, stash the staged changes, stage all, unstage all, discard all, staged changes and untracked files included |
-| Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, edit its message, interactive rebase, fixup, reset (soft, mixed or hard), compare, bisect |
+| Commit | Open in an editor tab, check out (detached), create branch, create tag, create worktree, cherry-pick, revert, merge into the current branch, rebase the current branch onto it, edit its message, interactive rebase, squash into the commit before it, fixup, reset (soft, mixed or hard), compare, bisect |
 | Local branch | Check out (also by double-click), open in a worktree made for it, or, when another worktree has it, open, rename or remove that worktree (see [Worktrees](#worktrees)), fast-forward to its upstream, merge, rebase onto, compare with the current branch or with anything else, show it in the graph, show only its history or add it to the ones shown, open or create its pull request, create worktree, rename, delete |
 | Remote branch | Check out (also by double-click) as a local tracking branch, or in the local branch of its name when there is one, brought up to it: fast-forwarded, or with its own commits rebased onto it if you choose; when another worktree has that branch, that worktree opens instead; open in a worktree on a local tracking branch, merge, rebase onto, compare, show it in the graph, show only its history or add it to the ones shown, open its pull request, delete from the remote |
 | Tag | Check out (detached), create branch, compare, show it in the graph, show only its history or add it to the ones shown, push, delete |
@@ -94,6 +94,7 @@ Right-click a commit, a branch, a tag or a stash for the operations that apply t
 
 `Ctrl`+click (`Cmd` on macOS) adds a commit to the selection or removes it; `Shift`+click selects every commit between the selected one and the clicked one. A bar above the graph counts them, and offers what the context menu of the selection also does:
 
+- **Squash into one** makes one commit of them, when they follow one another before `HEAD`: see [Squash](#squash).
 - **Cherry-pick onto `<current branch>`** runs a single `git cherry-pick` with all of them, oldest first whatever the order you clicked them in. Git treats them as one operation: if one conflicts it stops there, and **Continue**, **Skip** and **Abort** in the banner apply to the whole series. It is not offered when the selection contains a merge commit, which can only be picked on its own.
 - **Compare these two commits**, when two are selected.
 - **Copy hashes**.
@@ -118,6 +119,10 @@ Drag a commit, or a branch from the graph or the references tree, onto a row of 
 ### Edit a commit message
 
 The pencil beside the message in the details, or **Edit message…** in the context menu of a commit, opens its whole message in a box: **Save** or `Ctrl`+`Enter` gives the commit the new one, **Cancel** or `Escape` leaves it as it was. The last commit is amended with `git commit --amend --only`, which leaves out what is staged. An older one is reworded by an interactive rebase that makes the commits after it again, with new hashes, after asking; the changes that are not committed are set aside and put back with `--autostash`. It is offered on the last commit, merge or not, and on the older ones down to the first merge, while no merge, rebase or bisect is under way. When the commit is on a remote branch already, Gitardo says so first: the branch will have to be force pushed. The commit with its new message is selected after.
+
+### Squash
+
+Select commits that follow one another and choose **Squash into one** in the bar above the graph, or **Squash N commits into one…** in their context menu; **Squash into the commit before it…** in the context menu of a single commit does it with the commit under it. Gitardo asks for the subject of the commit they become, the subject of the oldest to start with, and puts what their messages say under it, oldest first, as git does; a message whose subject is the one given adds only its body. The commits become one with the changes of them all, by an interactive rebase that makes the commits after them again, with new hashes, after asking; the changes that are not committed are set aside and put back with `--autostash`. It is offered for commits on the line before `HEAD` down to the first merge, while no merge, rebase or bisect is under way. When they are on a remote branch already, Gitardo says so first: the branch will have to be force pushed. The commit they become is selected after, and **Undo** takes the whole squash back.
 
 ### Fixup
 
@@ -556,7 +561,7 @@ Set `gitardo.commandPreview` to `all` to see the exact commands before they run 
 
 | Value | Behavior |
 | --- | --- |
-| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, applying, popping or dropping a stash, deleting a branch or a tag, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically (when that is turned on) and taking one side of a file in conflict. |
+| `off` (default) | Only asks before commands that can lose work or rewrite history: force push, hard reset, discarding changes, applying, popping or dropping a stash, deleting a branch or a tag, deleting a remote branch, removing a remote, removing a worktree, aborting an operation, undo, interactive rebase, squash, fixup, branch cleanup, a merge or cherry-pick that is going to conflict, resolving conflicts automatically (when that is turned on) and taking one side of a file in conflict. |
 | `all` | Shows the commands and asks before running anything that changes the repository or a remote, staging included. |
 
 The commands shown are the commands that run: Gitardo adds no hidden flags to them. Where a command would open an editor for a commit message, which cannot work from an extension, the flag that prevents it is part of the command you see (`--no-edit`, or `-c core.editor=true` when continuing an operation).
@@ -575,7 +580,7 @@ A few operations do more than run commands:
 Two operations pass data that does not fit on a command line, and the confirmation shows it next to the command:
 
 - Staging or unstaging a change in the Flow Diff runs `git apply --cached` with a patch on standard input.
-- An interactive rebase runs `git rebase -i` with `sequence.editor` set to copy a prepared todo list from a temporary file. A reworded commit is a `pick` followed by `exec git commit --amend -F <file>`. A fixup uses the todo list git prepares itself, with `sequence.editor=true` to accept it unchanged.
+- An interactive rebase runs `git rebase -i` with `sequence.editor` set to copy a prepared todo list from a temporary file. A reworded commit is a `pick` followed by `exec git commit --amend -F <file>`. A squash rewords the oldest commit with the message put together, and the others follow it as `fixup`, which keeps that message. A fixup uses the todo list git prepares itself, with `sequence.editor=true` to accept it unchanged.
 
 Gitardo needs Git 2.40 or later for the conflict previews; without it the previews are skipped and everything else works. Read-only queries (`git log`, `git status` and similar) never ask; they are logged at the debug level.
 

@@ -2,6 +2,12 @@
 
 What changed in each version of Gitardo. The versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- **Squash into one** in the bar above the graph and **Squash N commits into one…** in the context menu, for commits selected that follow one another before `HEAD`, and **Squash into the commit before it…** in the context menu of a commit: one commit with the changes of them all, under a subject you give and what their messages say. The commits after them are made again, and what is not committed is put back.
+
 ## 0.7.0 - 2026-10-22
 
 ### Added

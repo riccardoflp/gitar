@@ -12,6 +12,8 @@ import {
   rebaseInteractiveOp,
   rewordHeadOp,
   rebaseTodo,
+  splitMessage,
+  squashMessage,
   undoOp,
   worktreeAddOp,
   worktreeDir,
@@ -216,16 +218,37 @@ export async function resolveAction(action: Action, state: RepoState, repo: Repo
         const aside = state.working.staged.length || state.working.unstaged.length ? ' Changes that are not committed are set aside and put back.' : '';
         op.note = `${short} gets the new message, and ${commits} made again on top of it, with new hashes.${aside}`;
       }
-      // A commit that is on a remote is there with its old message: pushing the new one replaces it there.
-      const pushed = await repo.remoteBranchesWith(action.hash);
-      if (pushed.length) {
-        const where = pushed.length > 3 ? `${pushed.slice(0, 3).join(', ')} and ${pushed.length - 3} more` : pushed.join(', ');
-        op.confirm = true;
-        op.note = [`${short} is pushed already, on ${where}: the branch will have to be force pushed, and whoever has the old commits will have to move to the new ones.`, op.note]
-          .filter(Boolean)
-          .join('\n\n');
-      }
-      return op;
+      return warnIfPushed(op, action.hash, repo);
+    }
+
+    case 'squash': {
+      if (state.operation) throw new Error(`Finish or abort the ${state.operation} first.`);
+      if (state.bisect) throw new Error('End the bisect first.');
+      const { oldest, squashed, after } = await squashRange(action.hashes, state, repo);
+      const messages = await Promise.all([oldest, ...squashed].map((hash) => repo.commitMessage(hash)));
+      const count = messages.length;
+      const subject = (
+        await vscode.window.showInputBox({
+          title: `Squash ${count} commits`,
+          prompt: 'Subject of the commit they become. What their messages say goes under it.',
+          value: splitMessage(messages[0]).subject,
+          validateInput: (value) => (value.trim() ? undefined : 'Enter a subject'),
+        })
+      )?.trim();
+      if (!subject) return;
+      const parent = (await git(repo.root, ['rev-parse', '--verify', '--quiet', `${oldest}^`]).catch(() => null))?.stdout.trim() || null;
+      // The oldest gets the message, and the others are melded into it keeping that message.
+      const steps: RebaseStep[] = [
+        { action: 'reword', hash: oldest, message: squashMessage(subject, messages) },
+        ...squashed.map((hash): RebaseStep => ({ action: 'fixup', hash })),
+        ...after.map((hash): RebaseStep => ({ action: 'pick', hash })),
+      ];
+      const op = await interactiveRebase(steps, parent, state, repo, true);
+      op.title = `Squash ${count} commits`;
+      const commits = !after.length ? '' : after.length === 1 ? ' The commit after them is made again on top of it.' : ` The ${after.length} commits after them are made again on top of it.`;
+      const aside = state.working.staged.length || state.working.unstaged.length ? ' Changes that are not committed are set aside and put back.' : '';
+      op.note = `${[oldest, ...squashed].map((hash) => hash.slice(0, 7)).join(', ')} become one commit, with the changes of them all.${commits}${aside}`;
+      return warnIfPushed(op, oldest, repo);
     }
 
     case 'cherryPick': {
@@ -683,6 +706,40 @@ async function interactiveRebase(steps: RebaseStep[], base: string | null, state
   // If the rebase stops half way the files are still needed, so they are only removed after a clean finish.
   op.onSuccess = () => fs.rmSync(dir, { recursive: true, force: true });
   return op;
+}
+
+/**
+ * A commit that is on a remote is there as it was: pushing the new one replaces it there, so the operation is
+ * confirmed with what that means.
+ */
+async function warnIfPushed(op: GitOp, hash: string, repo: Repo): Promise<GitOp> {
+  const pushed = await repo.remoteBranchesWith(hash);
+  if (!pushed.length) return op;
+  const where = pushed.length > 3 ? `${pushed.slice(0, 3).join(', ')} and ${pushed.length - 3} more` : pushed.join(', ');
+  op.confirm = true;
+  op.note = [
+    `${hash.slice(0, 7)} is pushed already, on ${where}: the branch will have to be force pushed, and whoever has the old commits will have to move to the new ones.`,
+    op.note,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  return op;
+}
+
+/**
+ * The commits to squash, which must follow one another on the line before HEAD, without merges: the oldest of them,
+ * the ones that go into it, and the commits after them up to HEAD, which are made again. Oldest first.
+ */
+export async function squashRange(hashes: string[], state: RepoState, repo: Repo): Promise<{ oldest: string; squashed: string[]; after: string[] }> {
+  const wanted = new Set(hashes);
+  // The graph lists a commit before its parents.
+  const oldest = [...state.rows].reverse().find((row) => wanted.has(row.hash))?.hash;
+  const line = oldest ? (await repo.lineAfter(oldest))?.reverse() : null;
+  const count = wanted.size - 1;
+  if (!oldest || !line || wanted.size < 2 || line.length < count || line.slice(0, count).some((hash) => !wanted.has(hash))) {
+    throw new Error('Only commits that follow one another on the line before HEAD, without merges, can be squashed into one.');
+  }
+  return { oldest, squashed: line.slice(0, count), after: line.slice(count) };
 }
 
 /** A folder typed, with forward slashes and none at the end. */
