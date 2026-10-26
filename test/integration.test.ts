@@ -63,7 +63,7 @@ import {
 import { hunkPatch, linesPatch } from '../src/git/parse';
 import { Repo } from '../src/git/repo';
 import { changeSetup, foldersToLink, previewSetup, scanIgnored, setUpWorktree, unlinkFolderLinks } from '../src/git/worktreeSetup';
-import { WORKTREE, type CompareCommit, type Filter, type Scope } from '../src/shared/protocol';
+import { WORKTREE, type CompareCommit, type Filter, type RepoState, type Scope } from '../src/shared/protocol';
 import { canFastForward } from '../src/shared/refs';
 
 // Runs the real commands against a throwaway repository, the way the extension does.
@@ -1482,6 +1482,55 @@ describe('against a real repository', { timeout: 60_000 }, () => {
       await expect(run(fastForwardOp('feature', stale))).rejects.toThrow(/non-fast-forward|rejected/);
       expect((await state()).branches.find((branch) => branch.name === 'feature')!.hash).toBe(mine);
     } finally {
+      fs.rmSync(remote, { recursive: true, force: true });
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('fast-forwards a branch that another worktree has checked out in that worktree, only while nothing is uncommitted there', async () => {
+    write('a.txt', 'one\n');
+    const base = await commitAll('base');
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-remote-'));
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'gitardo-clone-'));
+    const dir = `${root}-worktree`;
+    /** Someone else pushes a commit to feature from a clone of their own, and its hash is returned. */
+    const push = async (file: string) => {
+      fs.writeFileSync(path.join(elsewhere, file), `${file}\n`);
+      await git(elsewhere, ['add', '.']);
+      await git(elsewhere, ['-c', 'user.name=Someone Else', '-c', 'user.email=else@gitardo.invalid', 'commit', '-q', '-m', file]);
+      await git(elsewhere, ['push', '-q', 'origin', 'feature']);
+      return (await git(elsewhere, ['rev-parse', 'HEAD'])).stdout.trim();
+    };
+    const feature = (repo: RepoState) => repo.branches.find((branch) => branch.name === 'feature')!;
+    try {
+      await git(remote, ['init', '--bare', '--initial-branch=main']);
+      await git(root, ['remote', 'add', 'origin', remote]);
+      await git(root, ['push', '-u', 'origin', 'main', 'main:feature']);
+      await git(root, ['branch', '--track', 'feature', 'origin/feature']);
+      await run(worktreeAddOp(dir, 'feature', null, false));
+      await git(elsewhere, ['clone', '-q', '--branch', 'feature', remote, '.']);
+      const theirs = await push('theirs.txt');
+
+      const before = await state();
+      expect(canFastForward(feature(before), before)).toBe(true);
+      await run(fastForwardOp('feature', before));
+      const after = await state();
+      expect(feature(after).hash).toBe(theirs);
+      expect(after.worktrees.find((worktree) => worktree.branch === 'feature')).toMatchObject({ hash: theirs, changes: 0 });
+      expect(fs.readFileSync(path.join(dir, 'theirs.txt'), 'utf8')).toBe('theirs.txt\n');
+      expect(after.head).toBe(base);
+      expect(exists('theirs.txt')).toBe(false);
+
+      // With a change not committed in that worktree, it is not offered, and git is not asked.
+      await push('more.txt');
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'not committed\n');
+      const dirty = await state();
+      expect(canFastForward(feature(dirty), dirty)).toBe(false);
+      expect(() => fastForwardOp('feature', dirty)).toThrow(/cannot be fast-forwarded/);
+      expect(feature(await state()).hash).toBe(theirs);
+    } finally {
+      await git(root, ['worktree', 'remove', '--force', dir]).catch(() => undefined);
+      fs.rmSync(dir, { recursive: true, force: true });
       fs.rmSync(remote, { recursive: true, force: true });
       fs.rmSync(elsewhere, { recursive: true, force: true });
     }

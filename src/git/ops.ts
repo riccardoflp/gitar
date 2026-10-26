@@ -1,5 +1,5 @@
 import type { Operation, RebaseStep, RepoState, PullAction, SyncAction, WorkingState } from '../shared/protocol';
-import { canFastForward, refArg } from '../shared/refs';
+import { canFastForward, refArg, worktreeOf } from '../shared/refs';
 import { RESOLUTIONS, type Proposal } from '../shared/resolution';
 import { applyReplacements, conflictCount } from './conflicts';
 import { type FileWrite, GitError, formatCommand, git } from './exec';
@@ -158,19 +158,31 @@ export function fetchRemoteOp(name: string): GitOp {
 }
 
 /**
- * Moves a branch that is not checked out up to its upstream, fetching it first: a fetch into the branch itself, which
- * git only does when that is a fast-forward. Without a `+` it refuses when the branch has commits of its own.
+ * Moves a branch that is not checked out here up to its upstream, fetching it first: a fetch into the branch itself,
+ * which git only does when that is a fast-forward. Without a `+` it refuses when the branch has commits of its own.
+ * Git refuses that fetch for a branch that another worktree has checked out, as its files would no longer match: that
+ * one is pulled in its worktree, as a fast-forward only.
  */
 export function fastForwardOp(name: string, state: RepoState): GitOp {
   const branch = state.branches.find((candidate) => candidate.name === name);
   if (!branch?.upstream || !canFastForward(branch, state)) {
-    throw new Error(`${name} cannot be fast-forwarded: it needs an upstream, no commits of its own, and not to be checked out.`);
+    throw new Error(
+      `${name} cannot be fast-forwarded: it needs an upstream, no commits of its own, and not to be checked out here or in a worktree with changes not committed.`,
+    );
   }
   const { remote, branch: source, name: upstream } = branch.upstream;
-  // In full, so that a tag called the same is not taken for either branch.
-  const refspec = `refs/heads/${arg(source)}:refs/heads/${arg(name)}`;
   // A branch that follows another local branch has `.` for its remote, this repository, which git fetches from as well.
   const from = remote === '.' ? remote : remoteName(remote);
+  const worktree = worktreeOf(name, state);
+  if (worktree) {
+    // Whatever the settings say about pulling, this neither rebases nor puts anything aside.
+    return {
+      title: `Fast-forward ${name} to ${upstream} in its worktree`,
+      commands: [['-C', worktree.path, 'pull', '--ff-only', '--no-rebase', '--no-autostash', from, `refs/heads/${arg(source)}`]],
+    };
+  }
+  // In full, so that a tag called the same is not taken for either branch.
+  const refspec = `refs/heads/${arg(source)}:refs/heads/${arg(name)}`;
   return { title: `Fast-forward ${name} to ${upstream}`, commands: [['fetch', from, refspec]] };
 }
 

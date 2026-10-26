@@ -66,14 +66,16 @@ export function worktreeOf(branch: string, state: RepoState): Worktree | undefin
 }
 
 /**
- * Whether a branch that is not checked out can be moved up to its upstream without a merge: it has no commits of its own.
- * How far behind it is counts only what the last fetch saw, so it is offered whatever that says: the fetch finds out.
+ * Whether a branch that is not checked out here can be moved up to its upstream without a merge: it has no commits of
+ * its own. How far behind it is counts only what the last fetch saw, so it is offered whatever that says: the fetch
+ * finds out. A branch that another worktree has checked out is offered only while nothing is uncommitted there, as its
+ * files move with it.
  */
 export function canFastForward(branch: Branch, state: RepoState): boolean {
   const upstream = branch.upstream;
   if (branch.current || !upstream || upstream.gone || upstream.ahead > 0) return false;
-  // Git refuses to move a branch that another worktree has checked out, as its files would no longer match.
-  return !state.worktrees.some((worktree) => worktree.branch === branch.name);
+  const worktree = worktreeOf(branch.name, state);
+  return !worktree || (!worktree.prunable && worktree.changes === 0);
 }
 
 /** `feature/x` for `origin/feature/x`: the name a remote-tracking branch has on its remote. */

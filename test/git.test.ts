@@ -455,9 +455,22 @@ describe('fast-forward', () => {
     expect(offered({ upstream: upstream({ ahead: 1 }) })).toBe(false);
     expect(offered({ upstream: upstream({ gone: true }) })).toBe(false);
     expect(offered({ current: true, upstream: upstream() })).toBe(false);
-    expect(offered({ upstream: upstream() }, [{ branch: 'feature', current: false }])).toBe(false);
     expect(() => fastForwardOp('feature', state({ upstream: upstream({ ahead: 1 }) }))).toThrow(/cannot be fast-forwarded/);
     expect(() => fastForwardOp('missing', state({ upstream: upstream() }))).toThrow(/cannot be fast-forwarded/);
+  });
+
+  it('pulls a branch that another worktree has checked out in that worktree, only while nothing is uncommitted there', () => {
+    const clean: Partial<Worktree> = { path: 'C:/work/feature', branch: 'feature', current: false, prunable: false, changes: 0 };
+    expect(offered({ upstream: upstream() }, [clean])).toBe(true);
+    expect(offered({ upstream: upstream() }, [{ ...clean, changes: 2 }])).toBe(false);
+    expect(offered({ upstream: upstream() }, [{ ...clean, changes: null }])).toBe(false);
+    expect(offered({ upstream: upstream() }, [{ ...clean, prunable: true }])).toBe(false);
+    expect(offered({ upstream: upstream({ ahead: 1 }) }, [clean])).toBe(false);
+    expect(fastForwardOp('feature', state({ upstream: upstream() }, [clean]))).toMatchObject({
+      title: 'Fast-forward feature to up/main in its worktree',
+      commands: [['-C', 'C:/work/feature', 'pull', '--ff-only', '--no-rebase', '--no-autostash', 'up', 'refs/heads/main']],
+    });
+    expect(() => fastForwardOp('feature', state({ upstream: upstream() }, [{ ...clean, changes: 1 }]))).toThrow(/cannot be fast-forwarded/);
   });
 });
 
