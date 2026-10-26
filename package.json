@@ -2,7 +2,7 @@
   "name": "gitardo",
   "displayName": "Gitardo",
   "description": "Commit graph, history and everyday Git operations in a single panel.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "RiccardoFilippozzi",
   "license": "MIT",
   "icon": "media/icon.png",

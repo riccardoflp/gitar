@@ -26,7 +26,7 @@ To build it yourself instead, pack it and install it from the file:
 ```bash
 npm install
 npm run package
-code --install-extension gitardo-0.7.0.vsix
+code --install-extension gitardo-0.8.0.vsix
 ```
 
 Reload the VS Code window afterwards. To update, run the last two commands again; to remove it, `code --uninstall-extension RiccardoFilippozzi.gitardo`.
