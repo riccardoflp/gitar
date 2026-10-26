@@ -5,6 +5,7 @@ import { CompareCommits } from './CompareCommits';
 import { FileChanges } from './FileChanges';
 import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
+import { fileMenu } from './menus';
 import { Progress } from './Progress';
 import { shortHash } from './util';
 import { onMessage, post } from './vscode';
@@ -350,6 +351,8 @@ export function CompareApp({ root, layout: remembered }: Props) {
             </>
           }
           fileActions={to.hash === WORKTREE ? undefined : (file) => [takeAction(file, to)]}
+          // The files are those of the second side; a file it deleted, as it was where the comparison starts.
+          fileMenu={(file) => fileMenu(file, source, { hash: to.name, parent: since === from.hash ? from.name : undefined })}
           shown={diffs}
           onShown={setDiffs}
         >

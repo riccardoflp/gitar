@@ -1293,6 +1293,72 @@ export async function run(): Promise<void> {
     await closeAll();
   });
 
+  await step('compares a file of a commit, or of the changes, with a branch, tag, commit or the working tree', async () => {
+    // The diffs that would open are only noted.
+    const commands = vscode.commands as unknown as Record<string, (...args: unknown[]) => Thenable<unknown>>;
+    const executeCommand = commands.executeCommand;
+    const diffs: string[][] = [];
+    const side = (uri: vscode.Uri) => (uri.scheme === 'file' ? path.basename(uri.fsPath) : (JSON.parse(uri.query) as { ref: string }).ref);
+    commands.executeCommand = (id: unknown, ...args: unknown[]) => {
+      if (id !== 'vscode.diff') return executeCommand(id, ...args);
+      diffs.push([side(args[0] as vscode.Uri), side(args[1] as vscode.Uri), args[2] as string]);
+      return Promise.resolve();
+    };
+    const titles: string[] = [];
+    let offered: string[] = [];
+    const picking = (label: string) => (items: Item[], options: vscode.QuickPickOptions) => {
+      titles.push(options.title ?? '');
+      offered = items.map((item) => item.label);
+      return byLabel(label)(items);
+    };
+    try {
+      const change = (await git(app, ['log', '--all', '--format=%H', '--grep=^Change a$'])).stdout.trim();
+      const parent = (await git(app, ['rev-parse', `${change}^`])).stdout.trim();
+      const feature = (await git(app, ['rev-parse', 'feature'])).stdout.trim();
+      const short = change.slice(0, 7);
+      const source = { kind: 'commit', hash: change, parent } as const;
+
+      // The branch on the left, the file of the commit on the right.
+      choose = picking('$(git-branch) feature');
+      await fromWebview({ type: 'compareFile', source, file: { status: 'M', path: 'a.txt' } });
+      assert.deepEqual(titles, [`Compare a.txt of ${short} with`]);
+      assert.deepEqual(diffs, [[feature, change, `a.txt (feature ↔ ${short})`]]);
+
+      // The working tree stays on the right, where the file can be edited.
+      diffs.length = 0;
+      choose = picking('$(files) Working tree');
+      await fromWebview({ type: 'compareFile', source, file: { status: 'M', path: 'a.txt' } });
+      assert.deepEqual(diffs, [[change, 'a.txt', `a.txt (${short} ↔ Working tree)`]]);
+
+      // A file the commit deleted, as it was before.
+      diffs.length = 0;
+      choose = picking('$(git-branch) feature');
+      await fromWebview({ type: 'compareFile', source, file: { status: 'D', path: 'a.txt' } });
+      assert.deepEqual(diffs, [[feature, parent, `a.txt (feature ↔ ${parent.slice(0, 7)})`]]);
+
+      // A file of a comparison, as its second side has it, called by the name of the side; deleted, by the first.
+      diffs.length = 0;
+      titles.length = 0;
+      const names = { hash: 'to', parent: 'from' };
+      await fromWebview({ type: 'compareFile', source: { kind: 'commit', hash: change, parent }, file: { status: 'M', path: 'a.txt' }, names });
+      await fromWebview({ type: 'compareFile', source: { kind: 'commit', hash: change, parent }, file: { status: 'D', path: 'a.txt' }, names });
+      assert.deepEqual(titles, ['Compare a.txt of to with', 'Compare a.txt of from with']);
+      assert.deepEqual(diffs, [
+        [feature, change, 'a.txt (feature ↔ to)'],
+        [feature, parent, 'a.txt (feature ↔ from)'],
+      ]);
+
+      // A file of the changes not committed: the working tree is not offered as the other side.
+      diffs.length = 0;
+      await fromWebview({ type: 'compareFile', source: { kind: 'worktree' }, file: { status: 'M', path: 'a.txt' } });
+      assert.ok(!offered.includes('$(files) Working tree'));
+      assert.deepEqual(diffs, [[feature, 'a.txt', 'a.txt (feature ↔ Working tree)']]);
+    } finally {
+      commands.executeCommand = executeCommand;
+      choose = () => undefined;
+    }
+  });
+
   await step('narrows the graph to the history of a file, switching repository if needed', async () => {
     await vscode.commands.executeCommand('gitardo.fileHistory', vscode.Uri.file(path.join(app, 'b.txt')));
     assert.deepEqual(state().filter, { kind: 'path', path: 'b.txt' });

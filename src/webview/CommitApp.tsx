@@ -7,6 +7,7 @@ import { LABEL_ICONS } from './CommitList';
 import { FileChanges } from './FileChanges';
 import { FileRow } from './FileRow';
 import { Icon } from './Icon';
+import { fileMenu } from './menus';
 import { fullDate, shortHash } from './util';
 import { onMessage, post } from './vscode';
 
@@ -126,6 +127,7 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
           layout={layout}
           onLayout={choose}
           note={detail.parents.length > 1 && <span className="muted"> against the first parent</span>}
+          fileMenu={(file) => fileMenu(file, source)}
           shown={diffs}
           onShown={setDiffs}
         >

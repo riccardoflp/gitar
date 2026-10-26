@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import type { FileChange } from '../shared/protocol';
 import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
@@ -30,6 +30,8 @@ interface Props {
   pickDisabled?: boolean;
   /** An editor has edits of the file that are not saved: a dot after its name says so, as on the tab of the editor. */
   unsaved?: boolean;
+  /** Opens the context menu of the file. */
+  onMenu?(event: MouseEvent): void;
 }
 
 const STATUS_TITLES: Record<string, string> = {
@@ -100,10 +102,10 @@ export function Check({ checked, mixed = false, label, title, disabled, onChange
   );
 }
 
-export function FileRow({ file, onOpen, actions, extra, depth, onPick, picked, mixed, pickVerb = 'Select', pickTitle, pickDisabled, unsaved }: Props) {
+export function FileRow({ file, onOpen, actions, extra, depth, onPick, picked, mixed, pickVerb = 'Select', pickTitle, pickDisabled, unsaved, onMenu }: Props) {
   const slash = file.path.lastIndexOf('/');
   return (
-    <div className="file" style={depth === undefined ? undefined : { paddingLeft: 12 + depth * INDENT }}>
+    <div className="file" style={depth === undefined ? undefined : { paddingLeft: 12 + depth * INDENT }} onContextMenu={onMenu}>
       {onPick && (
         <Check checked={!!picked} mixed={mixed} label={`${pickVerb} ${file.path}`} title={pickTitle} disabled={pickDisabled} onChange={onPick} />
       )}

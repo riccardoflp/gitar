@@ -903,6 +903,42 @@ export class Controller implements vscode.Disposable {
   }
 
   /**
+   * Compares a file listed in a commit, in a comparison or in the changes not committed, with the branch, tag, commit or
+   * working tree the user chooses, in the diff editor. A file the commit deleted is compared as it was before.
+   */
+  private async compareFile(source: DiffSource, file: FileChange, names: { hash?: string; parent?: string } = {}, repo = this.repo): Promise<void> {
+    if (!repo || typeof file?.path !== 'string') return;
+    // The branches offered are those of the repository the file is in.
+    await this.selectRepo(repo.root);
+    const { state } = this;
+    if (!state || !samePath(state.root, repo.root)) return;
+    const deleted = file.status === 'D';
+    let at: ComparedRef | undefined;
+    if (source?.kind === 'worktree') at = !deleted ? WORKTREE_SIDE : state.head ? { name: state.branch ?? 'HEAD', hash: state.head } : undefined;
+    else if (source?.kind === 'commit') {
+      const hash = deleted ? source.parent : source.hash;
+      const named = deleted ? names?.parent : names?.hash;
+      if (hash === WORKTREE) at = WORKTREE_SIDE;
+      else if (hash && isHash(hash)) at = { name: typeof named === 'string' && named ? named : hash.slice(0, 7), hash };
+    }
+    if (!at) return;
+    const name = path.posix.basename(file.path);
+    try {
+      const picked = await this.pickRevision(state, repo, `Compare ${name} of ${at.name} with`, 'The branch, tag or commit to compare it with', {
+        other: at,
+        worktree: true,
+      });
+      if (!picked || 'to' in picked) return;
+      // The working tree is on the right, where its file can be edited, as in every other diff.
+      const [left, right] = picked.hash === WORKTREE ? [at, picked] : [picked, at];
+      const uri = (side: ComparedRef) => (side.hash === WORKTREE ? vscode.Uri.file(path.join(repo.root, file.path)) : contentUri(repo.root, side.hash, file.path));
+      await vscode.commands.executeCommand('vscode.diff', uri(left), uri(right), `${name} (${left.name} ↔ ${right.name})`);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Gitardo: ${errorText(error)}`);
+    }
+  }
+
+  /**
    * Has new worktrees get the files and folders chosen in the Explorer linked, copied, or nothing by a pattern of their
    * own path, in the settings that apply to the repository each one is in, and says what became of each.
    */
@@ -2110,6 +2146,8 @@ export class Controller implements vscode.Disposable {
         return this.selectRepo(message.root);
       case 'openDiff':
         return this.openDiff(message.source, message.file, repo);
+      case 'compareFile':
+        return this.compareFile(message.source, message.file, message.names, repo);
       case 'openFile':
         return this.openFile(message.file, repo);
       case 'openChange':

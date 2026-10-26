@@ -1,7 +1,8 @@
-import { memo, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { memo, useMemo, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import type { DiffSource, FileChange, FilePatch, FilesLayout, Hunk } from '../shared/protocol';
 import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
+import { useMenu, type MenuEntry } from './ContextMenu';
 import { FileIcon } from './FileIcon';
 import { ActionButtons, FileRow, Status, fileTitle, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
@@ -114,9 +115,10 @@ interface DiffProps {
   onToggle(): void;
   onOpen(): void;
   actions?: FileAction[];
+  onMenu?(event: MouseEvent): void;
 }
 
-function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
+function FileDiff({ entry, open, onToggle, onOpen, actions, onMenu }: DiffProps) {
   const { file, patch } = entry;
   // Its code in the colors the editor gives it, once it is unfolded.
   const colors = useColors(file.path, patch?.hunks, open);
@@ -134,7 +136,7 @@ function FileDiff({ entry, open, onToggle, onOpen, actions }: DiffProps) {
   }
   return (
     <section className="file-diff" id={entry.id} aria-label={file.path}>
-      <header>
+      <header onContextMenu={onMenu}>
         <button className="twist" onClick={onToggle} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} the changes of ${file.path}`}>
           <Icon name={open ? 'chevron-down' : 'chevron-right'} />
         </button>
@@ -170,6 +172,8 @@ interface Props {
   children?: ReactNode;
   /** What else can be done with a file, besides opening it in the diff editor. */
   fileActions?(file: FileChange): FileAction[];
+  /** What the context menu of a file has, when it has one. */
+  fileMenu?(file: FileChange): MenuEntry[];
   /** Whether the changes are in the page: they are only once asked for, with a button. */
   shown: boolean;
   onShown(shown: boolean): void;
@@ -179,7 +183,8 @@ interface Props {
  * The files that changed, as a tree or as a list, and under them, once asked for, what changed in each, file after
  * file: the page of a commit, or of a comparison. A file listed opens in the diff editor.
  */
-export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, shown, onShown }: Props) {
+export function FileChanges({ files, patch, source, title, layout, onLayout, note, children, fileActions, fileMenu, shown, onShown }: Props) {
+  const openMenu = useMenu();
   const [folded, setFolded] = useState(NONE);
   // The diffs unfolded or folded by hand: the others are as their length says.
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -207,6 +212,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
   const allOpen = listed.length > 0 && listed.every(isOpen);
 
   const openDiff = (entry: Entry) => post({ type: 'openDiff', source, file: entry.file });
+  const menu = (entry: Entry) => fileMenu && ((event: MouseEvent) => openMenu(event, fileMenu(entry.file)));
   const show = (entry: Entry) => {
     onShown(true);
     setChosen((current) => new Map(current).set(entry.id, true));
@@ -221,6 +227,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
       onOpen={() => openDiff(entry)}
       extra={<Stat patch={entry.patch} />}
       actions={[...(fileActions?.(entry.file) ?? []), { icon: 'eye', title: 'Show its changes in this page', run: () => show(entry) }]}
+      onMenu={menu(entry)}
     />
   );
 
@@ -290,6 +297,7 @@ export function FileChanges({ files, patch, source, title, layout, onLayout, not
                 onToggle={() => setChosen((current) => new Map(current).set(entry.id, !isOpen(entry)))}
                 onOpen={() => openDiff(entry)}
                 actions={fileActions?.(entry.file)}
+                onMenu={menu(entry)}
               />
             ))}
         </section>

@@ -660,6 +660,12 @@ export type WebviewMessage =
   | { type: 'trace'; hash: string | null }
   | { type: 'selectRepo'; root: string }
   | { type: 'openDiff'; source: DiffSource; file: FileChange }
+  /**
+   * Asks what to compare a file listed in a commit, in a comparison or in the changes not committed with, a branch,
+   * tag, commit or the working tree, and opens the two versions in the diff editor. `names` are the branches or tags
+   * the two commits of the source stand for, when they are not to be called by their short hashes.
+   */
+  | { type: 'compareFile'; source: DiffSource; file: FileChange; names?: { hash?: string; parent?: string } }
   /** Opens the file as it is in the working tree; one that is deleted opens its diff instead. */
   | { type: 'openFile'; file: FileChange }
   /** A click on a file of the Changes view: it opens the file or its diff against HEAD, as `gitardo.changes.openOnClick` says. */

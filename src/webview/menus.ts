@@ -4,6 +4,8 @@ import {
   type Branch,
   type Commit,
   type Comparing,
+  type DiffSource,
+  type FileChange,
   type NamedRef,
   type RepoState,
   type Row,
@@ -411,6 +413,14 @@ export function stashMenu(stash: Stash): MenuEntry[] {
     'separator',
     { label: 'Drop', danger: true, run: () => act({ kind: 'stashDrop', ref }) },
   ];
+}
+
+/**
+ * What can be done with a file listed in a commit, in a comparison or in the changes not committed, besides the buttons
+ * of its row. `names` are what the two commits of the source are called, when not by their short hashes.
+ */
+export function fileMenu(file: FileChange, source: DiffSource, names?: { hash?: string; parent?: string }): MenuEntry[] {
+  return [{ label: 'Compare with…', run: () => post({ type: 'compareFile', source, file, names }) }];
 }
 
 /** What VS Code calls showing a file in the file manager of the system. */

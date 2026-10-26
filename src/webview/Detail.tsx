@@ -5,8 +5,9 @@ import { fileTree } from '../shared/tree';
 import { FILES_LIMIT, useCapped } from './Capped';
 import { ActionButtons, Check, FileRow, type FileAction } from './FileRow';
 import { FileTree, toggled } from './FileTree';
+import { useMenu } from './ContextMenu';
 import { Icon } from './Icon';
-import { act } from './menus';
+import { act, fileMenu } from './menus';
 import { fullDate, shortHash } from './util';
 import { loadUiState, post, saveUiState } from './vscode';
 
@@ -114,6 +115,7 @@ function MessageEditor({ message, onSave, onCancel }: { message: string; onSave(
 }
 
 export function Detail({ hash, detail, changes, reword, editing, onEditing, onJump, onClose }: Props) {
+  const openMenu = useMenu();
   const worktree = hash === WORKTREE;
   const message = useMemo(() => (detail ? said(detail.subject, detail.body) : null), [detail]);
   const source: DiffSource = worktree
@@ -181,6 +183,7 @@ export function Detail({ hash, detail, changes, reword, editing, onEditing, onJu
       actions={fileActions(file)}
       picked={picked.has(file.path)}
       onPick={worktree ? (on) => pick(file, on) : undefined}
+      onMenu={(event) => openMenu(event, fileMenu(file, source))}
     />
   );
 

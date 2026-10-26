@@ -7,6 +7,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 ### Added
 
 - **Squash into one** in the bar above the graph and **Squash N commits into one…** in the context menu, for commits selected that follow one another before `HEAD`, and **Squash into the commit before it…** in the context menu of a commit: one commit with the changes of them all, under a subject you give and what their messages say. The commits after them are made again, and what is not committed is put back.
+- **Compare with…** in the context menu of a file in the details of a commit, in the tab of a commit and in the tab of a comparison: the file as it is in that commit, as the second side of the comparison has it, or in the working tree for the changes not committed, beside the branch, tag, commit or working tree you choose, in the diff editor.
 
 ## 0.7.0 - 2026-10-22
 
