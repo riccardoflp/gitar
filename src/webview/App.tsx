@@ -31,6 +31,7 @@ import {
   squash,
   stashMenu,
   tagMenu,
+  upstreamEntries,
   type Comparing,
 } from './menus';
 import { loadUiState, onMessage, post, saveUiState } from './vscode';
@@ -334,7 +335,9 @@ export function App({ compact = false }: { compact?: boolean }) {
     const branch = label.kind === 'branch' && state.branches.find((candidate) => candidate.name === label.name);
     const remote = label.kind === 'remote' && state.remoteBranches.find((candidate) => candidate.name === label.name);
     const tag = label.kind === 'tag' && state.tags.find((candidate) => candidate.name === label.name);
-    if (branch) openMenu(event, branchMenu(branch, state, compare));
+    // A label that stands for the upstream too has what only the upstream has under the entries of the branch.
+    const upstream = branch && label.remote ? branch.upstream : undefined;
+    if (branch) openMenu(event, [...branchMenu(branch, state, compare), ...(upstream ? upstreamEntries(upstream, state) : [])]);
     else if (remote) openMenu(event, remoteBranchMenu(remote, state, compare));
     else if (tag) openMenu(event, tagMenu(tag, state, compare));
     else onRowMenu(event, row);

@@ -28,6 +28,8 @@ export interface Label {
   current?: boolean;
   /** For a branch: the folder of the other worktree that has it checked out. */
   worktree?: string;
+  /** For a branch: its upstream, when it has the same name there and is at the same commit, so the one label stands for both. */
+  remote?: string;
   /** For a branch: its open pull request, and the name of the branch on GitHub. */
   pull?: { request: PullRequest; branch: string };
 }
@@ -116,6 +118,26 @@ export const LABEL_ICONS = {
   bad: 'close',
   skipped: 'debug-step-over',
 } as const;
+
+/** The icons of a label: of a branch, also the worktree that has it checked out and the upstream it is the same as. */
+export function LabelIcons({ label }: { label: Label }) {
+  if (!label.worktree && !label.remote) return <Icon name={LABEL_ICONS[label.kind]} />;
+  return (
+    <span className="icons">
+      {label.worktree && <Icon name="worktree" />}
+      <Icon name={LABEL_ICONS[label.kind]} />
+      {label.remote && <Icon name={LABEL_ICONS.remote} />}
+    </span>
+  );
+}
+
+/** The name of a label, with the worktree and the upstream its icons stand for. */
+export function labelTitle(label: Label): string {
+  const lines = [label.name];
+  if (label.worktree) lines.push(`In the worktree ${label.worktree}`);
+  if (label.remote) lines.push(`Up to date with ${label.remote}`);
+  return lines.join('\n');
+}
 
 interface GraphProps {
   graph: GraphRow;
@@ -565,7 +587,7 @@ export function CommitList(props: Props) {
             <span
               key={`${label.kind}:${label.name}`}
               className={`label ${label.kind}${label.current ? ' current' : ''}`}
-              title={label.worktree ? `${label.name}\nIn the worktree ${label.worktree}` : label.name}
+              title={labelTitle(label)}
               onContextMenu={(event) => onLabelMenu(event, label, row)}
               onMouseEnter={() => onTrace(row.hash)}
               onMouseLeave={() => onTrace(null)}
@@ -578,7 +600,7 @@ export function CommitList(props: Props) {
               }}
               {...drag(label, row)}
             >
-              <Icon name={label.worktree ? 'worktree' : LABEL_ICONS[label.kind]} />
+              <LabelIcons label={label} />
               <span className="text">{label.name}</span>
               {label.pull && <PullBadge {...label.pull} />}
             </span>

@@ -1167,6 +1167,13 @@ input:focus-visible,
   color: var(--lane);
 }
 
+/* A branch with its worktree and its upstream: the icons close together, read as one. */
+.message .label .icons {
+  flex: none;
+  display: inline-flex;
+  gap: 1px;
+}
+
 /* What is checked out is the one label filled in. The colors of the lines are all light enough for dark text. */
 .message .label.current {
   font-weight: 600;

@@ -3,7 +3,7 @@ import { said } from '../shared/message';
 import type { CommitDetail, DiffSource, FilePatch, FilesLayout, RepoState } from '../shared/protocol';
 import { buildLabels } from './labels';
 import { BackToTop } from './BackToTop';
-import { LABEL_ICONS } from './CommitList';
+import { LabelIcons, labelTitle } from './CommitList';
 import { FileChanges } from './FileChanges';
 import { FileRow } from './FileRow';
 import { Icon } from './Icon';
@@ -63,8 +63,8 @@ export function CommitApp({ hash, root, layout: remembered }: Props) {
           {labels.length > 0 && (
             <div className="message commit-labels">
               {labels.map((label) => (
-                <span key={`${label.kind}:${label.name}`} className={`label ${label.kind}${label.current ? ' current' : ''}`} title={label.name}>
-                  <Icon name={LABEL_ICONS[label.kind]} />
+                <span key={`${label.kind}:${label.name}`} className={`label ${label.kind}${label.current ? ' current' : ''}`} title={labelTitle(label)}>
+                  <LabelIcons label={label} />
                   {label.name}
                 </span>
               ))}

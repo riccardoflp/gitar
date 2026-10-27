@@ -3,7 +3,10 @@ import type { RepoState } from '../shared/protocol';
 import { nameOnRemote, pullOf, pushedName, worktreeOf } from '../shared/refs';
 import type { Label } from './CommitList';
 
-/** The branches, tags, stashes and bisect marks of each commit that has some, with the open pull request of a branch. */
+/**
+ * The branches, tags, stashes and bisect marks of each commit that has some, with the open pull request of a branch. A
+ * branch and its upstream share one label while they are at the same commit.
+ */
 export function buildLabels(state: RepoState): Map<string, Label[]> {
   const labels = new Map<string, Label[]>();
   const add = (hash: string, label: Label) => {
@@ -16,13 +19,20 @@ export function buildLabels(state: RepoState): Map<string, Label[]> {
     const request = pullOf(name, state);
     return request && name !== null ? { request, branch: name } : undefined;
   };
+  const remoteTips = new Map(state.remoteBranches.map((remote) => [remote.name, remote.hash]));
+  // An upstream of the same name at the same commit as its branch is said on the label of the branch, not on one of its own.
+  const merged = new Set<string>();
   for (const branch of state.branches) {
     const worktree = worktreeOf(branch.name, state)?.path;
-    add(branch.hash, { kind: 'branch', name: branch.name, current: branch.current, worktree, pull: pullFor(pushedName(branch, state)) });
+    const upstream = branch.upstream;
+    const remote = upstream && !upstream.gone && upstream.branch === branch.name && remoteTips.get(upstream.name) === branch.hash ? upstream.name : undefined;
+    if (remote) merged.add(remote);
+    add(branch.hash, { kind: 'branch', name: branch.name, current: branch.current, worktree, remote, pull: pullFor(pushedName(branch, state)) });
   }
   // The pull request of a remote branch is said on the local branch that tracks it, when there is one.
   const tracked = new Set(state.branches.map((branch) => branch.upstream?.name));
   for (const remote of state.remoteBranches) {
+    if (merged.has(remote.name)) continue;
     const pull = state.github && !tracked.has(remote.name) ? pullFor(nameOnRemote(remote.name, state)) : undefined;
     add(remote.hash, { kind: 'remote', name: remote.name, pull });
   }

@@ -11,6 +11,7 @@ import {
   type Row,
   type Stash,
   type Submodule,
+  type Upstream,
   type Worktree,
 } from '../shared/protocol';
 import { canFastForward, isHome, nameOnRemote, pullOf, pushedName, refArg, worktreeOf } from '../shared/refs';
@@ -96,10 +97,17 @@ function revealEntry(hash: string, onReveal: ((hash: string) => void) | undefine
   return onReveal ? { label: 'Show in the graph', run: () => onReveal(hash) } : null;
 }
 
-/** Marks a branch as a favorite, or no longer: the favorites are listed first among the references. */
-function favoriteEntry(ref: string, state: RepoState): MenuEntry {
+/**
+ * Marks a branch as a favorite, or no longer: the favorites are listed first among the references. Its name is said
+ * where the menu is of more than one branch.
+ */
+function favoriteEntry(ref: string, state: RepoState, name?: string): MenuEntry {
   const favorite = state.favorites.includes(ref);
-  return { label: favorite ? 'Remove from favorites' : 'Add to favorites', run: () => post({ type: 'setFavorite', ref, favorite: !favorite }) };
+  const which = name ? ` ${name}` : '';
+  return {
+    label: favorite ? `Remove${which} from favorites` : `Add${which} to favorites`,
+    run: () => post({ type: 'setFavorite', ref, favorite: !favorite }),
+  };
 }
 
 interface CommitMenuTools {
@@ -313,6 +321,20 @@ export function branchMenu(branch: Branch, state: RepoState, onCompare: (compari
     },
     'separator',
     { label: 'Copy name', run: () => copy(name) },
+  ];
+}
+
+/**
+ * What only the upstream of a branch has in its menu, under the menu of the branch, where one label of the graph stands
+ * for both: the rest would do what the entries of the branch do, at the same commit.
+ */
+export function upstreamEntries(upstream: Upstream, state: RepoState): MenuEntry[] {
+  const { name } = upstream;
+  return [
+    'separator',
+    favoriteEntry(`refs/remotes/${name}`, state, name),
+    { label: `Copy ${name}`, run: () => copy(name) },
+    { label: `Delete ${upstream.branch} from ${upstream.remote}`, danger: true, run: () => act({ kind: 'deleteRemoteBranch', name }) },
   ];
 }
 
