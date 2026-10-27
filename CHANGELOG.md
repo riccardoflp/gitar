@@ -7,6 +7,7 @@ What changed in each version of Gitardo. The versions follow [Semantic Versionin
 ### Changed
 
 - A branch and its upstream of the same name share one label in the graph while they are at the same commit, with the icons of the branch and of the remote, and of the worktree when another worktree has the branch: `feature` and `origin/feature` are no longer two labels saying the same. Its context menu ends with what only the upstream has, such as **Delete `feature` from `origin`**. **Put a branch and its upstream on one label** in the **…** menu of the toolbar, or the setting `gitardo.graph.combineUpstream`, gives them a label each again.
+- The repository is read when VS Code starts, not when the first view of Gitardo is opened: the graph, the commits and the branches are there as soon as the view is, and are read again behind them.
 
 ## 0.8.0 - 2026-10-27
 

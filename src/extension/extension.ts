@@ -94,6 +94,9 @@ export function activate(context: vscode.ExtensionContext): GitardoApi {
     showSetupInMenus(roots);
   };
   void lookForRepos();
+  // The repository is read now, for the views to open with its graph already there rather than wait for git. Until one
+  // is open, what changes in it is not read again: the first to open reads it again while it shows what was read here.
+  void controller.refresh();
   const setupSettings = ['gitardo.worktrees.linkFolders', 'gitardo.worktrees.copyFiles', 'git.worktreeSymlinkFolders', 'git.worktreeIncludeFiles'];
   const shown = vscode.Disposable.from(
     vscode.workspace.onDidChangeWorkspaceFolders(lookForRepos),

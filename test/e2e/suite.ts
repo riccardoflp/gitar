@@ -183,6 +183,13 @@ export async function run(): Promise<void> {
     assert.ok(contributed.length >= 20);
   });
 
+  await step('reads the first repository when VS Code starts, before any of its views is open', async () => {
+    assert.equal(internals.views.size, 0);
+    await until('the repository state', () => internals.state);
+    assert.equal(state().name, 'app');
+    assert.deepEqual(subjects(), ['Add feature', 'Change a', 'Add b', 'Add a']);
+  });
+
   await step('the graph view loads its UI and gets the state of the first repository', async () => {
     await vscode.commands.executeCommand('gitardo.openGraph');
     // The UI says `ready` once React has mounted, which proves the bundle ran under the content security policy.

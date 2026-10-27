@@ -220,6 +220,8 @@ export class Controller implements vscode.Disposable {
   private repo?: Repo;
   private state: RepoState | null = null;
   private located = false;
+  /** The search for the repositories of the workspace and the first read of the one shown, while they run. */
+  private locating?: Promise<void>;
   private limit = pageSize();
   /** The read of the repository under way, if any. */
   private loading?: Promise<void>;
@@ -376,7 +378,7 @@ export class Controller implements vscode.Disposable {
   }
 
   async refresh(): Promise<void> {
-    if (!this.located || !this.repo) return this.locate();
+    if (!this.located || !this.repo) return this.locating ?? this.locate();
     // A read already under way may have started before what the caller just did: it is followed by another,
     // and the caller waits for that one too.
     this.dirty = true;
@@ -444,7 +446,8 @@ export class Controller implements vscode.Disposable {
       for (const resolve of [...waiting, ...this.waiters.splice(0)]) resolve();
       task.end();
     }
-    void this.refreshPulls(false);
+    // Not for the read at the start of VS Code: GitHub is asked only once a view can show what it says.
+    if (this.views.size) void this.refreshPulls(false);
   }
 
   /** What the status bar says the repository is read for, by the name the list of repositories gives it. */
@@ -543,7 +546,7 @@ export class Controller implements vscode.Disposable {
 
   /** Narrows the graph to the history of some branches, or shows them all again. What the filter does is left to it. */
   async setScope(scope: Scope | null): Promise<void> {
-    if (!this.located) await this.locate();
+    await this.whenLocated();
     // As it is given: reading the repository leaves out what is not a branch of it.
     this.scope = scope && typeof scope === 'object' ? scope : null;
     this.limit = pageSize();
@@ -599,7 +602,7 @@ export class Controller implements vscode.Disposable {
 
   /** Narrows the graph to the history of a file or to a search, or shows everything again. */
   async setFilter(filter: Filter | null): Promise<void> {
-    if (!this.located) await this.locate();
+    await this.whenLocated();
     this.filter = filter;
     this.limit = pageSize();
     // Searching inside the changes of every commit can take a while on a large repository.
@@ -673,7 +676,7 @@ export class Controller implements vscode.Disposable {
    * the reflog, is shown with its own history.
    */
   private async include(hash: string): Promise<void> {
-    if (!this.located) await this.locate();
+    await this.whenLocated();
     const repo = this.repo;
     if (!repo || this.state?.rows.some((row) => row.hash === hash)) return;
     const shown = this.filter;
@@ -944,7 +947,7 @@ export class Controller implements vscode.Disposable {
    * own path, in the settings that apply to the repository each one is in, and says what became of each.
    */
   async setUpFromExplorer(choice: SetupChoice, chosen: vscode.Uri[]): Promise<void> {
-    if (!this.located) await this.locate();
+    await this.whenLocated();
     const owner = (uri: vscode.Uri) => {
       const inside = this.repos.filter((repo) => {
         const relative = path.relative(repo.root, uri.fsPath);
@@ -1625,7 +1628,7 @@ export class Controller implements vscode.Disposable {
   }
 
   private async requireState(): Promise<RepoState | null> {
-    if (!this.located) await this.locate();
+    await this.whenLocated();
     if (!this.state) void vscode.window.showWarningMessage('Gitardo: no Git repository in this workspace.');
     return this.state;
   }
@@ -1683,8 +1686,24 @@ export class Controller implements vscode.Disposable {
     await Promise.all(documents.map((document) => document.save()));
   }
 
-  private async locate(): Promise<void> {
+  /** Looks for the repositories of the workspace and reads the one to show. Who asks while that runs waits for it. */
+  private locate(): Promise<void> {
     this.located = true;
+    const locating = this.findRepos();
+    this.locating = locating;
+    const done = () => {
+      if (this.locating === locating) this.locating = undefined;
+    };
+    locating.then(done, done);
+    return locating;
+  }
+
+  /** Once the repositories of the workspace are known and the one shown is read: at once when they already are. */
+  private whenLocated(): Promise<void> {
+    return this.locating ?? (this.located ? Promise.resolve() : this.locate());
+  }
+
+  private async findRepos(): Promise<void> {
     const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
     const roots = await discoverRepos(folders);
     this.repos = roots.map((root) => ({ root, name: repoName(root, folders) }));
@@ -1836,7 +1855,7 @@ export class Controller implements vscode.Disposable {
   }
 
   private async pickRepo(): Promise<void> {
-    if (!this.located) await this.locate();
+    await this.whenLocated();
     // Showing a worktree, there is always the repository of the workspace to go back to.
     if (this.repos.length < 2 && !this.state?.home) {
       void vscode.window.showInformationMessage(
@@ -1995,10 +2014,12 @@ export class Controller implements vscode.Disposable {
         }
         // A view that has just loaded has nothing yet.
         this.sentRows.delete(webview);
-        if (this.located && !this.loading) this.post({ type: 'state', state: this.state }, webview);
+        // What was read before it opened, as at the start of VS Code, is shown at once while it is read again.
+        if (this.located && !this.locating && !this.loading) this.post({ type: 'state', state: this.state }, webview);
         if (this.waiting) this.post({ type: 'loading', what: this.waiting.what }, webview);
         if (this.views.get(webview) === 'changes' && this.unsaved.length) this.post({ type: 'unsaved', paths: this.unsaved }, webview);
-        await this.refresh();
+        // A first read still under way is sent to every view when it is done, this one too.
+        await (this.locating ?? this.refresh());
         return this.flushPending();
       case 'setFilter':
         return this.setFilter(message.filter);
