@@ -1137,6 +1137,11 @@
           "default": "checkout",
           "description": "What a double click on a local branch does. A branch that another worktree has always opens that worktree, and the context menu of a branch has both, whatever is set here."
         },
+        "gitardo.readOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Read the repository when VS Code starts, for the views of Gitardo to open with the graph, the commits and the branches already there. Off, it is read when the first of them opens: for a very large repository, in the settings of its workspace, when VS Code should not run git for it before you ask."
+        },
         "gitardo.graph.pageSize": {
           "type": "number",
           "default": 1000,

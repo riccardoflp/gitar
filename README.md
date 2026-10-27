@@ -11,7 +11,7 @@ Gitardo has a view in the bottom panel and five in the Source Control side bar o
 
 See [Side bar](#side-bar). Like any VS Code view they can be dragged somewhere else, folded or hidden, and **Gitardo: Open Graph in Editor** opens the graph as an editor tab. So does the **Gitardo** button in the status bar, which is there whenever the workspace has a repository; like any item of the status bar it can be hidden from the menu a right click on the bar opens.
 
-The repository is read when VS Code starts, so a view opens with its graph already there, and is read again as it opens. VS Code itself makes a view only the first time it is shown, which takes a moment once per window; GitHub is asked for the pull requests only once a view is open.
+The repository is read when VS Code starts, so a view opens with its graph already there, and is read again as it opens. VS Code itself makes a view only the first time it is shown, which takes a moment once per window; GitHub is asked for the pull requests only once a view is open. For a very large repository, turn off `gitardo.readOnStartup` in the settings of its workspace: it is then read when the first view opens.
 
 ## Installation
 
