@@ -598,6 +598,7 @@ export class Repo {
       firstParent: this.firstParent,
       graphColumns: GRAPH_COLUMNS,
       dateSeparators: true,
+      combineUpstream: true,
       traceSelected: true,
       branchesFollowScope: true,
       branchSort: 'name',

@@ -5,7 +5,7 @@ import type { Label } from './CommitList';
 
 /**
  * The branches, tags, stashes and bisect marks of each commit that has some, with the open pull request of a branch. A
- * branch and its upstream share one label while they are at the same commit.
+ * branch and its upstream share one label while they are at the same commit, unless the settings keep them apart.
  */
 export function buildLabels(state: RepoState): Map<string, Label[]> {
   const labels = new Map<string, Label[]>();
@@ -25,7 +25,8 @@ export function buildLabels(state: RepoState): Map<string, Label[]> {
   for (const branch of state.branches) {
     const worktree = worktreeOf(branch.name, state)?.path;
     const upstream = branch.upstream;
-    const remote = upstream && !upstream.gone && upstream.branch === branch.name && remoteTips.get(upstream.name) === branch.hash ? upstream.name : undefined;
+    const same = upstream && !upstream.gone && upstream.branch === branch.name && remoteTips.get(upstream.name) === branch.hash;
+    const remote = state.combineUpstream && same ? upstream.name : undefined;
     if (remote) merged.add(remote);
     add(branch.hash, { kind: 'branch', name: branch.name, current: branch.current, worktree, remote, pull: pullFor(pushedName(branch, state)) });
   }

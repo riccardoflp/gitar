@@ -263,6 +263,8 @@ export interface RepoState {
   graphColumns: GraphColumn[];
   /** Whether the graph names the days, weeks and months further back on a line before their first commit, as the settings say. */
   dateSeparators: boolean;
+  /** Whether a branch and its upstream of the same name share one label while they are at the same commit, as the settings say. */
+  combineUpstream: boolean;
   /**
    * Whether the branches listed beside the graph and in the Branches view are only the ones the graph is narrowed
    * to, as the settings say. When not, they are all listed, and the ones the graph leaves out are dimmed.
@@ -688,6 +690,7 @@ export type WebviewMessage =
   | { type: 'setFirstParent'; only: boolean }
   | { type: 'setGraphColumns'; columns: GraphColumn[] }
   | { type: 'setDateSeparators'; show: boolean }
+  | { type: 'setCombineUpstream'; combine: boolean }
   | { type: 'setBranchSort'; sort: BranchSort }
   | { type: 'setFavorite'; ref: string; favorite: boolean }
   /** Selects the commit a hash or another revision stands for, loading the history as far back as it is. */

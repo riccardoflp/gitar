@@ -18,6 +18,7 @@ const state = (overrides: Partial<RepoState>) =>
     pulls: {},
     github: { owner: 'o', repo: 'r' },
     bisect: null,
+    combineUpstream: true,
     ...overrides,
   }) as Partial<RepoState> as RepoState;
 
@@ -57,6 +58,15 @@ describe('the labels of the commits in the graph', () => {
     const apart = buildLabels(state({ branches: [{ ...feature, hash: 'ccc' }], remoteBranches }));
     expect(apart.get('ccc')).toEqual([expect.objectContaining({ kind: 'branch', remote: undefined })]);
     expect(apart.get('bbb')).toEqual([expect.objectContaining({ kind: 'remote', name: 'origin/feature' })]);
+  });
+
+  it('gives a branch and its upstream a label each when the settings keep them apart', () => {
+    const remoteBranches = [{ name: 'origin/feature', hash: 'bbb' }];
+    const labels = buildLabels(state({ branches: [feature], remoteBranches, combineUpstream: false }));
+    expect(labels.get('bbb')?.map((label) => [label.kind, label.name, label.remote])).toEqual([
+      ['branch', 'feature', undefined],
+      ['remote', 'origin/feature', undefined],
+    ]);
   });
 
   it('keeps the label of an upstream of another name, and of another remote', () => {

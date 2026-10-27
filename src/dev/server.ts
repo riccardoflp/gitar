@@ -216,6 +216,7 @@ async function main() {
   let firstParent = false;
   let graphColumns = GRAPH_COLUMNS;
   let dateSeparators = true;
+  let combineUpstream = true;
   let branchSort: BranchSort = 'name';
   /** Kept while the server runs, for each repository. */
   const favorites = new Map<string, string[]>();
@@ -316,7 +317,7 @@ async function main() {
     scope = read.scope;
     worktrees = read.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
     const away = inRoots(read.root) ? null : home;
-    return [{ type: 'state', state: { ...sortRefs(read, branchSort), favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, branchSort, traceSelected, graphColumns, dateSeparators, resolveWithAI: true, home: away } }];
+    return [{ type: 'state', state: { ...sortRefs(read, branchSort), favorites: favorites.get(read.root) ?? [], defaultPull: 'pullRebaseAutostash', repos, github, agentsWindow: true, worktreesRoot: null, openBranches: 'checkout', branchesFollowScope, branchSort, traceSelected, graphColumns, dateSeparators, combineUpstream, resolveWithAI: true, home: away } }];
   }
 
   /** `light` for a page in the light theme, which can have other file icons. */
@@ -349,6 +350,9 @@ async function main() {
         return state();
       case 'setDateSeparators':
         dateSeparators = message.show === true;
+        return state();
+      case 'setCombineUpstream':
+        combineUpstream = message.combine === true;
         return state();
       case 'setBranchSort':
         branchSort = message.sort === 'date' ? 'date' : 'name';

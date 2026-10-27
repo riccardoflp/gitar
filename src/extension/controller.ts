@@ -428,6 +428,7 @@ export class Controller implements vscode.Disposable {
           traceSelected: vscode.workspace.getConfiguration('gitardo').get('graph.traceSelected') !== false,
           graphColumns: graphColumns(),
           dateSeparators: vscode.workspace.getConfiguration('gitardo').get('graph.dateSeparators') !== false,
+          combineUpstream: vscode.workspace.getConfiguration('gitardo').get('graph.combineUpstream') !== false,
           resolveWithAI: this.resolveWithAI(),
           home: this.repos.some((each) => samePath(each.root, state.root)) ? null : (this.home ?? null),
         });
@@ -2010,6 +2011,8 @@ export class Controller implements vscode.Disposable {
         return vscode.workspace.getConfiguration('gitardo').update('graph.showStashes', message.show === true, vscode.ConfigurationTarget.Global);
       case 'setDateSeparators':
         return vscode.workspace.getConfiguration('gitardo').update('graph.dateSeparators', message.show === true, vscode.ConfigurationTarget.Global);
+      case 'setCombineUpstream':
+        return vscode.workspace.getConfiguration('gitardo').update('graph.combineUpstream', message.combine === true, vscode.ConfigurationTarget.Global);
       case 'setBranchSort': {
         const sort = message.sort === 'date' ? 'date' : 'name';
         return vscode.workspace.getConfiguration('gitardo').update('branches.sortOrder', sort, vscode.ConfigurationTarget.Global);
